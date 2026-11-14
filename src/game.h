@@ -576,6 +576,7 @@ void draw_ship(int character, V2 pos, float angle, float scale, bool blink);
 void actives_update(void);            /* input, recharge, effects (from player_update) */
 void actives_draw(void);              /* shield bubble, strength / chaos auras */
 void active_give(int a);              /* a new item (level 1), or a level up of one owned */
+void actives_recharge_all(void);     /* a new screen: every active item ready again */
 bool active_toggle(int a);            /* TAB menu: turn an owned item off / on (ends its effect); false if not owned */
 int actives_owned(int *out);          /* ActiveIds owned, in table order; returns the count */
 bool active_running(int a);           /* owned, turned on, effect running */

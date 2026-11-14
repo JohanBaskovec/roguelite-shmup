@@ -445,6 +445,7 @@ void room_enter(RoomType type, RewardType reward, int depth) {
         r->wave_t = 0.35f;
     }
     upg_on_room_enter();
+    actives_recharge_all();
 }
 
 /* ---- Waves --------------------------------------------------------------- */
@@ -614,6 +615,7 @@ void room_return_from_secret(void) {
     G.pl.vel = v2(0, -250.0f);
     G.pl.dash_t = 0.0f;
     G.pl.invuln = fmaxf(G.pl.invuln, 0.6f);
+    actives_recharge_all();
 }
 
 void room_debug_clear(void) {

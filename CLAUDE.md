@@ -61,7 +61,8 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   off = never triggered, a running effect stops; effects are read through `active_running()` /
   `active_level_on()`, never `act[].t` alone. Per-press hooks (NOVA TRIGGER, `G.active_uses`) run once per press. CHAOS only lends hook-only upgrades the player does not own (`Player.chaos`, read by `has()` /
   `upg_has()`) and takes them all back when it ends. Recharges scale with the RECHARGE stat
-  (`Player.dash_cooldown`).
+  (`Player.dash_cooldown`). Every new screen (`room_enter`, `room_return_from_secret`) recharges them all
+  (`actives_recharge_all`; running effects keep going).
 - A stat trade never lowers max HP (`stat_can_change(ST_MAX_HP, false)` is false; raising it is fine):
   stats rooms, shops and the slot machine never offer one (headless checks). Only workshop augments cost max HP.
 - A shop always sells exactly 5 items (weapons, upgrades, stat trades), paid with coins.

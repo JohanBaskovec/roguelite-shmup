@@ -164,6 +164,9 @@ void bot_input(void) {
         float a = G.time * 1.2f;
         goal = v2(ARENA_CX + cosf(a) * 450.0f, ARENA_CY + sinf(a) * 280.0f);
     }
+    /* A stand-off spot inside an obstacle cannot be reached (the path finder would push straight
+     * into the wall): go for the enemy itself, the path then leads around the obstacle. */
+    if ((melee || short_range) && nearest && hits_obstacle(goal, NAV_MARGIN)) goal = nearest->pos;
     V2 dir = v2_norm(v2_sub(room_navigate(pl->pos, goal, NAV_MARGIN), pl->pos));
 
     /* Dodge: move sideways out of the path of incoming bullets, away from enemies. */

@@ -650,6 +650,17 @@ static int debug_rooms_run(const HeadlessOptions *o) {
                    pl->act[ACT_NOVA].cd > 0.0f && pl->act[ACT_SHIELD].cd > 0.0f && pl->act[ACT_NOVA].cd != pl->act[ACT_SHIELD].cd;
         multi_ok = multi_ok && active_toggle(ACT_SHIELD) && !active_shield_on() && pl->act[ACT_SHIELD].off && active_strength_on();
         multi_ok = multi_ok && !active_toggle(ACT_BLINK); /* not owned */
+        /* a new screen recharges every item (the effect still running keeps going) */
+        float strength_t = pl->act[ACT_STRENGTH].t;
+        room_enter(ROOM_COMBAT, RW_COINS, 3);
+        bool recharged = true;
+        for (int a = ACT_NONE + 1; a < ACT_COUNT; a++) recharged = recharged && pl->act[a].cd == 0.0f;
+        multi_ok = multi_ok && recharged && pl->act[ACT_STRENGTH].t == strength_t;
+        in->active_pressed = true;
+        TICK(); /* used at once, except STRENGTH: its effect is still running */
+        multi_ok = multi_ok && pl->act[ACT_NOVA].cd > 0.0f && (strength_t > 0.0f ? pl->act[ACT_STRENGTH].cd == 0.0f : pl->act[ACT_STRENGTH].cd > 0.0f);
+        G.nsp = G.nen = 0;
+        room_debug_clear();
         for (int t = 0; t < 30 * TICK_RATE; t++) TICK(); /* everything recharged */
         in->active_pressed = true;
         TICK();

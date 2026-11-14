@@ -171,6 +171,12 @@ void active_give(int a) {
     fx_banner(title, desc, col_hex(ACTIVES[a].color, 1), 2.6f);
 }
 
+/* Every new screen (room entered, or back from a secret room): all active items ready again.
+ * Effects already running keep going. */
+void actives_recharge_all(void) {
+    for (int a = ACT_NONE + 1; a < ACT_COUNT; a++) G.pl.act[a].cd = G.pl.act[a].cd_max = 0.0f;
+}
+
 bool active_toggle(int a) {
     Player *p = &G.pl;
     if (a <= ACT_NONE || a >= ACT_COUNT || p->act[a].level == 0) return false;
@@ -387,7 +393,7 @@ void actives_update(void) {
             ActiveSlot *k = &p->act[a];
             if (k->level == 0 || k->off) continue;
             on++;
-            if (k->cd <= 0.0f) {
+            if (k->cd <= 0.0f && k->t <= 0.0f) { /* ready, and its last effect is over */
                 use_active(a);
                 used++;
             }
