@@ -11,7 +11,7 @@ Game G;
 static Rng vis_rng;
 
 static void clear_world(void) {
-    G.npb = G.neb = G.nen = G.nsp = G.npk = 0;
+    G.npb = G.neb = G.nen = G.nsp = G.npk = G.nmc = 0;
     fx_clear();
 }
 
@@ -32,6 +32,7 @@ void game_new_run(void) {
     G.rooms_cleared = 0;
     G.kills = 0;
     G.items_bought = 0;
+    G.machine_uses = G.augments = 0;
     G.run_time = 0.0f;
     G.shake = G.hitstop = G.hurt_flash = G.bomb_flash = 0.0f;
     G.banner_t = 0.0f;
@@ -95,6 +96,7 @@ static void update_playing(void) {
     bullets_update();
     enemies_update();
     pickups_update();
+    workshop_update();
     room_update();
     fx_update();
 }
@@ -156,6 +158,7 @@ void game_render(void) {
 
     room_draw_floor();
     room_draw_walls();
+    workshop_draw();
     pickups_draw();
     enemies_draw();
     bullets_draw_player();

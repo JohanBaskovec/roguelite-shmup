@@ -16,6 +16,7 @@ typedef struct {
     int depth;         /* start in a combat room of this depth (0 = normal start) */
     bool stats_room;   /* start in a Stats room instead */
     bool shop_room;    /* start in a Shop instead */
+    bool workshop_room; /* start in a Workshop instead */
     int coins;         /* extra starting coins */
     bool secret;       /* every eligible room hides a secret room; fail if the bot never finds one */
     bool all_upgrades; /* start with one of every upgrade */

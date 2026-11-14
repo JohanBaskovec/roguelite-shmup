@@ -23,6 +23,9 @@ typedef struct {
     bool debug_menu;       /* --debug-menu: open the F3 debug menu at startup */
     bool secret;           /* --secret: every eligible room hides a secret room */
     bool show_stats;       /* --show-stats: start with the F2 stats overlay visible */
+    bool workshop_room;    /* --workshop: start in a workshop */
+    bool cleared;          /* --cleared: the starting room is already cleared (dev, like the F3 menu) */
+    bool no_bot;           /* --no-bot: screenshots without the autopilot (the ship stays put) */
     int character;         /* --char NAME: normal / shotgunner / knight */
     bool char_select;      /* --char-select: open the character select screen at startup */
     bool show_secret;      /* --show-secret: mark secret corners (debug menu: SHOW SECRET CORNER) */
@@ -55,6 +58,9 @@ static void parse_args(int argc, char **argv, Options *o) {
         else if (!strcmp(a, "--headless")) o->headless = true;
         else if (!strcmp(a, "--stats")) o->stats_room = true;
         else if (!strcmp(a, "--shop")) o->shop_room = true;
+        else if (!strcmp(a, "--workshop")) o->workshop_room = true;
+        else if (!strcmp(a, "--cleared")) o->cleared = true;
+        else if (!strcmp(a, "--no-bot")) o->no_bot = true;
         else if (!strcmp(a, "--debug-rooms")) o->debug_rooms = true;
         else if (!strcmp(a, "--debug-menu")) o->debug_menu = true;
         else if (!strcmp(a, "--secret")) o->secret = true;
@@ -82,7 +88,7 @@ static void parse_args(int argc, char **argv, Options *o) {
         else if (!strcmp(a, "--god")) o->god = true;
         else if (!strcmp(a, "--novsync")) o->novsync = true;
     }
-    if (o->shot_path && !o->char_select) o->bot = true; /* the bot would confirm the select screen at once */
+    if (o->shot_path && !o->char_select && !o->no_bot) o->bot = true; /* the bot would confirm the select screen at once */
 }
 
 static void clear_edges(void) {
@@ -179,7 +185,7 @@ int main(int argc, char **argv) {
             .seed = opt.has_seed ? opt.seed : SDL_GetPerformanceCounter(),
             .runs = opt.runs, .max_ticks = opt.ticks, .depth = opt.depth, .stats_room = opt.stats_room,
             .shop_room = opt.shop_room, .coins = opt.coins, .debug_rooms = opt.debug_rooms, .secret = opt.secret,
-            .all_upgrades = opt.all_upgrades, .hp = opt.hp, .character = opt.character,
+            .all_upgrades = opt.all_upgrades, .hp = opt.hp, .character = opt.character, .workshop_room = opt.workshop_room,
             .god = opt.god, .expect_rooms = opt.expect_rooms, .fail_shot = opt.fail_shot,
         };
         return headless_run(&h);
@@ -218,7 +224,7 @@ int main(int argc, char **argv) {
     G.reveal_secrets = opt.show_secret;
     G.show_stats = opt.show_stats;
     G.character = opt.character;
-    if (opt.stats_room || opt.shop_room || opt.depth > 0 || opt.coins > 0 || opt.debug_menu || opt.all_upgrades) {
+    if (opt.stats_room || opt.shop_room || opt.workshop_room || opt.cleared || opt.depth > 0 || opt.coins > 0 || opt.debug_menu || opt.all_upgrades) {
         game_new_run();
         G.pl.coins += opt.coins;
         if (opt.all_upgrades)
@@ -227,6 +233,8 @@ int main(int argc, char **argv) {
         int depth = opt.depth > 0 ? opt.depth : 1;
         if (opt.stats_room) room_enter(ROOM_STATS, RW_NONE, depth);
         else if (opt.shop_room) room_enter(ROOM_SHOP, RW_NONE, depth);
+        else if (opt.workshop_room) room_enter(ROOM_WORKSHOP, RW_NONE, depth);
+        if (opt.cleared) room_debug_clear();
         else if (opt.depth > 0) room_enter(ROOM_COMBAT, RW_UPGRADE, depth);
     }
 

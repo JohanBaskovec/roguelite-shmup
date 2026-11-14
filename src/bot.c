@@ -61,11 +61,14 @@ void bot_input(void) {
 
     V2 goal;
     /* One-of-N choice (stat trades, weapon / upgrade rooms): take one (varies with depth), then leave. */
+    /* Augments cost heart containers: only those that leave at least 2. */
     const Pickup *offer = NULL;
     int noffers = 0;
-    for (int i = 0; i < G.npk; i++) noffers += G.pk[i].choice;
+#define ELIGIBLE(k) ((k)->choice && !((k)->type == PK_AUGMENT && pl->max_hp - 2 * UPGRADES[(k)->sub].tier < 4))
+    for (int i = 0; i < G.npk; i++) noffers += ELIGIBLE(&G.pk[i]);
     for (int i = 0, k = 0; i < G.npk && noffers > 0; i++)
-        if (G.pk[i].choice && k++ == G.room.depth % noffers) offer = &G.pk[i];
+        if (ELIGIBLE(&G.pk[i]) && k++ == G.room.depth % noffers) offer = &G.pk[i];
+#undef ELIGIBLE
     /* Shop: buy the best affordable item (weapons, then upgrades, then trades; cheaper first). */
     int best_rank = 1 << 30;
     for (int i = 0; i < G.npk; i++) {
@@ -87,8 +90,24 @@ void bot_input(void) {
     const Room *r = &G.room;
     bool secret_known = r->secret_corner >= 0 && r->secret_flashes > 0 && !r->secret_used;
 
+    /* Workshop machines: the supply press while healthy, a few slot machine plays while
+     * it has coins. A use needs a fresh step: walk on, step off below, repeat. */
+    const Machine *machine = NULL;
+    for (int i = 0; i < G.nmc && G.room.cleared && !offer; i++) {
+        const Machine *m = &G.mc[i];
+        bool want = !m->broken && (m->type == MC_SUPPLY ? pl->hp + pl->shield >= 5
+                                                         : pl->coins >= GAMBLE_COST && m->plays < 3);
+        if (want) {
+            machine = m;
+            break;
+        }
+    }
+
     if (offer) {
         goal = offer->pos;
+    } else if (machine) {
+        bool wait = machine->inside || machine->spin > 0.0f;
+        goal = wait ? v2_add(machine->pos, v2(0.0f, 140.0f)) : machine->pos;
     } else if (G.room.cleared && secret_known && !r->secret_open && pl->bombs > 0) {
         goal = room_secret_spot(r->secret_corner);
         if (v2_dist(pl->pos, goal) < SECRET_BOMB_RADIUS * 0.5f) in->bomb_pressed = true;
@@ -102,6 +121,7 @@ void bot_input(void) {
             if (d->locked && pl->keys == 0) continue;
             int score = d->type == ROOM_SHOP ? (pl->coins >= 25 ? 7 : pl->coins >= 14 ? 4 : 0)
                       : d->type == ROOM_STATS ? 4
+                      : d->type == ROOM_WORKSHOP ? (pl->coins >= GAMBLE_COST || pl->max_hp >= 6 ? 5 : 2)
                       : d->reward == RW_UPGRADE || d->reward == RW_WEAPON ? 5
                       : d->reward == RW_HEART && pl->hp <= pl->max_hp / 2 ? 6
                       : d->reward == RW_COINS && pl->coins < 40 ? 4

@@ -22,6 +22,14 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   are waiting there. Variants: 10% secret shop (5 priced items instead of the free item),
   10% ambush (enemies first, loot once cleared). Its exit leads back to the room it was found in - the only time a room is
   re-entered, already cleared (`Room.revisit`; headless tracks rooms by `Room.id`).
+- **Workshop** (`ROOM_WORKSHOP`, `src/workshop.c`): starts full of enemies like every room; once cleared
+  it spawns its machines (supply press: damage -> coins/bomb/key; slot machine: 5 coins per spin for a
+  displayed weapon/upgrade) and augment pads. Exclusive upgrades (`UpgradeDef.tier > 0`) are only ever
+  obtained there, through augment pads paid with max HP (tier N costs N hearts); `upgrade_roll` never
+  offers them.
+- **Enemies never scale with depth**: each type always has the same HP / speed / fire pattern
+  (`ENEMIES` table). Difficulty only comes from more enemies, more waves and new, harder types.
+- When a room is cleared the ship is teleported back to the entry spot at the bottom (headless checks it).
 - A shop always sells exactly 5 items (weapons, upgrades, stat trades), paid with coins.
 - After a room is cleared the player chooses between 3 doors; each door previews what the next
   room gives. One door may be locked (costs a key).
@@ -35,7 +43,7 @@ the `--debug-rooms` test too.
 
 ```sh
 cmake --preset release && cmake --build --preset release -j
-ctest --preset release            # ~6 s
+ctest --preset release            # ~15 s
 cmake --preset asan && cmake --build --preset asan -j && ctest --preset asan   # ASan + UBSan
 ```
 
@@ -70,6 +78,8 @@ invariants / a CTest entry in `CMakeLists.txt`.
   invariant floors. `--all-upgrades` tests them all at once.
 - Hooks can run inside an entity loop (e.g. `upg_on_lethal_hit` runs inside the enemy bullet loop):
   never clear or compact an array from there, mark entities dead (`life = -1`) instead.
+- Upgrade descriptions with a random effect must show the exact chance: build them in `upgrade_desc_at`
+  (respects stacks and `proc()`, i.e. LOADED DICE). A `|` splits a description over two lines (`draw_desc`).
 - Shields (`Player.shield`, half-hearts, max `MAX_SHIELD`) absorb damage before hearts.
 - Game code only queues sounds (`sfx_play*`); never call SDL audio directly.
 - In-game text is English and ASCII only (SDL's debug font has no accents). The user writes in French.

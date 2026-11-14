@@ -30,11 +30,10 @@ static void player_bomb(void) {
     p->bombs--;
     sfx_play(SFX_BOMB);
     ebullets_clear(true);
-    float scale = enemy_hp_scale();
     for (int i = 0; i < G.nen; i++) {
         Enemy *e = &G.en[i];
         float d = v2_dist(e->pos, p->pos);
-        float dmg = (d < 650.0f ? 90.0f : 35.0f) * scale * (1.0f + 0.6f * (float)p->upg_count[UPG_BOMB_BELT]);
+        float dmg = (d < 650.0f ? 90.0f : 35.0f) * (1.0f + 0.6f * (float)p->upg_count[UPG_BOMB_BELT]);
         enemy_damage(e, dmg, v2_scale(v2_norm(v2_sub(e->pos, p->pos)), 700.0f));
     }
     p->invuln = fmaxf(p->invuln, 0.7f);

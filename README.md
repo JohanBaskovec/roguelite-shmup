@@ -45,20 +45,28 @@ Après l'écran titre, on choisit son vaisseau (A / D, 1-3 ou souris, puis clic 
 - **Toutes les salles démarrent pleines d'ennemis**, sauf deux exceptions : la *Launch Bay* (première salle, portes ouvertes tout de suite) et les salles secrètes (sauf leur variante « embuscade »). Ce qui rend une salle spéciale n'apparaît qu'une fois tous les ennemis morts.
 - Une fois la salle nettoyée : 3 portes (gauche / haut / droite). Chaque porte affiche la récompense de la salle suivante. Une porte peut être verrouillée (coûte 1 clef) et contient toujours une arme ou une amélioration.
 - **Salles d'arme et d'amélioration : toujours 3 objets au choix** (avec leur description), on en prend un et les deux autres disparaissent. S'il reste moins de 3 armes à obtenir, une salle d'arme complète avec des améliorations.
-- **Stats du vaisseau** (F2, cachées par défaut) : panneau semi-transparent en haut à gauche de l'arène, avec dégâts, cadence, portée, vitesse des tirs, vitesse, dash, hitbox, chance, projectiles, perçage, rebonds, drones. Valeurs effectives (bonus situationnels de Bloodlust / Adrenaline inclus), en vert au-dessus de la base et en rouge en dessous ; une stat qui vient de changer clignote.
+- **Fin de salle** : dès que le dernier ennemi meurt, le vaisseau est replacé en bas de l'arène, devant la porte d'entrée, pour ne pas ramasser un objet par accident.
+- **Stats du vaisseau** (F2, cachées par défaut) : panneau semi-transparent en haut à gauche de l'arène, avec dégâts, cadence, portée, vitesse des tirs, dispersion (spread), vitesse, dash, hitbox, chance, projectiles, perçage, rebonds, drones. Valeurs effectives (bonus situationnels de Bloodlust / Adrenaline inclus), en vert au-dessus de la base et en rouge en dessous ; une stat qui vient de changer clignote.
 - Ressources : pièces, clefs, bombes (+ cœurs). **Les ennemis ne lâchent jamais rien** : les ressources sont uniquement des récompenses de salle, aspirées automatiquement une fois la salle nettoyée.
-- **Salles Stats** (porte turquoise, ~20 % des portes après un combat) : une fois les ennemis tués, 4 échanges apparaissent, on en prend un (ou aucun). Chaque échange augmente une stat et en baisse une autre. Stats : dégâts, cadence, portée, PV max, vitesse de déplacement, recharge du dash, vitesse des projectiles, taille de la hitbox, chance (quantité des récompenses de salle). Échange spécial **+3 boucliers** : 3 cœurs bleus temporaires (absorbent les dégâts avant les vrais cœurs, ne se régénèrent pas, max 6) contre une baisse de stat. Valeurs et bornes dans `src/stats.c`.
+- **Salles Stats** (porte turquoise, ~20 % des portes après un combat) : une fois les ennemis tués, 4 échanges apparaissent, on en prend un (ou aucun). Chaque échange augmente une stat et en baisse une autre. Stats : dégâts, cadence, portée, PV max, vitesse de déplacement, recharge du dash, vitesse des projectiles, taille de la hitbox, chance (quantité des récompenses de salle), **dispersion** (spread : -25 % = tirs plus groupés, +30 % = plus écartés, bornée entre x0.2 et x3). Échange spécial **+3 boucliers** : 3 cœurs bleus temporaires (absorbent les dégâts avant les vrais cœurs, ne se régénèrent pas, max 6) contre une baisse de stat. Valeurs et bornes dans `src/stats.c`.
 - **Shops** (porte rose, à partir de la salle 2, jamais deux d'affilée) : une fois les ennemis tués, toujours 5 objets à vendre — au moins une arme, une amélioration et un échange de stats, plus 2 emplacements aléatoires. On achète en marchant dessus ; prix affiché en doré si on peut payer, en rouge sinon. Prix : `shop_price()` dans `src/pickups.c`.
 - **Salles secrètes** (~15 % des salles de combat, Stats et shops) : pendant le combat, un coin de la salle flashe très brièvement (petit carré presque invisible). Une bombe dans ce coin ouvre la porte du bas, vers la salle secrète : pas d'ennemis, le butin attend déjà — 1 arme ou amélioration (rarement 2) + pièces, bombes ou clefs. Variantes : 10 % de chance d'un **shop secret** (5 objets à vendre à la place de l'objet gratuit) et 10 % de chance d'une **embuscade** (une vague d'ennemis avant que le butin n'apparaisse). La sortie ramène dans la salle d'origine.
+- **Workshop** (porte vert-jaune, à partir de la salle 2, ~14 % des portes, jamais deux d'affilée) : démarre plein d'ennemis comme les autres ; une fois nettoyé, des machines apparaissent. On utilise une machine en marchant sur son cercle :
+  - **Supply Press** (en bas à gauche) : 1/2 cœur de dégâts (bouclier d'abord) contre des pièces (45 %, 5-8), une bombe (30 %) ou une clef (25 %). 3 à 5 utilisations, refusée s'il ne reste qu'un demi-cœur.
+  - **Augments** (au centre) : bonus **exclusifs** au workshop, très puissants (stats + effet), payés en **PV max** : 1 cœur (Blood Rounds, Overdrive Core), 2 cœurs (Hellfire Engine, Storm Core) ou 3 cœurs (Demon Heart, God Cannon). Un emplacement par palier abordable (il faut garder au moins 1 cœur max), on en prend un seul.
+  - **Slot Machine** (en bas à droite) : affiche le nom et l'effet du lot (arme ou amélioration) ; chaque mise coûte 5 pièces, `30 % + 3 % x chance` de gagner (entre 15 et 50 %). Le lot gagné tombe devant la machine.
 - 5 armes à feu (Blaster, Scatter, Needler, Seeker, Bouncer) + l'épée du Knight, avec 5 niveaux chacune. Le Scatter (shotgun) tire 12 plombs au niveau 1 (+4 par niveau).
-- **52 améliorations passives** qui s'appliquent à toutes les armes (table `UPGRADES` et effets dans `src/upgrades.c`) :
+- **59 améliorations passives** (+ 6 exclusives du workshop) qui s'appliquent à toutes les armes (table `UPGRADES` et effets dans `src/upgrades.c`) :
   - *Tir* : Overclock, Heavy Rounds, Split Shot, Piercer, Rubber Core, Smart Rounds, Accelerator, Big Iron, Wide Lens, Focus Lens, Long Barrel, Hair Trigger.
   - *Effets sur les balles* : Cryo Rounds (ralentit), Venom Tips (poison), Thermite (brûlure), Arc Emitter (éclair en chaîne), Payload (explosion), Shrapnel (fragments), Lucky Strike (coups x3), Guillotine (exécute sous 15 % PV), Return Vector (boomerang), Phase Rounds (traverse les obstacles), Impact Driver (recul).
   - *Tirs supplémentaires* : Tail Gun (arrière), Flank Cannons (côtés), Capacitor (méga tir toutes les 10 salves), Wing Drone, Dash Nova, Mine Layer.
   - *Stats* : Thrusters, Hull Plating, Glass Cannon, Titan Hull, Featherweight, Four-Leaf Chip, Micro Hull, Magnet.
   - *Économie* : Piggy Bank, Bomb Belt, Skeleton Key, Coupon (shop -30 %).
   - *Défense / déclencheurs* : Reactive Armor, Second Wind (survit à un coup mortel), Barrier Cell (bouclier rechargé à chaque salle), Guardian Orb, Tesla Field, Leech Core, Adrenaline, Bloodlust, Ram Plating, Chrono Field, Volatile Targets.
-- Difficulté progressive : PV des ennemis +9 % par salle, vitesse des balles ennemies plafonnée à +35 %, budget des vagues `5 + 1.7 x profondeur`, ennemis avancés débloqués progressivement (burster salle 3, spinner 4, sniper 5, tank 7).
+  - *Blessé* (actives quand il manque au moins un demi-cœur rouge) : Wounded Fury (+30 % dégâts), Scar Tissue (+25 % cadence), Last Stand (+10 % dégâts et +5 % vitesse par cœur manquant), Blood Scent (tirs à tête chercheuse).
+  - *Spéciales* : Deflector Shells (tirs énormes et très lents, cadence / 3, mais ils renvoient les balles ennemies touchées comme des tirs du joueur), Loaded Dice (double la probabilité de déclenchement de tous les effets), Signature Weapon (les salles d'arme proposent toujours l'arme de plus haut niveau).
+  - Les descriptions des effets aléatoires affichent la **probabilité exacte** (en tenant compte du nombre d'exemplaires et de Loaded Dice), calculée par `upgrade_desc()`. Un `|` dans une description la coupe sur deux lignes.
+- **Les ennemis gardent toujours les mêmes attributs** (PV, vitesse, cadence, patterns) quelle que soit la profondeur. La difficulté vient du nombre : budget de vague `5 + 1.8 x profondeur^1.2 + 1.5 x vague` (plafond `30 + 2.5 x profondeur` ennemis par vague), `2 + min(profondeur / 3, 5)` vagues par salle, et de nouveaux ennemis plus durs débloqués au fil des salles : burster (salle 3), spinner (4), sniper (5), tank (7), **warden** (9 : croix tournante de 4 flux + éventail visé), **hunter** (11 : traque, s'annonce par une ligne, fonce puis tire un anneau), **hive** (13 : pond des essaims et tire des anneaux).
 
 ## Architecture (`src/`)
 
@@ -70,8 +78,9 @@ Après l'écran titre, on choisit son vaisseau (A / D, 1-3 ou souris, puis clic 
 | `room.c` | Génération des salles, obstacles, vagues, portes, collisions |
 | `player.c` | Vaisseau, dash, bombe, dégâts |
 | `weapons.c` | Définitions des armes, tir, drones |
-| `upgrades.c` | Table des 52 améliorations et leurs effets (hooks appelés par les balles, ennemis, joueur, salles) |
-| `enemies.c` | 7 types d'ennemis et leurs patterns de balles |
+| `upgrades.c` | Table des 65 améliorations (dont 6 exclusives du workshop) et leurs effets (hooks appelés par les balles, ennemis, joueur, salles) |
+| `workshop.c` | Machines du workshop (Supply Press, Slot Machine) et emplacements des augments |
+| `enemies.c` | 10 types d'ennemis et leurs patterns de balles |
 | `bullets.c` | Balles joueur / ennemies, collisions |
 | `pickups.c` | Pièces, clefs, bombes, cœurs, objets sur piédestal, icônes |
 | `fx.c` | Particules, screen shake, popups, bannières |
@@ -88,13 +97,13 @@ Les types de salles `ROOM_TREASURE` et `ROOM_BOSS` sont déjà prévus (sur le m
 ## Tests (sans fenêtre)
 
 ```sh
-ctest --preset release      # ~6 s
+ctest --preset release      # ~15 s
 ctest --preset asan         # même suite sous AddressSanitizer + UBSan (cmake --preset asan && cmake --build --preset asan)
 ```
 
 Aucun test n'ouvre de fenêtre :
 
-- **Simulation headless** (`--headless`) : pas de vidéo ni d'audio, un autopilote (`bot.c`) joue aussi vite que le CPU le permet (~500x le temps réel). Des invariants sont vérifiés à chaque tick (positions finies et dans l'arène, PV cohérents, arme possédée, aucun objet au sol avant la fin d'une salle (pas de drop d'ennemi), shop à 5 objets, 3 choix dans les salles d'arme / d'amélioration, butin et retour des salles secrètes, pas de salle bloquée — aucun ennemi touché pendant 60 s —, pas de salle nettoyée jamais quittée). En cas d'échec, `--fail-shot` enregistre l'image de l'instant fautif (rendue offscreen).
+- **Simulation headless** (`--headless`) : pas de vidéo ni d'audio, un autopilote (`bot.c`) joue aussi vite que le CPU le permet (~500x le temps réel). Des invariants sont vérifiés à chaque tick (positions finies et dans l'arène, PV cohérents, arme possédée, aucun objet au sol avant la fin d'une salle (pas de drop d'ennemi), shop à 5 objets, machines et augments du workshop, ennemis toujours aux PV de leur type, vaisseau replacé en fin de salle, 3 choix dans les salles d'arme / d'amélioration, butin et retour des salles secrètes, pas de salle bloquée — aucun ennemi touché pendant 60 s —, pas de salle nettoyée jamais quittée). En cas d'échec, `--fail-shot` enregistre l'image de l'instant fautif (rendue offscreen).
 - **Rendu** : `--shot` dessine dans le pilote vidéo `offscreen` de SDL et sauve un BMP.
 - **Audio** : `--dump-sfx` synthétise tous les sons en WAV.
 
@@ -102,7 +111,7 @@ Les sorties des tests sont dans `build/<preset>/test-output/`.
 
 ## Menu de debug (F3)
 
-Fige le jeu et permet de se téléporter dans chaque type de salle (Launch Bay, combat, Stats, Shop, salle secrète), **avec ses ennemis** ou **sans ennemis** (salle déjà nettoyée, récompense déjà sortie) ; la Launch Bay et la salle secrète n'ont que « sans ennemis ». On choisit aussi la profondeur de la salle et la récompense des salles de combat (aléatoire ou imposée). Pour la salle secrète, on arrive depuis une salle de combat nettoyée, où l'on revient en sortant. Bonus : god mode, overlay FPS, « secret dans chaque salle », « afficher le coin secret » (carré, libellé et rayon de la bombe ; le coin est aussi indiqué en bas du menu), +50 pièces, +3 bombes, « give upgrade » (choisir n'importe quelle amélioration). Pour la salle secrète, on choisit aussi son contenu (aléatoire / objet / shop) ; « avec ennemis » donne l'embuscade. Navigation flèches / WASD + Entrée, ou à la souris ; F3 ou Échap pour fermer.
+Fige le jeu et permet de se téléporter dans chaque type de salle (Launch Bay, combat, Stats, Shop, Workshop, salle secrète), **avec ses ennemis** ou **sans ennemis** (salle déjà nettoyée, récompense déjà sortie) ; la Launch Bay et la salle secrète n'ont que « sans ennemis ». On choisit aussi la profondeur de la salle et la récompense des salles de combat (aléatoire ou imposée). Pour la salle secrète, on arrive depuis une salle de combat nettoyée, où l'on revient en sortant. Bonus : god mode, overlay FPS, « secret dans chaque salle », « afficher le coin secret » (carré, libellé et rayon de la bombe ; le coin est aussi indiqué en bas du menu), +50 pièces, +3 bombes, « give upgrade » (choisir n'importe quelle amélioration). Pour la salle secrète, on choisit aussi son contenu (aléatoire / objet / shop) ; « avec ennemis » donne l'embuscade. Navigation flèches / WASD + Entrée, ou à la souris ; F3 ou Échap pour fermer.
 
 ## Options de dev
 
@@ -116,6 +125,8 @@ neon_breach --seed 42 --depth 8                         # jouer : run reproducti
 neon_breach --stats                                     # démarrer directement dans une salle Stats
 neon_breach --shop --coins 50                           # démarrer dans un shop avec 50 pièces
 neon_breach --debug-menu                                # ouvrir le menu de debug au démarrage
+neon_breach --workshop --coins 30                       # démarrer dans un workshop
+neon_breach --shot w.bmp --workshop --cleared --no-bot  # capture du workshop déjà nettoyé, sans autopilote
 neon_breach --secret                                    # chaque salle cache une salle secrète
 neon_breach --show-secret                               # affiche le coin secret (comme dans le menu F3)
 neon_breach --show-stats                                # démarre avec l'overlay des stats (F2) visible

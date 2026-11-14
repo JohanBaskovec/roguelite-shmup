@@ -88,6 +88,7 @@ static void update_player_bullets(void) {
             b->pos = v2_add(b->pos, v2_scale(b->vel, DT));
             /* PHASE ROUNDS fly through obstacles; only the arena walls stop them. */
             wall = G.pl.upg_count[UPG_PHASE] ? arena_collide(&b->pos, b->radius, &n) : room_collide_circle(&b->pos, b->radius, &n);
+            upg_reflect(b); /* may append bullets to G.pb: b stays valid (fixed array) */
         }
 
         if (!dead) {

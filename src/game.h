@@ -64,6 +64,11 @@ typedef enum {
     /* defence, auras, triggers */
     UPG_REACTIVE, UPG_SECOND_WIND, UPG_BARRIER, UPG_ORB, UPG_TESLA, UPG_LEECH, UPG_ADRENALINE,
     UPG_BLOODLUST, UPG_RAM, UPG_DASH_NOVA, UPG_CHRONO, UPG_VOLATILE, UPG_MINES,
+    /* big slow shots that reflect enemy bullets; bonuses while hurt; luck; weapon rooms */
+    UPG_DEFLECTOR, UPG_WOUNDED_FURY, UPG_SCAR_TISSUE, UPG_LAST_STAND, UPG_BLOOD_SCENT, UPG_LOADED_DICE,
+    UPG_SIGNATURE,
+    /* workshop exclusives (UpgradeDef.tier = max hearts paid), never offered anywhere else */
+    UPG_X_BLOOD_ROUNDS, UPG_X_OVERDRIVE, UPG_X_HELLFIRE, UPG_X_STORM, UPG_X_DEMON, UPG_X_GOD_CANNON,
     UPG_COUNT
 } UpgradeId;
 
@@ -72,6 +77,7 @@ typedef struct {
     const char *desc;
     uint32_t color;
     int max;        /* how many times it can be taken (0 = unlimited) */
+    int tier;       /* > 0: workshop exclusive, costs this many heart containers */
 } UpgradeDef;
 
 extern const WeaponDef WEAPONS[WPN_COUNT];
@@ -90,7 +96,7 @@ typedef struct {
     SDL_FColor col;
 } PBullet;
 
-enum { PB_FRAGMENT = 1, PB_CRIT = 2, PB_RETURNED = 4, PB_MINE = 8, PB_CHARGED = 16 };
+enum { PB_FRAGMENT = 1, PB_CRIT = 2, PB_RETURNED = 4, PB_MINE = 8, PB_CHARGED = 16, PB_REFLECTED = 32 };
 
 typedef struct {
     V2 pos, vel;
@@ -102,7 +108,7 @@ typedef struct {
 
 /* ---- Enemies ------------------------------------------------------------- */
 
-typedef enum { EN_CHASER, EN_SWARM, EN_SHOOTER, EN_BURSTER, EN_SPINNER, EN_SNIPER, EN_TANK, EN_COUNT } EnemyType;
+typedef enum { EN_CHASER, EN_SWARM, EN_SHOOTER, EN_BURSTER, EN_SPINNER, EN_SNIPER, EN_TANK, EN_WARDEN, EN_HUNTER, EN_HIVE, EN_COUNT } EnemyType;
 
 typedef struct {
     const char *name;
@@ -153,7 +159,8 @@ typedef struct {
 
 /* ---- Pickups ------------------------------------------------------------- */
 
-typedef enum { PK_COIN, PK_KEY, PK_BOMB, PK_HEART, PK_WEAPON, PK_UPGRADE, PK_STAT } PickupType;
+/* PK_AUGMENT: workshop pad, a tier-N exclusive upgrade paid with N heart containers. */
+typedef enum { PK_COIN, PK_KEY, PK_BOMB, PK_HEART, PK_WEAPON, PK_UPGRADE, PK_STAT, PK_AUGMENT } PickupType;
 
 typedef struct {
     PickupType type;
@@ -164,9 +171,30 @@ typedef struct {
     float t;
 } Pickup;
 
+/* ---- Workshop machines ---------------------------------------------------- */
+
+typedef enum { MC_SUPPLY, MC_GAMBLE } MachineType;
+
+typedef struct {
+    MachineType type;
+    V2 pos;
+    int uses;          /* SUPPLY: payouts left before it breaks */
+    bool broken;       /* SUPPLY: used up; GAMBLE: prize already won */
+    bool inside;       /* the player stood on it last tick (a use needs a fresh step in) */
+    PickupType prize;  /* GAMBLE: PK_WEAPON or PK_UPGRADE */
+    int prize_sub;
+    float anim, spin;  /* feedback timers; GAMBLE: spin > 0 while the reels turn */
+    int plays;
+} Machine;
+
+#define MAX_MACHINES 4
+#define GAMBLE_COST 5
+#define SUPPLY_USES_MIN 3
+#define SUPPLY_USES_MAX 5
+
 /* ---- Rooms --------------------------------------------------------------- */
 
-typedef enum { ROOM_START, ROOM_COMBAT, ROOM_STATS, ROOM_TREASURE, ROOM_SHOP, ROOM_BOSS, ROOM_SECRET } RoomType;
+typedef enum { ROOM_START, ROOM_COMBAT, ROOM_STATS, ROOM_TREASURE, ROOM_SHOP, ROOM_BOSS, ROOM_SECRET, ROOM_WORKSHOP } RoomType;
 typedef enum { RW_NONE, RW_COINS, RW_KEY, RW_BOMBS, RW_HEART, RW_WEAPON, RW_UPGRADE, RW_COUNT } RewardType;
 typedef enum { SIDE_LEFT, SIDE_TOP, SIDE_RIGHT, SIDE_BOTTOM } Side;
 
@@ -264,6 +292,8 @@ typedef struct {
 extern const CharDef CHARACTERS[CHAR_COUNT];
 
 #define MAX_SHIELD 12 /* half-hearts: 6 shields */
+#define SPREAD_MIN 0.2f /* bounds of Player.spread_mult (trades, lenses) */
+#define SPREAD_MAX 3.0f
 
 /* ---- Game ---------------------------------------------------------------- */
 
@@ -293,6 +323,7 @@ typedef struct {
     Particle pt[MAX_PARTICLES]; int npt;
     Pickup pk[MAX_PICKUPS]; int npk;
     Popup pop[MAX_POPUPS]; int npop;
+    Machine mc[MAX_MACHINES]; int nmc; /* workshop machines (only once a workshop is cleared) */
     int next_uid;
 
     float time, run_time;
@@ -306,6 +337,7 @@ typedef struct {
     SDL_FColor banner_col;
     int rooms_cleared, kills;
     int items_bought; /* shop purchases this run */
+    int machine_uses, augments; /* workshop: supply press / slot machine uses, augments taken */
     int room_counter; /* source of Room.id */
     Room parent;      /* room the current secret room was found in, restored on exit */
     Pickup parent_pk[MAX_PICKUPS]; int parent_npk;
@@ -335,7 +367,7 @@ static inline bool chance(float p) { return rng_chance(&G.rng, p); }
 
 typedef enum {
     ST_DAMAGE, ST_FIRE_RATE, ST_RANGE, ST_MAX_HP, ST_MOVE_SPEED, ST_DASH,
-    ST_SHOT_SPEED, ST_HITBOX, ST_LUCK,
+    ST_SHOT_SPEED, ST_HITBOX, ST_LUCK, ST_SPREAD,
     ST_SHIELD, /* gain-only: +3 shields (temporary hearts) */
     ST_COUNT
 } StatId;
@@ -354,6 +386,7 @@ extern const StatDef STATS[ST_COUNT];
 #define COLOR_STATS 0x4dffd2
 #define COLOR_SHOP 0xff6bd6
 #define COLOR_SECRET 0xffb347
+#define COLOR_WORKSHOP 0xc8ff4d
 static inline int stat_offer_encode(int up, int down) { return up * ST_COUNT + down; }
 static inline int stat_offer_up(int offer) { return offer / ST_COUNT; }
 static inline int stat_offer_down(int offer) { return offer % ST_COUNT; }
@@ -363,9 +396,18 @@ int upgrade_roll(void);
 void upgrade_apply(int u);
 bool upgrade_capped(int u);
 void player_add_shield(int half_hearts);
-float upg_volley_damage_mult(void);   /* BLOODLUST */
-float upg_fire_rate_mult(void);       /* ADRENALINE */
-float upg_move_speed_mult(void);      /* ADRENALINE */
+float upg_volley_damage_mult(void);   /* BLOODLUST, WOUNDED FURY, LAST STAND */
+float upg_fire_rate_mult(void);       /* ADRENALINE, SCAR TISSUE, DEFLECTOR */
+float upg_move_speed_mult(void);      /* ADRENALINE, LAST STAND */
+float upg_shot_speed_mult(void);      /* DEFLECTOR */
+/* Description with the exact numbers (chances...) once the upgrade has n stacks. */
+const char *upgrade_desc_at(int u, int n);
+/* What taking it now would give (current stacks + 1). */
+const char *upgrade_desc(int u);
+/* Workshop: a random exclusive upgrade of this tier not owned yet, or -1. */
+int upgrade_roll_exclusive(int tier);
+/* DEFLECTOR SHELLS: a big player bullet turns the enemy bullets it touches. */
+void upg_reflect(PBullet *b);
 void upg_on_volley(V2 muzzle, float aim, float dmg, SDL_FColor col);
 void upg_on_bullet_spawn(PBullet *b);
 void upg_bullet_update(PBullet *b);   /* BOOMERANG */
@@ -461,7 +503,6 @@ void enemies_update(void);
 void enemies_draw(void);
 void enemy_damage(Enemy *e, float dmg, V2 knock);
 Enemy *enemy_nearest(V2 pos, float max_dist);
-float enemy_hp_scale(void);
 
 /* pickups.c */
 void pickup_spawn(PickupType type, int sub, V2 pos, V2 vel);
@@ -474,6 +515,8 @@ void secret_reward_drop(V2 center, bool items);
 void pickup_spawn_choice(PickupType type, int sub, V2 pos);
 void draw_pickup_icon(PickupType type, int sub, V2 pos, float s, float t);
 void draw_heart(V2 p, float s, SDL_FColor col, bool left_half_only);
+/* Centered text; a '|' in desc splits it over two lines. */
+void draw_desc(float cx, float y, float scale, SDL_FColor col, const char *desc);
 PickupType reward_icon(RewardType r);
 const char *reward_name(RewardType r);
 /* Label shown on a door: STATS, SHOP or the reward name. */
@@ -502,6 +545,15 @@ void debug_menu_draw(void);
  * Without enemies the room starts cleared with its reward already out - the one sanctioned
  * exception to the "every room starts full of enemies" rule, never reachable in normal play. */
 void debug_teleport(RoomType type, RewardType reward, int depth, bool with_enemies);
+
+/* workshop.c - machines that appear once a workshop is cleared */
+#define WORKSHOP_MACHINE_X 470.0f
+#define WORKSHOP_MACHINE_DY 250.0f
+V2 workshop_machine_spot(int i); /* 0 = supply press, 1 = slot machine */
+void workshop_spawn(void);
+void workshop_update(void);
+void workshop_draw(void);
+float gamble_win_chance(void);
 
 /* hud.c */
 void hud_draw(void);

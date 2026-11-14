@@ -248,7 +248,14 @@ static bool rect_ok(SDL_FRect r) {
         SDL_FRect k = {c.x - 200, c.y - 200, 400, 400};
         if (rect_overlaps(r, k)) return false;
     }
-    bool row = G.room.type == ROOM_STATS || G.room.type == ROOM_SHOP || G.room.reward == RW_WEAPON || G.room.reward == RW_UPGRADE;
+    if (G.room.type == ROOM_WORKSHOP)
+        for (int i = 0; i < 2; i++) {
+            V2 m = workshop_machine_spot(i);
+            SDL_FRect k = {m.x - 190, m.y - 210, 380, 380};
+            if (rect_overlaps(r, k)) return false;
+        }
+    bool row = G.room.type == ROOM_STATS || G.room.type == ROOM_SHOP || G.room.type == ROOM_WORKSHOP ||
+               G.room.reward == RW_WEAPON || G.room.reward == RW_UPGRADE;
     if (row && rect_overlaps(r, pedestal_row)) return false;
     for (int i = 0; i < G.room.nobs; i++) {
         SDL_FRect o = G.room.obs[i];
@@ -323,6 +330,14 @@ static void gen_doors(void) {
     /* ...or to a Shop (from room 2 on, never two in a row), on another door. */
     int shop_door = r->type != ROOM_START && r->type != ROOM_SHOP && chance(0.18f) ? irand(0, MAX_DOORS - 1) : -1;
     if (shop_door >= 0 && shop_door == stats_door) shop_door = (stats_door + irand(1, MAX_DOORS - 1)) % MAX_DOORS;
+    /* ...or to a Workshop (from room 3 on, never two in a row), on a door of its own. */
+    int workshop_door = -1;
+    if (r->depth >= 2 && r->type != ROOM_WORKSHOP && chance(0.14f)) {
+        workshop_door = irand(0, MAX_DOORS - 1);
+        for (int k = 0; k < MAX_DOORS && (workshop_door == stats_door || workshop_door == shop_door); k++)
+            workshop_door = (workshop_door + 1) % MAX_DOORS;
+        if (workshop_door == stats_door || workshop_door == shop_door) workshop_door = -1;
+    }
     r->ndoors = MAX_DOORS;
     for (int i = 0; i < MAX_DOORS; i++) {
         Door *d = &r->doors[i];
@@ -338,6 +353,11 @@ static void gen_doors(void) {
         }
         if (!d->locked && shop_door == i) {
             d->type = ROOM_SHOP;
+            d->reward = RW_NONE;
+            continue;
+        }
+        if (!d->locked && workshop_door == i) {
+            d->type = ROOM_WORKSHOP;
             d->reward = RW_NONE;
             continue;
         }
@@ -379,7 +399,7 @@ void room_enter(RoomType type, RewardType reward, int depth) {
         r->secret_flash_cd = frand(2.0f, 5.0f);
     }
 
-    G.npb = G.neb = G.nen = G.nsp = G.npk = 0;
+    G.npb = G.neb = G.nen = G.nsp = G.npk = G.nmc = 0;
     fx_clear();
     nav_reset();
 
@@ -393,6 +413,7 @@ void room_enter(RoomType type, RewardType reward, int depth) {
     if (type == ROOM_STATS) r->hue = 165.0f;
     if (type == ROOM_SHOP) r->hue = 315.0f;
     if (type == ROOM_SECRET) r->hue = 32.0f;
+    if (type == ROOM_WORKSHOP) r->hue = 80.0f;
     if (!room_type_peaceful(type)) gen_obstacles(); /* open floor for the tutorial / the loot */
     if (type != ROOM_SECRET) gen_doors();          /* the secret room's only exit leads back */
     r->peaceful = type == ROOM_START;
@@ -410,8 +431,9 @@ void room_enter(RoomType type, RewardType reward, int depth) {
         r->nwaves = 1; /* ambush: a single wave guards the loot */
         r->wave_t = 0.8f;
     } else {
-        int extra = depth / 4;
-        r->nwaves = 2 + (extra > 3 ? 3 : extra);
+        /* Enemies never get stronger: deeper rooms have more waves (and bigger ones). */
+        int extra = depth / 3;
+        r->nwaves = 2 + (extra > 5 ? 5 : extra);
         r->wave_t = 0.35f;
     }
     upg_on_room_enter();
@@ -430,12 +452,21 @@ static V2 find_spawn_point(float rad) {
     return v2(ARENA_CX, ARENA_Y0 + 160.0f);
 }
 
+/* Wave size grows with depth - the main difficulty curve, with the number of waves and
+ * the enemy types unlocking deeper (ENEMIES[].min_depth). */
+#define WAVE_BUDGET_SCALE 1.8f
+#define WAVE_BUDGET_EXP 1.2f
+
 static void spawn_wave(void) {
     Room *r = &G.room;
     int depth = r->depth > 1 ? r->depth : 1;
-    float budget = 5.0f + (float)depth * 1.7f + (float)r->wave * 1.5f;
+    /* Slightly faster than linear, and the size cap grows too: fixed-strength enemies must
+     * keep up with a player who only gets stronger. */
+    float budget = 5.0f + WAVE_BUDGET_SCALE * powf((float)depth, WAVE_BUDGET_EXP) + (float)r->wave * 1.5f;
+    int cap = (int)(30.0f + 2.5f * (float)depth);
+    if (cap > MAX_ENEMIES - 20) cap = MAX_ENEMIES - 20;
     int queued = 0;
-    while (budget >= 1.0f && queued < 26) {
+    while (budget >= 1.0f && queued < cap) {
         EnemyType cand[EN_COUNT];
         int nc = 0;
         for (int t = 0; t < EN_COUNT; t++)
@@ -529,8 +560,16 @@ static void room_clear(void) {
     sfx_play(SFX_ROOM_CLEAR);
     ebullets_clear(true);
     upg_on_room_clear();
+    /* Back to the entry spot, by the bottom door: the reward appears in the middle of the
+     * room, never right under the ship (no item picked up by accident). */
+    fx_particle(G.pl.pos, v2(0, 0), 0.3f, 90.0f, col_hex(CHARACTERS[G.character].color, 0.8f), 0.0f, PT_RING);
+    G.pl.pos = v2(ARENA_CX, ARENA_Y1 - 80.0f);
+    G.pl.vel = v2(0, 0);
+    G.pl.dash_t = 0.0f;
+    fx_particle(G.pl.pos, v2(0, 0), 0.35f, 120.0f, col_hex(CHARACTERS[G.character].color, 0.9f), 0.0f, PT_RING);
     if (r->type == ROOM_STATS) spawn_stat_offers();
     else if (r->type == ROOM_SHOP) spawn_shop_items();
+    else if (r->type == ROOM_WORKSHOP) workshop_spawn();
     else if (r->type == ROOM_SECRET) secret_loot(); /* after an ambush */
     else if (r->reward != RW_NONE) reward_drop(r->reward, v2(ARENA_CX, ARENA_CY));
     fx_banner("ROOM CLEARED", "choose your next door", col_hex(0x66f0ff, 1), 1.4f);
@@ -723,6 +762,8 @@ void room_draw_floor(void) {
             draw_text(tx, ty, 2.0f, sc, "SECRET");
         }
     }
+    if (r->type == ROOM_WORKSHOP && G.nmc > 0)
+        draw_text_centered(ARENA_CX, ARENA_CY - 200.0f, 3.0f, col_hex(COLOR_WORKSHOP, 0.8f), "WORKSHOP");
     if (r->type == ROOM_SHOP || r->secret_shop) {
         bool items = false;
         for (int i = 0; i < G.npk; i++) items |= G.pk[i].price > 0;
@@ -757,6 +798,16 @@ static void draw_shop_icon(V2 p, float s) {
     draw_pickup_icon(PK_COIN, 1, v2(p.x, p.y + s * 0.22f), s * 0.5f, 0.0f);
 }
 
+/* A gear. */
+static void draw_workshop_icon(V2 p, float s) {
+    SDL_FColor c = col_hex(COLOR_WORKSHOP, 1);
+    for (int k = 0; k < 8; k++) {
+        V2 d = v2_angle(TAU_F * (float)k / 8.0f + G.time * 0.8f);
+        draw_line(v2_add(p, v2_scale(d, s * 0.6f)), v2_add(p, v2_scale(d, s * 1.05f)), s * 0.35f, c);
+    }
+    draw_ring(p, s * 0.62f, s * 0.3f, c);
+}
+
 static void draw_door(const Door *d, bool cleared, bool entry) {
     Side side = d->side;
     V2 p = d->pos;
@@ -774,6 +825,7 @@ static void draw_door(const Door *d, bool cleared, bool entry) {
                   : d->type == ROOM_STATS ? col_hex(COLOR_STATS, 1)
                   : d->type == ROOM_SHOP ? col_hex(COLOR_SHOP, 1)
                   : d->type == ROOM_SECRET ? col_hex(COLOR_SECRET, 1)
+                  : d->type == ROOM_WORKSHOP ? col_hex(COLOR_WORKSHOP, 1)
                   : reward_color(d->reward);
     bool open = cleared && !d->locked && !entry;
     float pulse = 0.5f + 0.5f * sinf(G.time * 6.0f);
@@ -835,6 +887,7 @@ static void draw_door(const Door *d, bool cleared, bool entry) {
     draw_ngon(ip, 24.0f * sc, 6, PI_F / 6.0f, col_hex(0x0a0c14, 0.85f));
     draw_ngon_outline(ip, 24.0f * sc, 6, PI_F / 6.0f, 2.0f, col_a(rc, 0.8f));
     if (d->type == ROOM_SHOP) draw_shop_icon(ip, 11.0f * sc);
+    else if (d->type == ROOM_WORKSHOP) draw_workshop_icon(ip, 11.0f * sc);
     else if (d->type == ROOM_SECRET) draw_text_centered(ip.x + 1.0f, ip.y - 12.0f * sc, 3.0f * sc, col_hex(COLOR_SECRET, 1), "%s", G.room.type == ROOM_SECRET ? "v" : "?");
     else draw_pickup_icon(d->type == ROOM_STATS ? PK_STAT : reward_icon(d->reward), -1, ip, 11.0f * sc, G.time);
     if (pop >= 1.0f) draw_text_centered(ip.x, ip.y + 34.0f, 1.5f, col_a(rc, 0.9f), "%s", door_label(d));

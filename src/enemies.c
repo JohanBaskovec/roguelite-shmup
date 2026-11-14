@@ -13,12 +13,18 @@ const EnemyDef ENEMIES[EN_COUNT] = {
     [EN_SPINNER] = {"spinner", 28.0f,  75.0f,  50.0f, 5, 4, 0xff4fd8, 6},
     [EN_SNIPER]  = {"sniper",  18.0f,  28.0f, 200.0f, 3, 5, 0x5dff9d, 4},
     [EN_TANK]    = {"tank",    42.0f, 240.0f,  70.0f, 8, 7, 0xff8a3d, 8},
+    [EN_WARDEN]  = {"warden",  36.0f, 320.0f,  55.0f, 9, 9, 0x4dd2ff, 7},
+    [EN_HUNTER]  = {"hunter",  18.0f,  90.0f, 260.0f, 6, 11, 0xff3d6e, 3},
+    [EN_HIVE]    = {"hive",    34.0f, 260.0f,  40.0f, 10, 13, 0xffd84d, 6},
 };
 
-/* Difficulty curve: enemy hp and bullet speed grow with depth (gently - see also spawn_wave). */
-float enemy_hp_scale(void) { return 1.0f + 0.09f * (float)(G.room.depth > 1 ? G.room.depth - 1 : 0); }
-
-static float bullet_speed_scale(void) { return fminf(1.0f + 0.015f * (float)G.room.depth, 1.35f); }
+/*
+ * Every enemy type always has the same attributes (hp, speed, bullet patterns), whatever
+ * the depth. Difficulty comes from the rooms instead: more enemies, more waves, and new,
+ * tougher types unlocking deeper (min_depth) - see spawn_wave() in room.c.
+ */
+#define HUNTER_DASH_SPEED 950.0f
+#define HIVE_MAX_BROOD 9
 
 void enemy_queue_spawn(EnemyType type, V2 pos, float delay) {
     if (G.nsp >= MAX_SPAWNS) return;
@@ -38,7 +44,7 @@ static void enemy_create(EnemyType type, V2 pos) {
     e->pos = pos;
     e->target = pos;
     e->radius = d->radius;
-    e->max_hp = e->hp = d->hp * enemy_hp_scale();
+    e->max_hp = e->hp = d->hp;
     e->fire_t = frand(0.6f, 1.6f);
     e->state_t = frand(1.0f, 2.0f);
     e->angle = frand(0.0f, TAU_F);
@@ -117,7 +123,6 @@ static void fire_fan(V2 pos, float angle, int n, float spread, float speed, floa
 static void update_enemy(Enemy *e) {
     Player *pl = &G.pl;
     const EnemyDef *d = &ENEMIES[e->type];
-    float bs = bullet_speed_scale();
     V2 to = v2_sub(pl->pos, e->pos);
     float dist = v2_len(to);
     V2 dir = dist > 0.01f ? v2_scale(to, 1.0f / dist) : v2(1, 0);
@@ -170,7 +175,7 @@ static void update_enemy(Enemy *e) {
         e->angle = aim;
         if (e->fire_t <= 0.0f) {
             if (e->burst <= 0) e->burst = 3;
-            fire_fan(v2_add(e->pos, v2_scale(dir, e->radius)), aim, 3, 0.36f, 390.0f * bs, 7.0f, col_hex(0xffa040, 1));
+            fire_fan(v2_add(e->pos, v2_scale(dir, e->radius)), aim, 3, 0.36f, 390.0f, 7.0f, col_hex(0xffa040, 1));
             sfx_play_at(SFX_ENEMY_SHOT, e->pos);
             e->burst--;
             e->fire_t = e->burst > 0 ? 0.1f : frand(1.1f, 1.5f);
@@ -181,12 +186,11 @@ static void update_enemy(Enemy *e) {
         wander(e, 300.0f, 700.0f, d->speed);
         e->angle += 0.8f * DT;
         if (e->fire_t <= 0.0f) {
-            int n = 14 + G.room.depth / 2;
-            if (n > 30) n = 30;
+            const int n = 18;
             e->spin += PI_F / (float)n;
-            fire_ring(e->pos, n, 250.0f * bs, 8.0f, e->spin, col_hex(0xd070ff, 1));
+            fire_ring(e->pos, n, 250.0f, 8.0f, e->spin, col_hex(0xd070ff, 1));
             sfx_play_at(SFX_ENEMY_RING, e->pos);
-            if (e->state & 1) fire_ring(e->pos, n, 170.0f * bs, 8.0f, e->spin + PI_F / (float)n, col_hex(0xff70e0, 1));
+            if (e->state & 1) fire_ring(e->pos, n, 170.0f, 8.0f, e->spin + PI_F / (float)n, col_hex(0xff70e0, 1));
             e->state++;
             e->fire_t = 1.9f;
         }
@@ -199,9 +203,9 @@ static void update_enemy(Enemy *e) {
         if (e->state == 0) {
             e->spin += 1.9f * DT * (float)e->spin_dir;
             if (e->fire_t <= 0.0f) {
-                int arms = G.room.depth >= 9 ? 4 : 3;
+                const int arms = 3;
                 for (int k = 0; k < arms; k++)
-                    ebullet_spawn(e->pos, e->spin + TAU_F * (float)k / (float)arms, 230.0f * bs, 7.0f, col_hex(0xff4fd8, 1));
+                    ebullet_spawn(e->pos, e->spin + TAU_F * (float)k / (float)arms, 230.0f, 7.0f, col_hex(0xff4fd8, 1));
                 e->fire_t = 0.075f;
                 sfx_play_at(SFX_ENEMY_SPIRAL, e->pos);
             }
@@ -237,7 +241,7 @@ static void update_enemy(Enemy *e) {
             if (e->state_t <= 0.0f) {
                 V2 muzzle = v2_add(e->pos, v2_scale(v2_angle(e->angle), e->radius));
                 for (int k = 0; k < 6; k++)
-                    ebullet_spawn(muzzle, e->angle, (620.0f + (float)k * 90.0f) * bs, 6.0f, col_hex(0x7dff7a, 1));
+                    ebullet_spawn(muzzle, e->angle, (620.0f + (float)k * 90.0f), 6.0f, col_hex(0x7dff7a, 1));
                 fx_particle(muzzle, v2(0, 0), 0.12f, 40.0f, col_hex(0x7dff7a, 0.9f), 0.0f, PT_GLOW);
                 sfx_play_at(SFX_SNIPER_FIRE, e->pos);
                 e->state = 0;
@@ -254,15 +258,95 @@ static void update_enemy(Enemy *e) {
         if (e->fire_t <= 0.0f) {
             V2 muzzle = v2_add(e->pos, v2_scale(dir, e->radius));
             for (int k = 0; k < 14; k++)
-                ebullet_spawn(muzzle, aim + frand(-0.5f, 0.5f), frand(220.0f, 470.0f) * bs, 9.0f, col_hex(0xff7a3d, 1));
+                ebullet_spawn(muzzle, aim + frand(-0.5f, 0.5f), frand(220.0f, 470.0f), 9.0f, col_hex(0xff7a3d, 1));
             e->fire_t = frand(1.5f, 1.9f);
             fx_shake(0.05f);
             sfx_play_at(SFX_TANK_FIRE, e->pos);
         }
         if (e->state_t <= 0.0f) {
-            fire_ring(e->pos, 28, 160.0f * bs, 10.0f, frand(0.0f, TAU_F), col_hex(0xff4d3d, 1));
+            fire_ring(e->pos, 28, 160.0f, 10.0f, frand(0.0f, TAU_F), col_hex(0xff4d3d, 1));
             sfx_play_ex(SFX_ENEMY_RING, 1.2f, 0.6f, 0.0f);
             e->state_t = 4.5f;
+        }
+    } break;
+
+    case EN_WARDEN: {
+        /* Slow fortress: a rotating cross of bullet streams with short pauses, plus aimed fans. */
+        if (v2_dist2(e->pos, e->target) < 30.0f * 30.0f || e->t < DT * 2.0f)
+            e->target = random_point_around(v2(ARENA_CX, ARENA_CY), 0.0f, 380.0f);
+        move_towards(e, v2_scale(nav_dir(e, e->target), d->speed), 2.0f);
+        e->spin += 0.85f * DT * (float)e->spin_dir;
+        if (e->state == 0) {
+            if (e->fire_t <= 0.0f) {
+                for (int k = 0; k < 4; k++)
+                    ebullet_spawn(e->pos, e->spin + PI_F * 0.5f * (float)k, 260.0f, 7.0f, col_hex(0x4dd2ff, 1));
+                e->fire_t = 0.12f;
+                sfx_play_at(SFX_ENEMY_SPIRAL, e->pos);
+            }
+            if (e->state_t <= 0.0f) {
+                e->state = 1;
+                e->state_t = 1.3f;
+                fire_fan(e->pos, aim, 7, 0.7f, 330.0f, 8.0f, col_hex(0x9de8ff, 1));
+                sfx_play_at(SFX_ENEMY_SHOT, e->pos);
+            }
+        } else if (e->state_t <= 0.0f) {
+            e->state = 0;
+            e->state_t = frand(2.6f, 3.4f);
+            if (chance(0.4f)) e->spin_dir = -e->spin_dir;
+        }
+        e->angle = e->spin;
+    } break;
+
+    case EN_HUNTER: {
+        /* Stalks at range, telegraphs (state 1), dashes through the player's position
+         * (state 2), then bursts into a ring of bullets. */
+        if (e->state == 0) {
+            wander(e, 280.0f, 480.0f, d->speed);
+            e->angle = aim;
+            if (e->fire_t <= 0.0f) {
+                e->state = 1;
+                e->state_t = 0.45f;
+                sfx_play_at(SFX_SNIPER_CHARGE, e->pos);
+            }
+        } else if (e->state == 1) {
+            move_towards(e, v2(0, 0), 8.0f);
+            if (e->state_t > 0.15f) e->angle = aim;
+            if (e->state_t <= 0.0f) {
+                e->state = 2;
+                e->state_t = 0.38f;
+                e->vel = v2_scale(v2_angle(e->angle), HUNTER_DASH_SPEED);
+                sfx_play_at(SFX_DASH, e->pos);
+            }
+        } else {
+            e->vel = v2_scale(v2_angle(e->angle), HUNTER_DASH_SPEED);
+            if ((G.ticks + e->uid) % 2 == 0)
+                fx_particle(e->pos, v2(0, 0), 0.2f, 18.0f, col_hex(0xff3d6e, 0.5f), 0.0f, PT_GLOW);
+            if (e->state_t <= 0.0f) {
+                e->vel = v2_scale(e->vel, 0.15f);
+                fire_ring(e->pos, 10, 230.0f, 7.0f, e->angle, col_hex(0xff6a8e, 1));
+                sfx_play_at(SFX_ENEMY_RING, e->pos);
+                e->state = 0;
+                e->fire_t = frand(1.6f, 2.4f);
+            }
+        }
+    } break;
+
+    case EN_HIVE: {
+        /* Breeds swarms (up to HIVE_MAX_BROOD over its life) and pulses slow rings. */
+        wander(e, 350.0f, 650.0f, d->speed);
+        e->angle += 0.5f * DT;
+        if (e->state_t <= 0.0f) {
+            e->state_t = 3.4f;
+            if (e->burst < HIVE_MAX_BROOD && G.nen + G.nsp < MAX_ENEMIES - 8) {
+                for (int k = 0; k < 3; k++)
+                    enemy_queue_spawn(EN_SWARM, v2_add(e->pos, v2_scale(v2_angle(e->angle + TAU_F * (float)k / 3.0f), e->radius + 22.0f)), 0.5f);
+                e->burst += 3;
+            }
+        }
+        if (e->fire_t <= 0.0f) {
+            fire_ring(e->pos, 12, 150.0f, 9.0f, e->angle, col_hex(0xffd84d, 1));
+            sfx_play_at(SFX_ENEMY_RING, e->pos);
+            e->fire_t = 2.6f;
         }
     } break;
 
@@ -362,6 +446,11 @@ void enemies_draw(void) {
             V2 dir = v2_angle(e->angle);
             draw_line(e->pos, v2_add(e->pos, v2_scale(dir, 2400.0f)), 1.0f + 3.0f * k, c);
         }
+        if (e->type == EN_HUNTER && e->state == 1) {
+            float k = 1.0f - e->state_t / 0.45f;
+            V2 dir = v2_angle(e->angle);
+            draw_line(e->pos, v2_add(e->pos, v2_scale(dir, HUNTER_DASH_SPEED * 0.38f)), 2.0f + 6.0f * k, col_hex(0xff3d6e, 0.2f + 0.4f * k));
+        }
     }
     draw_blend_alpha();
 
@@ -409,6 +498,18 @@ void enemies_draw(void) {
             draw_circle(e->pos, e->radius * 0.45f, c);
             draw_circle(e->pos, e->radius * 0.3f, fill);
             break;
+        case EN_WARDEN:
+            for (int k = 0; k < 4; k++)
+                draw_line(e->pos, v2_add(e->pos, v2_scale(v2_angle(e->spin + PI_F * 0.5f * (float)k), e->radius * 0.8f)), 4.0f, c);
+            draw_circle(e->pos, e->radius * 0.25f, c);
+            break;
+        case EN_HUNTER:
+            draw_circle(v2_add(e->pos, v2_scale(v2_angle(e->angle), e->radius * 0.3f)), e->radius * 0.28f, c);
+            break;
+        case EN_HIVE: {
+            float k = clampf(1.0f - e->state_t / 3.4f, 0.0f, 1.0f);
+            draw_ngon_outline(e->pos, e->radius * (0.35f + 0.25f * k), 6, -e->angle, 3.0f, c);
+        } break;
         case EN_CHASER:
         case EN_SWARM:
             draw_circle(v2_add(e->pos, v2_scale(v2_angle(e->angle), e->radius * 0.25f)), e->radius * 0.25f, c);

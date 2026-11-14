@@ -44,7 +44,7 @@ typedef struct {
     const char *fmt;
 } SideStat;
 
-enum { SIDE_STATS = 12 };
+enum { SIDE_STATS = 13 };
 
 /* Effective values: include the situational boosts (Bloodlust, Adrenaline). */
 static int side_stats(SideStat *s) {
@@ -53,11 +53,12 @@ static int side_stats(SideStat *s) {
     s[n++] = (SideStat){"DAMAGE", p->dmg_mult * upg_volley_damage_mult(), 1.0f, 1, "x%.2f"};
     s[n++] = (SideStat){"FIRE RATE", p->rate_mult * upg_fire_rate_mult(), 1.0f, 1, "x%.2f"};
     s[n++] = (SideStat){"RANGE", p->range_mult, 1.0f, 1, "x%.2f"};
-    s[n++] = (SideStat){"SHOT SPEED", p->shot_speed_mult, 1.0f, 1, "x%.2f"};
+    s[n++] = (SideStat){"SHOT SPEED", p->shot_speed_mult * upg_shot_speed_mult(), 1.0f, 1, "x%.2f"};
     s[n++] = (SideStat){"MOVE SPEED", p->speed * upg_move_speed_mult() / 540.0f, 1.0f, 1, "x%.2f"};
     s[n++] = (SideStat){"DASH", p->dash_cooldown, 0.6f, -1, "%.2fs"};
     s[n++] = (SideStat){"HITBOX", p->hit_radius, PLAYER_HIT_R, -1, "%.1fpx"};
     s[n++] = (SideStat){"LUCK", (float)p->luck, 0.0f, 1, "%+.0f"};
+    s[n++] = (SideStat){"SPREAD", p->spread_mult, 1.0f, -1, "x%.2f"};
     s[n++] = (SideStat){"PROJECTILES", (float)p->extra_proj, 0.0f, 1, "+%.0f"};
     s[n++] = (SideStat){"PIERCE", (float)p->pierce, 0.0f, 1, "+%.0f"};
     s[n++] = (SideStat){"BOUNCE", (float)p->bounce, 0.0f, 1, "+%.0f"};
@@ -79,7 +80,7 @@ static void draw_stats_overlay(void) {
 
     float y = top + 14.0f;
     for (int i = 0; i < n; i++) {
-        if (i == 0 || i == 8) {
+        if (i == 0 || i == 9) {
             if (i) y += 14.0f;
             draw_text(x0 + 12.0f, y, 1.5f, col_hex(0x66f0ff, 0.6f), "%s", i ? "SHOTS" : "STATS");
             draw_line(v2(x0 + 12.0f, y + 18.0f), v2(x1 - 12.0f, y + 18.0f), 1.0f, col_hex(0x66f0ff, 0.15f));
@@ -139,6 +140,8 @@ void hud_draw(void) {
         draw_text_centered(SCREEN_W * 0.5f, 16.0f, 3.0f, col_hex(COLOR_STATS, 1), "ROOM %d - STATS", r->depth);
     } else if (r->type == ROOM_SECRET) {
         draw_text_centered(SCREEN_W * 0.5f, 16.0f, 3.0f, col_hex(COLOR_SECRET, 1), "%s", r->secret_shop ? "SECRET SHOP" : "SECRET ROOM");
+    } else if (r->type == ROOM_WORKSHOP) {
+        draw_text_centered(SCREEN_W * 0.5f, 16.0f, 3.0f, col_hex(COLOR_WORKSHOP, 1), "ROOM %d - WORKSHOP", r->depth);
     } else if (r->type == ROOM_SHOP) {
         draw_text_centered(SCREEN_W * 0.5f, 16.0f, 3.0f, col_hex(COLOR_SHOP, 1), "ROOM %d - SHOP", r->depth);
     } else {
@@ -153,7 +156,8 @@ void hud_draw(void) {
             items |= G.pk[i].price > 0;
         }
         float a = 0.55f + 0.45f * sinf(G.time * 5.0f);
-        if (offers && r->type == ROOM_STATS) draw_text_centered(SCREEN_W * 0.5f, 52.0f, 2.0f, col_hex(COLOR_STATS, a), "TAKE ONE TRADE - OR SKIP IT");
+        if (r->type == ROOM_WORKSHOP && G.nmc > 0) draw_text_centered(SCREEN_W * 0.5f, 52.0f, 2.0f, col_hex(COLOR_WORKSHOP, a), "STEP ON A MACHINE TO USE IT");
+        else if (offers && r->type == ROOM_STATS) draw_text_centered(SCREEN_W * 0.5f, 52.0f, 2.0f, col_hex(COLOR_STATS, a), "TAKE ONE TRADE - OR SKIP IT");
         else if (offers) draw_text_centered(SCREEN_W * 0.5f, 52.0f, 2.0f, col_hex(0xb57cff, a), "PICK ONE - THE OTHERS VANISH");
         else if (r->type == ROOM_SECRET && !items) draw_text_centered(SCREEN_W * 0.5f, 52.0f, 2.0f, col_hex(COLOR_SECRET, a), "GRAB THE LOOT - EXIT AT THE BOTTOM");
         else if (items) draw_text_centered(SCREEN_W * 0.5f, 52.0f, 2.0f, col_hex(COLOR_SHOP, a), "SPEND COINS - OR SKIP IT");
@@ -200,8 +204,8 @@ static void draw_stats(float y) {
     SDL_FColor c = col_a(COL_WHITE, 0.75f);
     draw_text_centered(SCREEN_W * 0.5f, y, 2.0f, c, "DAMAGE x%.2f   FIRE RATE x%.2f   RANGE x%.2f   SHOT SPEED x%.2f",
                        (double)p->dmg_mult, (double)p->rate_mult, (double)p->range_mult, (double)p->shot_speed_mult);
-    draw_text_centered(SCREEN_W * 0.5f, y + 30.0f, 2.0f, c, "MOVE SPEED x%.2f   DASH %.2fs   HITBOX %.1fpx   LUCK %+d",
-                       (double)(p->speed / 540.0f), (double)p->dash_cooldown, (double)p->hit_radius, p->luck);
+    draw_text_centered(SCREEN_W * 0.5f, y + 30.0f, 2.0f, c, "MOVE SPEED x%.2f   DASH %.2fs   HITBOX %.1fpx   LUCK %+d   SPREAD x%.2f",
+                       (double)(p->speed / 540.0f), (double)p->dash_cooldown, (double)p->hit_radius, p->luck, (double)p->spread_mult);
     draw_text_centered(SCREEN_W * 0.5f, y + 60.0f, 2.0f, c, "PROJECTILES +%d   PIERCE +%d   BOUNCE +%d   DRONES %d",
                        p->extra_proj, p->pierce, p->bounce, p->drones);
     /* Upgrades, wrapped over as many lines as needed. */

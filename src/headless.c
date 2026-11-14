@@ -35,8 +35,16 @@ static const char *check_invariants(float room_time) {
     if (p->weapon < 0 || p->weapon >= WPN_COUNT || p->wlevel[p->weapon] <= 0) return "player holds a weapon it does not own";
     for (int w = 0; w < WPN_COUNT; w++)
         if (p->wlevel[w] > 0 && !weapon_available(w)) return "player owns a weapon its character cannot have (sword?)";
-    for (int i = 0; i < G.npk; i++)
-        if (G.pk[i].type == PK_WEAPON && !weapon_available(G.pk[i].sub)) return "weapon offered that this character cannot have";
+    for (int i = 0; i < G.npk; i++) {
+        const Pickup *k = &G.pk[i];
+        if (k->type == PK_WEAPON && !weapon_available(k->sub)) return "weapon offered that this character cannot have";
+        if (k->type == PK_UPGRADE && UPGRADES[k->sub].tier > 0) return "workshop-exclusive upgrade offered outside the augment machine";
+        if (k->type == PK_AUGMENT && (G.room.type != ROOM_WORKSHOP || UPGRADES[k->sub].tier == 0 || !k->choice))
+            return "augment pad outside a workshop (or not an exclusive one-of-N choice)";
+    }
+    if (G.nmc < 0 || G.nmc > MAX_MACHINES) return "machine count out of range";
+    if (G.nmc > 0 && (G.room.type != ROOM_WORKSHOP || !G.room.cleared)) return "workshop machines outside a cleared workshop";
+    if (!(p->spread_mult >= SPREAD_MIN * 0.99f) || !(p->spread_mult <= SPREAD_MAX * 1.01f)) return "spread out of range";
     if (p->max_hp < 2 || p->max_hp > 24 || (p->max_hp & 1)) return "max hp out of range";
     if (!(p->dmg_mult >= 0.3f * 0.99f) || !(p->rate_mult >= 0.3f * 0.99f) || !(p->range_mult >= 0.35f * 0.99f) ||
         !(p->shot_speed_mult >= 0.4f * 0.99f))
@@ -48,6 +56,7 @@ static const char *check_invariants(float room_time) {
     for (int i = 0; i < G.nen; i++) {
         const Enemy *e = &G.en[i];
         if (!finite_v2(e->pos) || !isfinite(e->hp)) return "enemy state is not finite";
+        if (e->max_hp != ENEMIES[e->type].hp) return "enemy hp differs from its type's (enemies never scale with depth)";
         if (!in_arena(e->pos, e->radius)) {
             snprintf(msg, sizeof msg, "enemy type %d outside the arena at (%.1f, %.1f)", e->type, (double)e->pos.x, (double)e->pos.y);
             return msg;
@@ -121,6 +130,19 @@ static const char *check_room_reward(void) {
         return buf;
     }
     if (G.room.type == ROOM_STATS && count_choices() == 0) return "stats room cleared without any trade";
+    if (G.room.type == ROOM_WORKSHOP) {
+        int supply = 0, gamble = 0, pads = 0, tier1_left = 0;
+        for (int i = 0; i < G.nmc; i++) {
+            supply += G.mc[i].type == MC_SUPPLY && G.mc[i].uses >= SUPPLY_USES_MIN && !G.mc[i].broken;
+            gamble += G.mc[i].type == MC_GAMBLE && !G.mc[i].broken;
+        }
+        for (int i = 0; i < G.npk; i++) pads += G.pk[i].type == PK_AUGMENT;
+        for (int u = 0; u < UPG_COUNT; u++) tier1_left += UPGRADES[u].tier == 1 && G.pl.upg_count[u] == 0;
+        if (supply != 1 || gamble != 1) return "workshop cleared without its supply press and slot machine";
+        if (pads > 3) return "workshop offers more than 3 augments";
+        if (pads == 0 && G.pl.max_hp >= 4 && tier1_left > 0) return "workshop offers no augment although the player can pay one";
+        if (G.mc[1].prize == PK_UPGRADE && UPGRADES[G.mc[1].prize_sub].tier > 0) return "slot machine offers a workshop exclusive";
+    }
     if (G.room.type == ROOM_SECRET) {
         int items = 0, resources = 0;
         for (int i = 0; i < G.npk; i++) {
@@ -169,10 +191,10 @@ static void clear_edges(void) {
 /* Debug-menu teleports: every room type, with and without enemies, must land in a
  * coherent state, and the bot must be able to finish the room and leave it. */
 static int debug_rooms_run(const HeadlessOptions *o) {
-    static const RoomType types[] = {ROOM_START, ROOM_COMBAT, ROOM_COMBAT, ROOM_COMBAT, ROOM_STATS, ROOM_SHOP, ROOM_SECRET, ROOM_SECRET};
-    static const RewardType rewards[] = {RW_NONE, RW_NONE, RW_WEAPON, RW_UPGRADE, RW_NONE, RW_NONE, RW_NONE, RW_NONE};
-    static const int secret_shop[] = {0, 0, 0, 0, 0, 0, 0, 1};
-    static const char *names[] = {"launch bay", "combat", "weapon", "upgrade", "stats", "shop", "secret", "secret shop"};
+    static const RoomType types[] = {ROOM_START, ROOM_COMBAT, ROOM_COMBAT, ROOM_COMBAT, ROOM_STATS, ROOM_SHOP, ROOM_WORKSHOP, ROOM_SECRET, ROOM_SECRET};
+    static const RewardType rewards[] = {RW_NONE, RW_NONE, RW_WEAPON, RW_UPGRADE, RW_NONE, RW_NONE, RW_NONE, RW_NONE, RW_NONE};
+    static const int secret_shop[] = {0, 0, 0, 0, 0, 0, 0, 0, 1};
+    static const char *names[] = {"launch bay", "combat", "weapon", "upgrade", "stats", "shop", "workshop", "secret", "secret shop"};
     int failures = 0;
     for (int t = 0; t < ARRAY_LEN(types); t++) {
         for (int with = types[t] == ROOM_START ? 0 : 1; with >= 0; with--) {
@@ -342,6 +364,66 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         failures += !ok;
     }
 
+    /* Scripted: new upgrades - exact chances in descriptions (doubled by LOADED DICE), bonuses
+     * while hurt, SIGNATURE WEAPON offers, DEFLECTOR SHELLS reflections, the SPREAD trade. */
+    {
+        game_init(o->seed);
+        G.god = true;
+        game_new_run();
+        debug_teleport(ROOM_COMBAT, RW_COINS, 3, false);
+        G.state = GS_PLAYING;
+        Player *pl = &G.pl;
+        bool desc_ok = SDL_strstr(upgrade_desc(UPG_THERMITE), "15%") != NULL;
+        upgrade_apply(UPG_THERMITE);
+        desc_ok = desc_ok && SDL_strstr(upgrade_desc(UPG_THERMITE), "30%") && SDL_strstr(upgrade_desc_at(UPG_THERMITE, 1), "15%");
+        upgrade_apply(UPG_LOADED_DICE);
+        desc_ok = desc_ok && SDL_strstr(upgrade_desc_at(UPG_THERMITE, 1), "30%") && SDL_strstr(upgrade_desc_at(UPG_PAYLOAD, 1), "40%");
+
+        upgrade_apply(UPG_WOUNDED_FURY);
+        float full = upg_volley_damage_mult();
+        pl->hp = pl->max_hp - 1;
+        float wounded = upg_volley_damage_mult();
+        bool hurt_ok = fabsf(full - 1.0f) < 1e-4f && fabsf(wounded - 1.3f) < 1e-4f;
+        pl->hp = pl->max_hp;
+
+        pl->wlevel[WPN_SCATTER] = 1;
+        pl->wlevel[WPN_NEEDLER] = 3; /* highest level: always offered with SIGNATURE WEAPON */
+        upgrade_apply(UPG_SIGNATURE);
+        bool sig_ok = true;
+        for (int k = 0; k < 5 && sig_ok; k++) {
+            G.npk = 0;
+            reward_drop(RW_WEAPON, v2(ARENA_CX, ARENA_CY));
+            bool found = false;
+            for (int i = 0; i < G.npk; i++) found |= G.pk[i].type == PK_WEAPON && G.pk[i].sub == WPN_NEEDLER && G.pk[i].choice;
+            sig_ok = found && G.npk == REWARD_CHOICES;
+        }
+        G.npk = 0;
+
+        upgrade_apply(UPG_DEFLECTOR);
+        G.npb = G.neb = 0;
+        pl->pos = v2(ARENA_CX, ARENA_CY + 200.0f);
+        G.in.mouse = v2(ARENA_CX, ARENA_CY - 300.0f);
+        for (int k = 0; k < 6; k++) ebullet_spawn(v2(ARENA_CX + (float)(k - 3) * 6.0f, ARENA_CY - 60.0f), PI_F * 0.5f, 60.0f, 7.0f, COL_WHITE);
+        G.in.fire = true;
+        int reflected = 0;
+        for (int t = 0; t < 120; t++) {
+            game_update();
+            clear_edges();
+            for (int i = 0; i < G.npb; i++) reflected += (G.pb[i].flags & PB_REFLECTED) != 0;
+            if (reflected) break;
+        }
+        G.in.fire = false;
+        bool deflect_ok = reflected > 0 && upg_fire_rate_mult() < 0.34f;
+
+        float spread = pl->spread_mult;
+        stat_apply(ST_SPREAD, true);
+        bool spread_ok = fabsf(pl->spread_mult - spread * 0.75f) < 1e-4f && stat_can_change(ST_SPREAD, false);
+        printf("scripted: chances in descriptions -> %s, wounded fury -> %s, signature weapon -> %s, deflector -> %s, spread -> %s\n",
+               desc_ok ? "OK" : "FAILED", hurt_ok ? "OK" : "FAILED", sig_ok ? "OK" : "FAILED", deflect_ok ? "OK" : "FAILED",
+               spread_ok ? "OK" : "FAILED");
+        failures += !desc_ok + !hurt_ok + !sig_ok + !deflect_ok + !spread_ok;
+    }
+
     printf("debug teleports - %s\n", failures ? "FAILED" : "OK");
     return failures ? 1 : 0;
 }
@@ -374,10 +456,12 @@ int headless_run(const HeadlessOptions *o) {
         int start_revives = G.pl.revives;
         if (o->stats_room) room_enter(ROOM_STATS, RW_NONE, o->depth > 0 ? o->depth : 1);
         else if (o->shop_room) room_enter(ROOM_SHOP, RW_NONE, o->depth > 0 ? o->depth : 1);
+        else if (o->workshop_room) room_enter(ROOM_WORKSHOP, RW_NONE, o->depth > 0 ? o->depth : 3);
         else if (o->depth > 0) room_enter(ROOM_COMBAT, RW_UPGRADE, o->depth);
 
         int room_id = G.room.id, secret_parent = -1;
         int stats_rooms = G.room.type == ROOM_STATS, shops = G.room.type == ROOM_SHOP, secrets = 0;
+        int workshops = G.room.type == ROOM_WORKSHOP;
         bool was_cleared = G.room.cleared;
         int choices = 0; /* one-of-N pickups offered when the room was cleared */
         float room_time = 0.0f;
@@ -418,11 +502,16 @@ int headless_run(const HeadlessOptions *o) {
                     }
                     stats_rooms += G.room.type == ROOM_STATS;
                     shops += G.room.type == ROOM_SHOP;
+                    workshops += G.room.type == ROOM_WORKSHOP;
                     was_cleared = false;
                 }
             }
             if (G.room.cleared && !was_cleared) {
                 if ((err = check_room_reward()) != NULL) break;
+                if (!G.room.revisit && v2_dist(G.pl.pos, v2(ARENA_CX, ARENA_Y1 - 80.0f)) > 1.0f) {
+                    err = "room cleared but the ship was not moved back to the entry spot";
+                    break;
+                }
                 choices = count_choices();
             }
             was_cleared = G.room.cleared;
@@ -443,6 +532,7 @@ int headless_run(const HeadlessOptions *o) {
             if (G.pl.wlevel[w]) printf("%.3s%d ", WEAPONS[w].name, G.pl.wlevel[w]);
         const Player *p = &G.pl;
         printf("hits=%d coins=%d shops=%d bought=%d secrets=%d stats_rooms=%d", hits, p->coins, shops, G.items_bought, secrets, stats_rooms);
+        if (workshops) printf(" workshops=%d machine_uses=%d augments=%d", workshops, G.machine_uses, G.augments);
         if (start_revives > p->revives) printf(" second_winds=%d", start_revives - p->revives);
         if (stats_rooms)
             printf(" [dmg x%.2f rate x%.2f range x%.2f speed x%.2f dash %.2fs hitbox %.1f luck %+d]", (double)p->dmg_mult,
@@ -455,6 +545,9 @@ int headless_run(const HeadlessOptions *o) {
             failures++;
         } else if (o->shop_room && o->coins >= 30 && G.items_bought == 0) {
             printf("  started in a shop with %d coins but never bought anything\n", G.pl.coins);
+            failures++;
+        } else if (o->workshop_room && (G.machine_uses == 0 || G.augments == 0)) {
+            printf("  started in a workshop but never used a machine (%d) or took an augment (%d)\n", G.machine_uses, G.augments);
             failures++;
         } else if (o->secret && secrets == 0) {
             printf("  every room hid a secret but the bot never entered one\n");

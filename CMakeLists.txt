@@ -34,7 +34,8 @@ add_executable(neon_breach
     src/hud.c
     src/upgrades.c
     src/debug_menu.c
-    src/characters.c)
+    src/characters.c
+    src/workshop.c)
 
 target_link_libraries(neon_breach PRIVATE SDL3::SDL3)
 
@@ -105,6 +106,13 @@ if(SHMUP_BUILD_TESTS)
              COMMAND neon_breach --headless --char knight --seed 30 --runs 10
                      --fail-shot ${_out}/fail_sim_knight_mortal.bmp)
     # F3 debug menu: teleport into every room type, with and without enemies.
+    add_test(NAME sim_workshop
+             COMMAND neon_breach --headless --god --workshop --coins 30 --seed 3 --runs 4 --ticks 20000 --expect-rooms 3
+                     --fail-shot ${_out}/fail_sim_workshop.bmp)
+    add_test(NAME render_workshop
+             COMMAND neon_breach --shot ${_out}/render_workshop.bmp --workshop --cleared --no-bot --depth 4 --seed 5 --frames 60)
+    add_test(NAME render_deep_enemies
+             COMMAND neon_breach --shot ${_out}/render_deep.bmp --depth 15 --seed 8 --frames 300)
     add_test(NAME sim_debug_teleports
              COMMAND neon_breach --headless --debug-rooms --seed 1 --coins 40 --ticks 12000
                      --fail-shot ${_out}/fail_debug_teleports.bmp)
@@ -125,5 +133,6 @@ if(SHMUP_BUILD_TESTS)
     set_tests_properties(sim_god_seed1 sim_god_seed2 sim_god_seed3 sim_mortal_runs sim_deep_rooms
                          sim_stats_rooms sim_shop_rooms render_shop_room sim_secret_rooms sim_all_upgrades sim_all_upgrades_mortal
                          sim_shotgunner sim_knight sim_knight_mortal render_char_select render_knight
+                         sim_workshop render_workshop render_deep_enemies
                          sim_debug_teleports render_debug_menu render_stats_room render_stats_overlay render_offscreen sfx_synthesis PROPERTIES TIMEOUT 600)
 endif()

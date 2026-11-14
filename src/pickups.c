@@ -18,7 +18,7 @@ void pickup_spawn(PickupType type, int sub, V2 pos, V2 vel) {
 
 static SDL_FColor pickup_glow_color(const Pickup *k);
 
-static bool is_pedestal(PickupType t) { return t == PK_WEAPON || t == PK_UPGRADE || t == PK_STAT; }
+static bool is_pedestal(PickupType t) { return t == PK_WEAPON || t == PK_UPGRADE || t == PK_STAT || t == PK_AUGMENT; }
 
 PickupType reward_icon(RewardType r) {
     switch (r) {
@@ -47,6 +47,7 @@ static V2 random_vel(float lo, float hi) { return v2_scale(v2_angle(frand(0.0f, 
 
 const char *door_label(const Door *d) {
     if (d->type == ROOM_SECRET) return G.room.type == ROOM_SECRET ? "EXIT" : "SECRET";
+    if (d->type == ROOM_WORKSHOP) return "WORKSHOP";
     return d->type == ROOM_STATS ? "STATS" : d->type == ROOM_SHOP ? "SHOP" : reward_name(d->reward);
 }
 
@@ -79,10 +80,25 @@ static bool choice_has(PickupType type, int sub) {
 
 /* Weapon / upgrade rooms: REWARD_CHOICES distinct items in a row, take one. A weapon
  * room tops up with upgrades once fewer weapons than that can still be gained. */
+/* SIGNATURE WEAPON: the owned weapon with the highest level that can still level up. */
+static int signature_weapon(void) {
+    const Player *p = &G.pl;
+    int best = -1;
+    for (int w = 0; w < WPN_COUNT; w++)
+        if (weapon_available(w) && p->wlevel[w] > 0 && p->wlevel[w] < MAX_WEAPON_LEVEL && (best < 0 || p->wlevel[w] > p->wlevel[best]))
+            best = w;
+    return best;
+}
+
 static void spawn_item_choices(RewardType r, V2 center) {
+    int signature = r == RW_WEAPON && G.pl.upg_count[UPG_SIGNATURE] ? signature_weapon() : -1;
     for (int i = 0; i < REWARD_CHOICES; i++) {
         PickupType type = PK_UPGRADE;
         int sub = -1;
+        if (i == 0 && signature >= 0) {
+            type = PK_WEAPON;
+            sub = signature;
+        }
         for (int tries = 0; r == RW_WEAPON && tries < 16 && sub < 0; tries++) {
             int w = weapon_roll();
             if (w >= 0 && !choice_has(PK_WEAPON, w)) {
@@ -211,6 +227,18 @@ static bool collect(const Pickup *k) {
         stat_offer_take(k->sub);
         fx_shake(0.3f);
         break;
+    case PK_AUGMENT: {
+        /* Paid in heart containers; the machine never takes the last one. */
+        int cost = UPGRADES[k->sub].tier * 2;
+        if (p->max_hp - cost < 2) return false;
+        p->max_hp -= cost;
+        if (p->hp > p->max_hp) p->hp = p->max_hp;
+        upgrade_apply(k->sub);
+        G.augments++;
+        sfx_play(SFX_PLAYER_HURT);
+        G.hurt_flash = 0.6f;
+        fx_shake(0.5f);
+    } break;
     }
     if (is_pedestal(k->type)) {
         sfx_play(SFX_ITEM);
@@ -343,6 +371,10 @@ void draw_pickup_icon(PickupType type, int sub, V2 p, float s, float t) {
         draw_ngon_outline(p, s * 1.05f, 6, t * 1.5f, s * 0.2f, c);
         draw_tri(v2(p.x, p.y - s * 0.7f), v2(p.x + s * 0.55f, p.y + s * 0.5f), v2(p.x - s * 0.55f, p.y + s * 0.5f), c);
     } break;
+    case PK_AUGMENT:
+        draw_ring(p, s * 1.35f, s * 0.15f, col_hex(0xff3355, 0.8f + 0.2f * sinf(t * 6.0f)));
+        /* the upgrade's own icon inside a blood-red ring */
+        __attribute__((fallthrough));
     case PK_UPGRADE: {
         SDL_FColor c = col_hex(sub >= 0 ? UPGRADES[sub].color : 0xb57cff, 1);
         int sides = sub >= 0 ? 3 + sub % 4 : 4; /* a little shape variety across 50+ upgrades */
@@ -369,7 +401,8 @@ static SDL_FColor pickup_glow_color(const Pickup *k) {
     case PK_BOMB: return col_hex(0xff8a3d, 1);
     case PK_HEART: return col_hex(0xff3355, 1);
     case PK_WEAPON: return col_hex(WEAPONS[k->sub].color, 1);
-    case PK_UPGRADE: return col_hex(UPGRADES[k->sub].color, 1);
+    case PK_UPGRADE:
+    case PK_AUGMENT: return col_hex(UPGRADES[k->sub].color, 1);
     case PK_STAT: return col_hex(COLOR_STATS, 1);
     }
     return COL_WHITE;
@@ -424,11 +457,24 @@ void pickups_draw(void) {
         }
         bool weapon = k->type == PK_WEAPON;
         const char *name = weapon ? WEAPONS[k->sub].name : UPGRADES[k->sub].name;
-        const char *desc = weapon && G.pl.wlevel[k->sub] > 0 ? "LEVEL UP" : weapon ? WEAPONS[k->sub].desc : UPGRADES[k->sub].desc;
+        const char *desc = weapon && G.pl.wlevel[k->sub] > 0 ? "LEVEL UP" : weapon ? WEAPONS[k->sub].desc : upgrade_desc(k->sub);
+        if (k->type == PK_AUGMENT) {
+            int hearts = UPGRADES[k->sub].tier;
+            draw_text_centered(k->pos.x, k->pos.y - 74.0f, 2.0f, col_hex(0xff4d6a, 1), "-%d HEART%s", hearts, hearts > 1 ? "S" : "");
+        }
         draw_text_centered(k->pos.x, k->pos.y + 56.0f, ls, pickup_glow_color(k), "%s", name);
         /* Shops pack 5 items in a row: no room for descriptions there. */
         bool level_up = weapon && G.pl.wlevel[k->sub] > 0;
-        if (k->price == 0 || level_up)
-            draw_text_centered(k->pos.x, k->pos.y + 60.0f + 10.0f * ls, 1.5f, col_a(COL_WHITE, 0.7f), "%s", desc);
+        if (k->price == 0 || level_up) draw_desc(k->pos.x, k->pos.y + 60.0f + 10.0f * ls, 1.5f, col_a(COL_WHITE, 0.7f), desc);
     }
+}
+
+void draw_desc(float cx, float y, float scale, SDL_FColor col, const char *desc) {
+    const char *bar = SDL_strchr(desc, '|');
+    if (!bar) {
+        draw_text_centered(cx, y, scale, col, "%s", desc);
+        return;
+    }
+    draw_text_centered(cx, y, scale, col, "%.*s", (int)(bar - desc), desc);
+    draw_text_centered(cx, y + 11.0f * scale, scale, col, "%s", bar + 1);
 }
