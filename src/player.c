@@ -45,11 +45,11 @@ static void player_bomb(void) {
     fx_burst(p->pos, 120, 300.0f, 1600.0f, 0.6f, 4.0f, col_hex(0xffc04d, 1));
 }
 
-void player_hurt(int dmg) {
+bool player_hurt(int dmg) {
     Player *p = &G.pl;
-    if (G.state != GS_PLAYING || G.transitioning) return;
-    if (p->invuln > 0.0f || p->dash_t > 0.0f || active_shield_on()) return;
-    if (upg_block_hit()) return; /* EMERGENCY SHIELD */
+    if (G.state != GS_PLAYING || G.transitioning) return false;
+    if (p->invuln > 0.0f || p->dash_t > 0.0f || active_shield_on()) return false;
+    if (upg_block_hit()) return true; /* EMERGENCY SHIELD: blocked, but it did land */
     if (G.god) dmg = 0;
     /* Shields (temporary hearts) soak damage before the hull. */
     bool shielded = p->shield > 0;
@@ -76,6 +76,7 @@ void player_hurt(int dmg) {
         p->hp = 0;
         game_over();
     }
+    return true;
 }
 
 void player_update(void) {

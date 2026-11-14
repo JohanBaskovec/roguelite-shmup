@@ -535,7 +535,8 @@ void room_debug_clear(void);
 void player_init(void);
 void player_update(void);
 void player_draw(void);
-void player_hurt(int dmg);
+bool player_hurt(int dmg); /* true when the hit lands (not dodged: invulnerable, dashing, shielded) */
+#define CONTACT_DAMAGE 30.0f   /* an enemy ramming the ship takes this much (x damage stat): small rushers die */
 /* Ship of a character, also used by the character select screen. */
 void draw_ship(int character, V2 pos, float angle, float scale, bool blink);
 

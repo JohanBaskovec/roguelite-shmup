@@ -779,9 +779,34 @@ static int debug_rooms_run(const HeadlessOptions *o) {
 
         FRESH(); /* SPIKED HULL: contact damage */
         upgrade_apply(UPG_SPIKED_HULL);
+        pl->invuln = 100.0f; /* no contact hit: only the hull's damage */
         DUMMY(pl->pos.x + 30.0f, pl->pos.y);
         for (int t = 0; t < 10; t++) TICK();
         names[nres] = "spiked hull", oks[nres++] = G.nen > 0 && G.en[0].hp < 5000.0f;
+
+        /* Contact hits hurt the rammer too: a chaser dies on the spot, a tank survives, and a
+         * dodged contact (invulnerable) hurts nobody. */
+        FRESH();
+        G.god = false;
+        pl->invuln = 0.0f; /* entering a room grants a moment of invulnerability */
+        int hp_before = pl->hp + pl->shield;
+        Enemy rusher = {.type = EN_CHASER, .uid = ++G.next_uid, .pos = v2(pl->pos.x + 10.0f, pl->pos.y),
+                        .radius = ENEMIES[EN_CHASER].radius, .hp = ENEMIES[EN_CHASER].hp, .max_hp = ENEMIES[EN_CHASER].hp};
+        G.en[G.nen++] = rusher;
+        for (int t = 0; t < 3; t++) TICK();
+        bool contact_ok = pl->hp + pl->shield == hp_before - 1 && G.nen == 0;
+        pl->invuln = G.hitstop = 0.0f; /* the hit's freeze frames would skip the next ticks */
+        DUMMY(pl->pos.x + 30.0f, pl->pos.y);
+        TICK();
+        contact_ok = contact_ok && G.nen == 1 && G.en[0].hp <= 5000.0f - CONTACT_DAMAGE + 0.01f && G.en[0].hp > 0.0f;
+        float tank_hp = G.nen ? G.en[0].hp : 0.0f;
+        G.en[0].pos = pl->pos; /* back on the ship, still invulnerable from the hit */
+        G.hitstop = 0.0f;
+        TICK();
+        contact_ok = contact_ok && G.nen == 1 && G.en[0].hp == tank_hp;
+        G.god = true;
+        G.nen = 0;
+        names[nres] = "contact hurts the rammer", oks[nres++] = contact_ok;
 
         FRESH(); /* weapon mods combine: scatter x8, wave x2 -> 16 shots; scatter off -> 2 */
         int shots[4];

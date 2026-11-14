@@ -362,7 +362,12 @@ static void update_enemy(Enemy *e) {
     }
 
     float cr = e->radius + pl->hit_radius + 4.0f;
-    if (v2_dist2(e->pos, pl->pos) < cr * cr) player_hurt(1);
+    if (v2_dist2(e->pos, pl->pos) < cr * cr && player_hurt(1)) {
+        /* Rammed: the hit hurts the enemy too, enough to kill the small rushers outright. */
+        V2 away = v2_norm(v2_sub(e->pos, pl->pos));
+        enemy_damage(e, CONTACT_DAMAGE * fmaxf(pl->dmg_mult, 1.0f), v2_scale(away, 700.0f));
+        fx_burst(e->pos, 14, 120.0f, 500.0f, 0.3f, 2.5f, col_hex(ENEMIES[e->type].color, 1));
+    }
 }
 
 static void separate_enemies(void) {
