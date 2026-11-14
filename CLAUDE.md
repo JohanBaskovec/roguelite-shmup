@@ -30,6 +30,12 @@ All graphics and sounds are generated in code. See README.md for controls and ar
 - **Enemies never scale with depth**: each type always has the same HP / speed / fire pattern
   (`ENEMIES` table). Difficulty only comes from more enemies, more waves and new, harder types.
 - When a room is cleared the ship is teleported back to the entry spot at the bottom (headless checks it).
+- **Active items** (`src/actives.c`, `Player.active`): the ship starts with none (not even the dash).
+  They are found in active rooms (combat rooms with `RW_ACTIVE`): choice of 3 distinct items, never the
+  one held; taking one replaces it. The launch bay always has an active-room door while the ship has
+  none. CHAOS only lends hook-only upgrades the player does not own (`Player.chaos`, read by `has()` /
+  `upg_has()`) and takes them all back when it ends. Recharges scale with the RECHARGE stat
+  (`Player.dash_cooldown`).
 - A shop always sells exactly 5 items (weapons, upgrades, stat trades), paid with coins.
 - After a room is cleared the player chooses between 3 doors; each door previews what the next
   room gives. One door may be locked (costs a key).
@@ -78,6 +84,9 @@ invariants / a CTest entry in `CMakeLists.txt`.
   invariant floors. `--all-upgrades` tests them all at once.
 - Hooks can run inside an entity loop (e.g. `upg_on_lethal_hit` runs inside the enemy bullet loop):
   never clear or compact an array from there, mark entities dead (`life = -1`) instead.
+- Upgrade hooks read stacks through `has()` (upgrades.c) / `upg_has()` elsewhere, never `upg_count[]`
+  directly, so CHAOS's temporary upgrades work. When adding an active item: `ACTIVES` entry, effect in
+  `use_active`, icon, bot usage, and a scripted check in `debug_rooms_run`.
 - Upgrade descriptions with a random effect must show the exact chance: build them in `upgrade_desc_at`
   (respects stacks and `proc()`, i.e. LOADED DICE). A `|` splits a description over two lines (`draw_desc`).
 - Shields (`Player.shield`, half-hearts, max `MAX_SHIELD`) absorb damage before hearts.

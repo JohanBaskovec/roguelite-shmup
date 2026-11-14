@@ -17,7 +17,8 @@ void player_init(void) {
     p->wlevel[WPN_BLASTER] = 1;
     p->dmg_mult = p->rate_mult = p->shot_speed_mult = 1.0f;
     p->magnet = 140.0f;
-    p->dash_cooldown = 0.6f;
+    p->dash_cooldown = DASH_BASE_CD;
+    p->active = ACT_NONE; /* active items are found in active rooms */
     p->range_mult = 1.0f;
     p->hit_radius = PLAYER_HIT_R;
     p->luck = 0;
@@ -49,7 +50,7 @@ static void player_bomb(void) {
 void player_hurt(int dmg) {
     Player *p = &G.pl;
     if (G.state != GS_PLAYING || G.transitioning) return;
-    if (p->invuln > 0.0f || p->dash_t > 0.0f) return;
+    if (p->invuln > 0.0f || p->dash_t > 0.0f || active_shield_on()) return;
     if (G.god) dmg = 0;
     /* Shields (temporary hearts) soak damage before the hull. */
     bool shielded = p->shield > 0;
@@ -86,19 +87,11 @@ void player_update(void) {
     mv = v2_norm(mv);
 
     p->invuln -= DT;
-    p->dash_cd -= DT;
 
     V2 to_mouse = v2_sub(in->mouse, p->pos);
     if (v2_len2(to_mouse) > 4.0f) p->aim_angle = v2_heading(to_mouse);
 
-    if (in->dash_pressed && p->dash_cd <= 0.0f) {
-        p->dash_dir = (mv.x != 0.0f || mv.y != 0.0f) ? mv : v2_angle(p->aim_angle);
-        p->dash_t = 0.13f;
-        p->dash_cd = p->dash_cooldown;
-        sfx_play_at(SFX_DASH, p->pos);
-        upg_on_dash();
-        fx_burst(p->pos, 12, 100.0f, 350.0f, 0.25f, 2.5f, col_hex(SHIP_COLOR, 1));
-    }
+    actives_update(); /* active item: dash, shield, boom, strength, chaos */
 
     if (p->dash_t > 0.0f) {
         p->dash_t -= DT;
@@ -206,15 +199,17 @@ void draw_ship(int character, V2 pos, float angle, float k, bool blink) {
 
 void player_draw(void) {
     const Player *p = &G.pl;
-    bool blink = p->invuln > 0.0f && p->dash_t <= 0.0f && fmodf(G.time, 0.12f) < 0.06f;
+    bool blink = p->invuln > 0.0f && p->dash_t <= 0.0f && !active_shield_on() && fmodf(G.time, 0.12f) < 0.06f;
     draw_ship(G.character, p->pos, p->aim_angle, 1.0f, blink);
 
     /* The real hitbox, always visible: classic bullet-hell readability. */
     draw_circle(p->pos, p->hit_radius + 2.0f, col_hex(0xff3355, 1));
     draw_circle(p->pos, p->hit_radius, COL_WHITE);
 
-    if (p->dash_cd > 0.0f) {
-        float k = 1.0f - p->dash_cd / p->dash_cooldown;
-        draw_arc(p->pos, 30.0f, 3.0f, -PI_F * 0.5f, -PI_F * 0.5f + TAU_F * k, col_a(COL_WHITE, 0.35f));
+    /* Active item recharging: an arc around the ship fills up. */
+    if (p->active != ACT_NONE && p->act_cd > 0.0f && p->act_cd_max > 0.0f) {
+        float k = 1.0f - p->act_cd / p->act_cd_max;
+        SDL_FColor c = p->active == ACT_DASH ? COL_WHITE : col_hex(ACTIVES[p->active].color, 1);
+        draw_arc(p->pos, 30.0f, 3.0f, -PI_F * 0.5f, -PI_F * 0.5f + TAU_F * k, col_a(c, 0.35f));
     }
 }

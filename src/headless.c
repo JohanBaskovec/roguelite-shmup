@@ -42,6 +42,26 @@ static const char *check_invariants(float room_time) {
         if (k->type == PK_AUGMENT && (G.room.type != ROOM_WORKSHOP || UPGRADES[k->sub].tier == 0 || !k->choice))
             return "augment pad outside a workshop (or not an exclusive one-of-N choice)";
     }
+    for (int i = 0; i < G.npk; i++) {
+        const Pickup *k = &G.pk[i];
+        if (k->type != PK_ACTIVE) continue;
+        if (k->sub <= ACT_NONE || k->sub >= ACT_COUNT || k->sub == p->active) return "invalid active item offered (or the one already held)";
+        if (!k->choice || G.room.type != ROOM_COMBAT || G.room.reward != RW_ACTIVE) return "active item outside an active room's choice";
+    }
+    if (p->active < ACT_NONE || p->active >= ACT_COUNT) return "active item id out of range";
+    if (p->act_cd < 0.0f || p->act_t < 0.0f || !isfinite(p->act_cd) || !isfinite(p->act_t)) return "active item timers invalid";
+    if (p->dash_t > 0.0f && p->active != ACT_DASH) return "dashing without the dash active item";
+    {
+        int lent = 0;
+        bool chaos_on = p->active == ACT_CHAOS && p->act_t > 0.0f;
+        for (int u = 0; u < UPG_COUNT; u++) {
+            if (!p->chaos[u]) continue;
+            lent++;
+            if (!chaos_on) return "CHAOS upgrades still lent after the effect ended";
+            if (p->upg_count[u] > 0) return "CHAOS lent an upgrade the player already owns";
+        }
+        if (lent > CHAOS_UPGRADES) return "CHAOS lent too many upgrades";
+    }
     if (G.nmc < 0 || G.nmc > MAX_MACHINES) return "machine count out of range";
     if (G.nmc > 0 && (G.room.type != ROOM_WORKSHOP || !G.room.cleared)) return "workshop machines outside a cleared workshop";
     if (!(p->spread_mult >= SPREAD_MIN * 0.99f) || !(p->spread_mult <= SPREAD_MAX * 1.01f)) return "spread out of range";
@@ -123,11 +143,20 @@ static const char *check_room_reward(void) {
         snprintf(buf, sizeof buf, "shop opened with %d items for sale instead of %d", priced, SHOP_ITEMS);
         return buf;
     }
-    bool item_room = G.room.type == ROOM_COMBAT && (G.room.reward == RW_WEAPON || G.room.reward == RW_UPGRADE);
+    bool item_room = G.room.type == ROOM_COMBAT && (G.room.reward == RW_WEAPON || G.room.reward == RW_UPGRADE || G.room.reward == RW_ACTIVE);
     if (item_room && count_choices() != REWARD_CHOICES) {
         snprintf(buf, sizeof buf, "%s room offers %d items to choose from instead of %d",
                  reward_name(G.room.reward), count_choices(), REWARD_CHOICES);
         return buf;
+    }
+    if (G.room.type == ROOM_COMBAT && G.room.reward == RW_ACTIVE) {
+        int seen = 0;
+        for (int i = 0; i < G.npk; i++) {
+            const Pickup *k = &G.pk[i];
+            if (k->type != PK_ACTIVE) return "active room offers something else than active items";
+            if (seen & (1 << k->sub)) return "active room offers the same item twice";
+            seen |= 1 << k->sub;
+        }
     }
     if (G.room.type == ROOM_STATS && count_choices() == 0) return "stats room cleared without any trade";
     if (G.room.type == ROOM_WORKSHOP) {
@@ -182,7 +211,7 @@ static void save_failure_shot(const char *path) {
 
 static void clear_edges(void) {
     Input *in = &G.in;
-    in->dash_pressed = in->bomb_pressed = in->pause_pressed = in->restart_pressed = in->confirm_pressed = false;
+    in->active_pressed = in->bomb_pressed = in->pause_pressed = in->restart_pressed = in->confirm_pressed = false;
     in->debug_pressed = in->char_pressed = false;
     in->weapon_select = -1;
     in->weapon_cycle = 0;
@@ -191,10 +220,10 @@ static void clear_edges(void) {
 /* Debug-menu teleports: every room type, with and without enemies, must land in a
  * coherent state, and the bot must be able to finish the room and leave it. */
 static int debug_rooms_run(const HeadlessOptions *o) {
-    static const RoomType types[] = {ROOM_START, ROOM_COMBAT, ROOM_COMBAT, ROOM_COMBAT, ROOM_STATS, ROOM_SHOP, ROOM_WORKSHOP, ROOM_SECRET, ROOM_SECRET};
-    static const RewardType rewards[] = {RW_NONE, RW_NONE, RW_WEAPON, RW_UPGRADE, RW_NONE, RW_NONE, RW_NONE, RW_NONE, RW_NONE};
-    static const int secret_shop[] = {0, 0, 0, 0, 0, 0, 0, 0, 1};
-    static const char *names[] = {"launch bay", "combat", "weapon", "upgrade", "stats", "shop", "workshop", "secret", "secret shop"};
+    static const RoomType types[] = {ROOM_START, ROOM_COMBAT, ROOM_COMBAT, ROOM_COMBAT, ROOM_COMBAT, ROOM_STATS, ROOM_SHOP, ROOM_WORKSHOP, ROOM_SECRET, ROOM_SECRET};
+    static const RewardType rewards[] = {RW_NONE, RW_NONE, RW_WEAPON, RW_UPGRADE, RW_ACTIVE, RW_NONE, RW_NONE, RW_NONE, RW_NONE, RW_NONE};
+    static const int secret_shop[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
+    static const char *names[] = {"launch bay", "combat", "weapon", "upgrade", "active", "stats", "shop", "workshop", "secret", "secret shop"};
     int failures = 0;
     for (int t = 0; t < ARRAY_LEN(types); t++) {
         for (int with = types[t] == ROOM_START ? 0 : 1; with >= 0; with--) {
@@ -424,6 +453,105 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         failures += !desc_ok + !hurt_ok + !sig_ok + !deflect_ok + !spread_ok;
     }
 
+    /* Scripted: the five active items (none at the start, then dash, shield, boom, strength, chaos). */
+    {
+        game_init(o->seed);
+        G.god = true;
+        game_new_run();
+        debug_teleport(ROOM_COMBAT, RW_COINS, 3, false);
+        G.state = GS_PLAYING;
+        G.npk = 0;
+        Player *pl = &G.pl;
+        Input *in = &G.in;
+        G.room.nobs = 0; /* open floor: nothing for the test shots to hit */
+        pl->pos = v2(ARENA_CX - 300.0f, ARENA_CY);
+        in->mouse = v2(ARENA_CX + 600.0f, ARENA_CY);
+#define TICK() do { game_update(); clear_edges(); } while (0)
+        in->active_pressed = true;
+        TICK();
+        bool none_ok = pl->active == ACT_NONE && pl->dash_t <= 0.0f && G.active_uses == 0;
+
+        active_give(ACT_DASH);
+        float x0 = pl->pos.x;
+        in->right = true;
+        in->active_pressed = true;
+        TICK();
+        bool dash_ok = pl->dash_t > 0.0f && fabsf(pl->act_cd - pl->dash_cooldown) < 0.02f;
+        in->active_pressed = true; /* still recharging: ignored */
+        TICK();
+        for (int t = 0; t < 30; t++) TICK();
+        in->right = false;
+        dash_ok = dash_ok && G.active_uses == 1 && pl->pos.x - x0 > 200.0f;
+
+        G.god = false;
+        active_give(ACT_SHIELD);
+        in->active_pressed = true;
+        TICK();
+        int hp = pl->hp + pl->shield;
+        for (int t = 0; t < 120; t++) {
+            for (int k = 0; k < 4; k++) ebullet_spawn(pl->pos, (float)k * 1.6f, 10.0f, 6.0f, COL_WHITE);
+            TICK();
+        }
+        bool shield_ok = pl->hp + pl->shield == hp && active_shield_on();
+        for (int t = 0; t < 300; t++) TICK();
+        shield_ok = shield_ok && !active_shield_on() && pl->act_cd > 0.0f;
+        G.neb = 0;
+        G.god = true;
+
+        active_give(ACT_BOOM);
+        Enemy dummy = {.type = EN_TANK, .uid = ++G.next_uid, .pos = v2(ARENA_CX + 300.0f, ARENA_CY), .radius = 30.0f,
+                       .hp = 5000.0f, .max_hp = 5000.0f};
+        G.en[G.nen++] = dummy;
+        G.npb = 0;
+        PBullet *b = pbullet_spawn(v2(ARENA_CX + 300.0f, ARENA_CY - 60.0f), v2(0.0f, -5.0f), 5.0f, 10.0f, COL_WHITE);
+        if (b) b->life = 5.0f;
+        in->active_pressed = true;
+        TICK();
+        bool boom_ok = G.nen > 0 && G.en[0].hp < 5000.0f && G.npb == 1 && G.pb[0].life > 0.0f;
+        G.nen = G.npb = 0;
+
+        active_give(ACT_STRENGTH);
+        pl->fire_cd = 0.0f;
+        in->fire = true;
+        TICK();
+        int normal = G.npb;
+        G.npb = 0;
+        pl->fire_cd = 0.0f;
+        in->active_pressed = true;
+        TICK();
+        int strong = G.npb;
+        in->fire = false;
+        bool strength_ok = normal > 0 && strong == 4 * normal;
+        G.npb = 0;
+
+        active_give(ACT_CHAOS);
+        float dmg = pl->dmg_mult, rate = pl->rate_mult, speed = pl->speed;
+        int owned = 0;
+        for (int u = 0; u < UPG_COUNT; u++) owned += pl->upg_count[u];
+        in->active_pressed = true;
+        TICK();
+        int lent = 0;
+        bool chaos_ok = true;
+        for (int u = 0; u < UPG_COUNT; u++)
+            if (pl->chaos[u]) {
+                lent++;
+                chaos_ok = chaos_ok && pl->upg_count[u] == 0 && upg_has(u) == 1;
+            }
+        chaos_ok = chaos_ok && lent == CHAOS_UPGRADES;
+        for (int t = 0; t < (int)(ACTIVES[ACT_CHAOS].duration * TICK_RATE) + 240; t++) TICK(); /* + hitstops */
+        int after = 0, still = 0;
+        for (int u = 0; u < UPG_COUNT; u++) {
+            after += pl->upg_count[u];
+            still += pl->chaos[u];
+        }
+        chaos_ok = chaos_ok && still == 0 && after == owned && pl->dmg_mult == dmg && pl->rate_mult == rate && pl->speed == speed;
+#undef TICK
+        printf("scripted actives: none -> %s, dash -> %s, shield -> %s, boom -> %s, strength %d -> %d shots -> %s, chaos %d upgrades -> %s\n",
+               none_ok ? "OK" : "FAILED", dash_ok ? "OK" : "FAILED", shield_ok ? "OK" : "FAILED", boom_ok ? "OK" : "FAILED",
+               normal, strong, strength_ok ? "OK" : "FAILED", lent, chaos_ok ? "OK" : "FAILED");
+        failures += !none_ok + !dash_ok + !shield_ok + !boom_ok + !strength_ok + !chaos_ok;
+    }
+
     printf("debug teleports - %s\n", failures ? "FAILED" : "OK");
     return failures ? 1 : 0;
 }
@@ -447,7 +575,14 @@ int headless_run(const HeadlessOptions *o) {
         const char *start_err = G.pl.max_hp != cd->hearts * 2 || G.pl.hp != G.pl.max_hp || G.pl.shield != cd->armor * 2 ||
                                         G.pl.weapon != cd->weapon || G.pl.wlevel[cd->weapon] != 1 || G.pl.hit_radius != cd->hit_radius ||
                                         G.pl.dmg_mult != cd->dmg_mult
-                                    ? "run did not start with the character's stats / weapon" : NULL;
+                                    ? "run did not start with the character's stats / weapon"
+                                : G.pl.active != ACT_NONE ? "run started with an active item (they must be found)" : NULL;
+        if (!start_err && G.room.type == ROOM_START) {
+            bool active_door = false;
+            for (int i = 0; i < G.room.ndoors; i++) active_door |= G.room.doors[i].reward == RW_ACTIVE && !G.room.doors[i].locked;
+            if (!active_door) start_err = "launch bay without an (unlocked) active room door";
+        }
+        if (o->active) active_give(o->active);
         G.pl.coins += o->coins;
         if (o->all_upgrades)
             for (int u = 0; u < UPG_COUNT; u++)
@@ -457,6 +592,7 @@ int headless_run(const HeadlessOptions *o) {
         if (o->stats_room) room_enter(ROOM_STATS, RW_NONE, o->depth > 0 ? o->depth : 1);
         else if (o->shop_room) room_enter(ROOM_SHOP, RW_NONE, o->depth > 0 ? o->depth : 1);
         else if (o->workshop_room) room_enter(ROOM_WORKSHOP, RW_NONE, o->depth > 0 ? o->depth : 3);
+        else if (o->active_room) room_enter(ROOM_COMBAT, RW_ACTIVE, o->depth > 0 ? o->depth : 1);
         else if (o->depth > 0) room_enter(ROOM_COMBAT, RW_UPGRADE, o->depth);
 
         int room_id = G.room.id, secret_parent = -1;
@@ -532,11 +668,12 @@ int headless_run(const HeadlessOptions *o) {
             if (G.pl.wlevel[w]) printf("%.3s%d ", WEAPONS[w].name, G.pl.wlevel[w]);
         const Player *p = &G.pl;
         printf("hits=%d coins=%d shops=%d bought=%d secrets=%d stats_rooms=%d", hits, p->coins, shops, G.items_bought, secrets, stats_rooms);
+        printf(" active=%s uses=%d", active_option_name(p->active), G.active_uses);
         if (workshops) printf(" workshops=%d machine_uses=%d augments=%d", workshops, G.machine_uses, G.augments);
         if (start_revives > p->revives) printf(" second_winds=%d", start_revives - p->revives);
         if (stats_rooms)
-            printf(" [dmg x%.2f rate x%.2f range x%.2f speed x%.2f dash %.2fs hitbox %.1f luck %+d]", (double)p->dmg_mult,
-                   (double)p->rate_mult, (double)p->range_mult, (double)(p->speed / 540.0f), (double)p->dash_cooldown,
+            printf(" [dmg x%.2f rate x%.2f range x%.2f speed x%.2f recharge x%.2f hitbox %.1f luck %+d]", (double)p->dmg_mult,
+                   (double)p->rate_mult, (double)p->range_mult, (double)(p->speed / 540.0f), (double)(p->dash_cooldown / DASH_BASE_CD),
                    (double)p->hit_radius, p->luck);
         printf(" -> %s\n", outcome);
         if (err) {
@@ -548,6 +685,12 @@ int headless_run(const HeadlessOptions *o) {
             failures++;
         } else if (o->workshop_room && (G.machine_uses == 0 || G.augments == 0)) {
             printf("  started in a workshop but never used a machine (%d) or took an augment (%d)\n", G.machine_uses, G.augments);
+            failures++;
+        } else if ((o->active || o->active_room) && G.active_uses == 0) {
+            printf("  had an active item but never used it\n");
+            failures++;
+        } else if (o->active_room && p->active == ACT_NONE) {
+            printf("  started in an active room but never took an active item\n");
             failures++;
         } else if (o->secret && secrets == 0) {
             printf("  every room hid a secret but the bot never entered one\n");

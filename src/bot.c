@@ -122,6 +122,7 @@ void bot_input(void) {
             int score = d->type == ROOM_SHOP ? (pl->coins >= 25 ? 7 : pl->coins >= 14 ? 4 : 0)
                       : d->type == ROOM_STATS ? 4
                       : d->type == ROOM_WORKSHOP ? (pl->coins >= GAMBLE_COST || pl->max_hp >= 6 ? 5 : 2)
+                      : d->reward == RW_ACTIVE ? (pl->active == ACT_NONE ? 7 : 2)
                       : d->reward == RW_UPGRADE || d->reward == RW_WEAPON ? 5
                       : d->reward == RW_HEART && pl->hp <= pl->max_hp / 2 ? 6
                       : d->reward == RW_COINS && pl->coins < 40 ? 4
@@ -189,7 +190,21 @@ void bot_input(void) {
         V2 centre = v2_norm(v2_sub(v2(ARENA_CX, ARENA_CY), pl->pos));
         dir = v2_len2(away) > 1.0f ? v2_norm(v2_add(v2_norm(away), v2_scale(centre, 0.3f))) : centre;
     }
-    if ((imminent || overlapped) && pl->dash_cd <= 0.0f) in->dash_pressed = true;
+    /* Active item, when it is ready and worth it. */
+    if (pl->active != ACT_NONE && pl->act_cd <= 0.0f && pl->act_t <= 0.0f && !G.room.cleared) {
+        int alive = 0;
+        for (int i = 0; i < G.nen; i++) alive += G.en[i].hp > 0.0f;
+        switch (pl->active) {
+        case ACT_DASH: in->active_pressed = imminent || overlapped; break;
+        case ACT_SHIELD: in->active_pressed = imminent || overlapped || threats >= 4; break;
+        case ACT_BOOM: /* plenty of shots out near enemies, or (sword) enemies right around */
+            in->active_pressed = alive > 0 && (melee ? nearest && best_any < 220.0f * 220.0f : G.npb >= 25);
+            break;
+        case ACT_STRENGTH: in->active_pressed = alive >= 3 && (t || melee); break;
+        case ACT_CHAOS: in->active_pressed = alive >= 5; break;
+        default: break;
+        }
+    }
     if (pl->hp <= 2 && threats >= 6 && pl->bombs > 0 && pl->invuln <= 0.0f) in->bomb_pressed = true;
 
     /* Keys only give 8 directions. Take the one closest to dir that does not run into an

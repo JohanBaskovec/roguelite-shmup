@@ -88,6 +88,7 @@ static void sword_swing(void) {
     p->swing_reach = sword_reach();
     p->swing_prev = -(float)p->swing_dir * p->swing_half;
     p->swing_dmg = w->damage * (1.0f + 0.15f * (float)(lvl - 1)) * p->dmg_mult * upg_volley_damage_mult();
+    if (active_strength_on()) p->swing_dmg *= 4.0f; /* STRENGTH: one blade, four times the bite */
     p->swing_id++;
     upg_on_volley(p->pos, p->aim_angle, p->swing_dmg * 0.35f, col_hex(w->color, 1));
     sfx_play_at(SFX_SWORD, p->pos);
@@ -192,9 +193,13 @@ static void fire_volley(void) {
     V2 fwd = v2_angle(p->aim_angle), side = v2_perp(fwd);
     V2 muzzle = v2_add(p->pos, v2_scale(fwd, 22.0f));
 
-    for (int i = 0; i < n; i++) {
-        float t = n > 1 ? (float)i / (float)(n - 1) - 0.5f : 0.0f;
-        float a = p->aim_angle + t * spread + frand(-w->jitter, w->jitter) * fminf(p->spread_mult, 1.0f);
+    /* STRENGTH: the whole volley four times, fanned slightly. */
+    int copies = active_strength_on() ? 4 : 1;
+    for (int i = 0; i < n * copies; i++) {
+        int c = i / n;
+        float off = copies > 1 ? ((float)c - (float)(copies - 1) * 0.5f) * 0.07f : 0.0f;
+        float t = n > 1 ? (float)(i % n) / (float)(n - 1) - 0.5f : 0.0f;
+        float a = p->aim_angle + off + t * spread + frand(-w->jitter, w->jitter) * fminf(p->spread_mult, 1.0f);
         V2 pos = v2_add(muzzle, v2_scale(side, w->parallel * t * (float)(n - 1)));
         float spd = (w->speed + frand(0.0f, w->speed_var)) * p->shot_speed_mult;
         PBullet *b = pbullet_spawn(pos, v2_scale(v2_angle(a), spd), w->radius, dmg, col);
@@ -209,7 +214,7 @@ static void fire_volley(void) {
     }
     upg_on_volley(muzzle, p->aim_angle, dmg, col);
 
-    fx_particle(muzzle, v2(0, 0), 0.05f, 18.0f + (float)n * 2.0f, col_a(col, 0.8f), 0.0f, PT_GLOW);
+    fx_particle(muzzle, v2(0, 0), 0.05f, 18.0f + (float)(n * copies) * 2.0f, col_a(col, 0.8f), 0.0f, PT_GLOW);
     static const SfxId shot_sfx[WPN_COUNT] = {
         [WPN_BLASTER] = SFX_SHOT_BLASTER, [WPN_SCATTER] = SFX_SHOT_SCATTER, [WPN_NEEDLER] = SFX_SHOT_NEEDLER,
         [WPN_SEEKER] = SFX_SHOT_SEEKER, [WPN_BOUNCER] = SFX_SHOT_BOUNCER, [WPN_SWORD] = SFX_SWORD,

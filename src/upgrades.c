@@ -15,7 +15,7 @@ const UpgradeDef UPGRADES[UPG_COUNT] = {
     [UPG_PIERCE] = {"PIERCER", "Shots pierce one more enemy", 0xf28cff, 0},
     [UPG_BOUNCE] = {"RUBBER CORE", "Shots bounce off walls twice", 0xffe14d, 0},
     [UPG_HOMING] = {"SMART ROUNDS", "Shots steer towards enemies", 0x9dff6a, 3},
-    [UPG_THRUSTER] = {"THRUSTERS", "+10% speed, faster dash", 0x7da8ff, 4},
+    [UPG_THRUSTER] = {"THRUSTERS", "+10% speed, faster recharge|of your active item", 0x7da8ff, 4},
     [UPG_HULL] = {"HULL PLATING", "+1 heart container", 0xff3355, 0},
     [UPG_DRONE] = {"WING DRONE", "An auto-firing drone joins you", 0xb6ffb0, 0},
     [UPG_MAGNET] = {"MAGNET", "Bigger pickup radius", 0xffd23f, 3},
@@ -60,8 +60,8 @@ const UpgradeDef UPGRADES[UPG_COUNT] = {
     [UPG_LEECH] = {"LEECH CORE", "Kills slowly restore health", 0xff3a6e, 2},
     [UPG_ADRENALINE] = {"ADRENALINE", "Faster when at 1 heart or less", 0xff3355, 1},
     [UPG_BLOODLUST] = {"BLOODLUST", "Kills boost damage this room", 0xc8102e, 2},
-    [UPG_RAM] = {"RAM PLATING", "Dashing through enemies hurts", 0xffc26b, 2},
-    [UPG_DASH_NOVA] = {"DASH NOVA", "Dashing fires a ring of shots", 0x7dfcff, 2},
+    [UPG_RAM] = {"RAM PLATING", "Ramming enemies hurts them|while dashing or shielded", 0xffc26b, 2},
+    [UPG_DASH_NOVA] = {"NOVA TRIGGER", "Using your active item|fires a ring of shots", 0x7dfcff, 2},
     [UPG_CHRONO] = {"CHRONO FIELD", "Enemy bullets 15% slower", 0xa8a0ff, 2},
     [UPG_VOLATILE] = {"VOLATILE TARGETS", "Enemies explode when they die", 0xff5a1f, 2},
     [UPG_MINES] = {"MINE LAYER", "Drops mines as you move", 0xffaa33, 2},
@@ -77,14 +77,16 @@ const UpgradeDef UPGRADES[UPG_COUNT] = {
 
     /* Workshop exclusives: tier = heart containers paid at the augment machine. */
     [UPG_X_BLOOD_ROUNDS] = {"BLOOD ROUNDS", "+30% damage; every hit makes|enemies bleed (40%/s, 3 s)", 0xff2050, 1, 1},
-    [UPG_X_OVERDRIVE] = {"OVERDRIVE CORE", "+30% fire rate, +15% speed,|dash recharges 30% faster", 0xff9f1c, 1, 1},
+    [UPG_X_OVERDRIVE] = {"OVERDRIVE CORE", "+30% fire rate, +15% speed,|active item recharges 30% faster", 0xff9f1c, 1, 1},
     [UPG_X_HELLFIRE] = {"HELLFIRE ENGINE", "+40% damage; every hit sets|enemies ablaze (100%/s, 2 s)", 0xff5a00, 1, 2},
     [UPG_X_STORM] = {"STORM CORE", "+30% fire rate; hits may chain|lightning through 3 enemies", 0x9db8ff, 1, 2},
     [UPG_X_DEMON] = {"DEMON HEART", "Damage x1.8, +2 projectiles,|every kill explodes", 0xb0103a, 1, 3},
     [UPG_X_GOD_CANNON] = {"GOD CANNON", "+50% dmg, +25% rate, +1 shot,|+2 pierce, shots home", 0xfff5c0, 1, 3},
 };
 
-static int has(UpgradeId u) { return G.pl.upg_count[u]; }
+/* Stacks owned, +1 while CHAOS lends it (only lent when not owned). */
+static int has(UpgradeId u) { return G.pl.upg_count[u] + (G.pl.chaos[u] ? 1 : 0); }
+int upg_has(int u) { return has((UpgradeId)u); }
 
 /* Flat damage of auras / explosions follows the player's damage (enemies never scale). */
 static float aura_scale(void) { return G.pl.dmg_mult; }
@@ -146,6 +148,9 @@ bool upgrade_capped(int u) {
     case UPG_GLASS_CANNON: return p->max_hp < 4;
     case UPG_FOUR_LEAF: return p->luck >= 4;
     case UPG_MICRO_HULL: return p->hit_radius * 0.75f < 2.0f;
+    /* Useless without an active item that triggers them. */
+    case UPG_DASH_NOVA: return p->active == ACT_NONE;
+    case UPG_RAM: return p->active != ACT_DASH && p->active != ACT_SHIELD;
     default: return false;
     }
 }
@@ -236,6 +241,7 @@ void upgrade_apply(int u) {
         break;
     default: break; /* effect read from upg_count by the hooks below */
     }
+    p->chaos[u] = false; /* owned for real now: CHAOS no longer lends it */
     p->upg_count[u]++;
     char desc[96];
     SDL_snprintf(desc, sizeof desc, "%s", upgrade_desc_at(u, p->upg_count[u]));
@@ -533,7 +539,7 @@ void upg_on_hurt(void) {
     if (n) ring_of_shots(16 + 8 * (n - 1), 8.0f * aura_scale(), 900.0f, 0.6f, 0xff6a4d);
 }
 
-void upg_on_dash(void) {
+void upg_on_active(void) {
     int n = has(UPG_DASH_NOVA);
     if (n) ring_of_shots(10 * n, 6.0f * aura_scale(), 1000.0f, 0.5f, 0x7dfcff);
 }
@@ -575,13 +581,14 @@ void upg_update(void) {
             if ((G.ticks + e->uid * 7) % 18 == 0) lightning(p->pos, e->pos);
         }
     }
-    /* RAM PLATING: the dash itself hurts. */
-    if ((n = has(UPG_RAM)) > 0 && p->dash_t > 0.0f) {
+    /* RAM PLATING: the dash (or the shield bubble) itself hurts. */
+    if ((n = has(UPG_RAM)) > 0 && (p->dash_t > 0.0f || active_shield_on())) {
         for (int i = 0; i < G.nen; i++) {
             Enemy *e = &G.en[i];
             float r = e->radius + PLAYER_BODY_R + 12.0f;
             if (e->hp > 0.0f && v2_dist2(e->pos, p->pos) < r * r)
-                enemy_damage(e, 260.0f * (float)n * aura_scale() * DT, v2_scale(p->dash_dir, 60.0f));
+                enemy_damage(e, 260.0f * (float)n * aura_scale() * DT,
+                             p->dash_t > 0.0f ? v2_scale(p->dash_dir, 60.0f) : v2_scale(v2_norm(v2_sub(e->pos, p->pos)), 60.0f));
         }
     }
     /* MINE LAYER: a mine behind the ship every so often while moving and fighting. */

@@ -35,6 +35,35 @@ static void draw_weapon_slots(void) {
     }
 }
 
+/* Active item slot, next to the resources: icon, name, recharge bar, key. */
+static void draw_active_slot(void) {
+    const Player *p = &G.pl;
+    const float x = 380.0f, y = 14.0f, w = 230.0f, h = 60.0f;
+    bool none = p->active == ACT_NONE;
+    SDL_FColor c = col_hex(none ? 0x2a3040 : ACTIVES[p->active].color, 1);
+    bool ready = !none && p->act_cd <= 0.0f;
+    draw_rect(x, y, w, h, ready ? col_a(col_mul(c, 0.18f), 1.0f) : col_hex(0x0b0e18, 1));
+    draw_rect_outline(x, y, w, h, ready ? 2.5f : 1.5f, col_a(c, ready ? 0.6f + 0.4f * sinf(G.time * 5.0f) : 0.5f));
+    if (none) {
+        draw_text_centered(x + w * 0.5f, y + 14.0f, 1.5f, col_hex(0x4a5470, 1), "NO ACTIVE ITEM");
+        draw_text_centered(x + w * 0.5f, y + 36.0f, 1.25f, col_hex(0x4a5470, 1), "find one in an ACTIVE room");
+        return;
+    }
+    draw_active_icon(p->active, v2(x + 30.0f, y + h * 0.5f), 14.0f, G.time);
+    draw_text(x + 58.0f, y + 8.0f, 2.0f, c, "%s", ACTIVES[p->active].name);
+    float bx = x + 58.0f, bw = w - 70.0f, by = y + 34.0f;
+    draw_rect(bx, by, bw, 8.0f, col_hex(0x1a2035, 1));
+    if (p->act_t > 0.0f && ACTIVES[p->active].duration > 0.0f) {
+        /* effect running: the bar drains */
+        draw_rect(bx, by, bw * p->act_t / ACTIVES[p->active].duration, 8.0f, COL_WHITE);
+    } else {
+        float k = ready || p->act_cd_max <= 0.0f ? 1.0f : 1.0f - p->act_cd / p->act_cd_max;
+        draw_rect(bx, by, bw * k, 8.0f, ready ? c : col_a(c, 0.5f));
+    }
+    if (p->act_t > 0.0f) draw_text(bx, y + 46.0f, 1.0f, col_a(COL_WHITE, 0.8f), "ACTIVE - %.1f S", (double)p->act_t);
+    else draw_text(bx, y + 46.0f, 1.0f, col_a(COL_WHITE, 0.45f), "%s", ready ? "READY - SPACE" : "RECHARGING");
+}
+
 /* ---- Stats overlay (F2, top-left of the arena, semi-transparent) ---------- */
 
 typedef struct {
@@ -55,7 +84,7 @@ static int side_stats(SideStat *s) {
     s[n++] = (SideStat){"RANGE", p->range_mult, 1.0f, 1, "x%.2f"};
     s[n++] = (SideStat){"SHOT SPEED", p->shot_speed_mult * upg_shot_speed_mult(), 1.0f, 1, "x%.2f"};
     s[n++] = (SideStat){"MOVE SPEED", p->speed * upg_move_speed_mult() / 540.0f, 1.0f, 1, "x%.2f"};
-    s[n++] = (SideStat){"DASH", p->dash_cooldown, 0.6f, -1, "%.2fs"};
+    s[n++] = (SideStat){"RECHARGE", p->dash_cooldown / DASH_BASE_CD, 1.0f, -1, "x%.2f"};
     s[n++] = (SideStat){"HITBOX", p->hit_radius, PLAYER_HIT_R, -1, "%.1fpx"};
     s[n++] = (SideStat){"LUCK", (float)p->luck, 0.0f, 1, "%+.0f"};
     s[n++] = (SideStat){"SPREAD", p->spread_mult, 1.0f, -1, "x%.2f"};
@@ -133,6 +162,7 @@ void hud_draw(void) {
     resource(PK_COIN, 48.0f, 68.0f, p->coins);
     resource(PK_BOMB, 160.0f, 68.0f, p->bombs);
     resource(PK_KEY, 272.0f, 68.0f, p->keys);
+    draw_active_slot();
 
     if (r->type == ROOM_START) {
         draw_text_centered(SCREEN_W * 0.5f, 16.0f, 3.0f, COL_WHITE, "LAUNCH BAY");
@@ -204,8 +234,8 @@ static void draw_stats(float y) {
     SDL_FColor c = col_a(COL_WHITE, 0.75f);
     draw_text_centered(SCREEN_W * 0.5f, y, 2.0f, c, "DAMAGE x%.2f   FIRE RATE x%.2f   RANGE x%.2f   SHOT SPEED x%.2f",
                        (double)p->dmg_mult, (double)p->rate_mult, (double)p->range_mult, (double)p->shot_speed_mult);
-    draw_text_centered(SCREEN_W * 0.5f, y + 30.0f, 2.0f, c, "MOVE SPEED x%.2f   DASH %.2fs   HITBOX %.1fpx   LUCK %+d   SPREAD x%.2f",
-                       (double)(p->speed / 540.0f), (double)p->dash_cooldown, (double)p->hit_radius, p->luck, (double)p->spread_mult);
+    draw_text_centered(SCREEN_W * 0.5f, y + 30.0f, 2.0f, c, "MOVE SPEED x%.2f   RECHARGE x%.2f   HITBOX %.1fpx   LUCK %+d   SPREAD x%.2f",
+                       (double)(p->speed / 540.0f), (double)(p->dash_cooldown / DASH_BASE_CD), (double)p->hit_radius, p->luck, (double)p->spread_mult);
     draw_text_centered(SCREEN_W * 0.5f, y + 60.0f, 2.0f, c, "PROJECTILES +%d   PIERCE +%d   BOUNCE +%d   DRONES %d",
                        p->extra_proj, p->pierce, p->bounce, p->drones);
     /* Upgrades, wrapped over as many lines as needed. */
@@ -258,7 +288,7 @@ void overlay_draw(void) {
         const char *lines[] = {
             "WASD / ZQSD / ARROWS   move",
             "MOUSE                  aim & shoot (hold)",
-            "SPACE / SHIFT / RMB    dash (invulnerable)",
+            "SPACE / SHIFT / RMB    active item (dash, shield...)",
             "E                      bomb - clears every bullet",
             "WHEEL / 1-6            switch weapon",
             "ESC  pause   M  mute   F2  stats   F11  fullscreen",

@@ -72,6 +72,23 @@ typedef enum {
     UPG_COUNT
 } UpgradeId;
 
+/* Active items: one slot, used with SPACE / SHIFT / right click, then recharges. None at the start:
+ * they come from active rooms (RW_ACTIVE, choice of 3). */
+typedef enum { ACT_NONE, ACT_DASH, ACT_SHIELD, ACT_BOOM, ACT_STRENGTH, ACT_CHAOS, ACT_COUNT } ActiveId;
+
+typedef struct {
+    const char *name;
+    const char *desc;     /* '|' splits it over two lines */
+    uint32_t color;
+    float cooldown;       /* seconds, scaled by the RECHARGE stat (Player.dash_cooldown / DASH_BASE_CD) */
+    float duration;       /* effect time (0 = instant) */
+} ActiveDef;
+
+extern const ActiveDef ACTIVES[ACT_COUNT];
+
+#define DASH_BASE_CD 0.6f    /* Player.dash_cooldown at the start: the dash's own recharge */
+#define CHAOS_UPGRADES 20    /* CHAOS: temporary upgrades granted */
+
 typedef struct {
     const char *name;
     const char *desc;
@@ -159,8 +176,9 @@ typedef struct {
 
 /* ---- Pickups ------------------------------------------------------------- */
 
+/* PK_ACTIVE: an active item (sub = ActiveId), replaces the one held. */
 /* PK_AUGMENT: workshop pad, a tier-N exclusive upgrade paid with N heart containers. */
-typedef enum { PK_COIN, PK_KEY, PK_BOMB, PK_HEART, PK_WEAPON, PK_UPGRADE, PK_STAT, PK_AUGMENT } PickupType;
+typedef enum { PK_COIN, PK_KEY, PK_BOMB, PK_HEART, PK_WEAPON, PK_UPGRADE, PK_STAT, PK_AUGMENT, PK_ACTIVE } PickupType;
 
 typedef struct {
     PickupType type;
@@ -195,7 +213,7 @@ typedef struct {
 /* ---- Rooms --------------------------------------------------------------- */
 
 typedef enum { ROOM_START, ROOM_COMBAT, ROOM_STATS, ROOM_TREASURE, ROOM_SHOP, ROOM_BOSS, ROOM_SECRET, ROOM_WORKSHOP } RoomType;
-typedef enum { RW_NONE, RW_COINS, RW_KEY, RW_BOMBS, RW_HEART, RW_WEAPON, RW_UPGRADE, RW_COUNT } RewardType;
+typedef enum { RW_NONE, RW_COINS, RW_KEY, RW_BOMBS, RW_HEART, RW_WEAPON, RW_UPGRADE, RW_ACTIVE, RW_COUNT } RewardType;
 typedef enum { SIDE_LEFT, SIDE_TOP, SIDE_RIGHT, SIDE_BOTTOM } Side;
 
 typedef struct {
@@ -246,8 +264,12 @@ typedef struct {
     int hp, max_hp;             /* in half-hearts */
     float invuln;
     float fire_cd;
-    float dash_cd, dash_t, dash_cooldown;
+    float dash_t, dash_cooldown; /* dash_cooldown: the RECHARGE stat (dash recharge, scales every active) */
     V2 dash_dir;
+    int active;                 /* ActiveId held (ACT_NONE at the start) */
+    float act_cd, act_cd_max;   /* recharge left / total of the last use */
+    float act_t;                /* effect time left (shield, strength, chaos) */
+    bool chaos[UPG_COUNT];      /* CHAOS: temporary upgrades (only ones not owned), removed when it ends */
     float speed;
     int coins, keys, bombs;
     int weapon;
@@ -302,7 +324,7 @@ typedef enum { GS_TITLE, GS_CHAR_SELECT, GS_PLAYING, GS_PAUSED, GS_GAMEOVER, GS_
 typedef struct {
     bool up, down, left, right, fire;
     /* edge-triggered, cleared after each simulation tick */
-    bool dash_pressed, bomb_pressed, pause_pressed, restart_pressed, confirm_pressed, debug_pressed;
+    bool active_pressed, bomb_pressed, pause_pressed, restart_pressed, confirm_pressed, debug_pressed;
     bool char_pressed; /* C: back to the character select screen */
     int weapon_select; /* -1 = none */
     int weapon_cycle;
@@ -337,6 +359,7 @@ typedef struct {
     SDL_FColor banner_col;
     int rooms_cleared, kills;
     int items_bought; /* shop purchases this run */
+    int active_uses;  /* active items used this run */
     int machine_uses, augments; /* workshop: supply press / slot machine uses, augments taken */
     int room_counter; /* source of Room.id */
     Room parent;      /* room the current secret room was found in, restored on exit */
@@ -416,7 +439,8 @@ void upg_after_hit(PBullet *b, Enemy *e, float dmg);
 void upg_on_kill(const Enemy *e);
 bool upg_on_lethal_hit(void);         /* SECOND WIND: true = survived */
 void upg_on_hurt(void);
-void upg_on_dash(void);
+void upg_on_active(void);            /* NOVA TRIGGER: any active item used */
+int upg_has(int u);                   /* stacks owned + 1 while CHAOS lends it */
 void upg_update(void);
 void upg_on_room_enter(void);
 void upg_on_room_clear(void);
@@ -470,6 +494,20 @@ void player_draw(void);
 void player_hurt(int dmg);
 /* Ship of a character, also used by the character select screen. */
 void draw_ship(int character, V2 pos, float angle, float scale, bool blink);
+
+/* actives.c */
+void actives_update(void);            /* input, recharge, effects (from player_update) */
+void actives_draw(void);              /* shield bubble, strength / chaos auras */
+void active_give(int a);
+bool active_strength_on(void);        /* STRENGTH: x4 shots */
+bool active_shield_on(void);          /* SHIELD: invincible */
+float active_cooldown(int a);         /* with the RECHARGE stat */
+void active_end_chaos(void);
+const char *active_option_name(int a); /* lowercase name for --active */
+void draw_active_icon(int a, V2 pos, float s, float t);
+/* Active room: REWARD_CHOICES distinct actives, never the one already held. */
+void active_spawn_choices(V2 center);
+#define COLOR_ACTIVE 0xffe94d
 
 /* characters.c */
 void character_apply(void); /* starting stats / weapon of G.character, after player_init's defaults */

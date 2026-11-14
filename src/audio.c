@@ -79,6 +79,9 @@ static const SfxInfo INFO[SFX_COUNT] = {
     [SFX_PAUSE] = {0.40f, 0.10f, 1, 0.00f},
     [SFX_SWORD] = {0.55f, 0.05f, 3, 0.10f},
     [SFX_DEFLECT] = {0.45f, 0.04f, 3, 0.15f},
+    [SFX_SHIELD] = {0.60f, 0.20f, 1, 0.00f},
+    [SFX_POWER_UP] = {0.60f, 0.20f, 1, 0.00f},
+    [SFX_CHAOS] = {0.60f, 0.20f, 1, 0.00f},
 };
 
 static Sample samples[SFX_COUNT];
@@ -243,6 +246,23 @@ static void generate_all(void) {
     SFX(SFX_DEFLECT,
         {.wave = W_SINE, .f0 = 2400, .f1 = 2200, .dur = 0.12f, .decay = 2.5f, .vol = 0.35f},
         {.wave = W_SQUARE, .f0 = 3600, .f1 = 3000, .dur = 0.03f, .duty = 0.25f, .vol = 0.12f});
+    /* Active items: a glassy bubble forming, a rising power chord, a wobbly random arpeggio. */
+    SFX(SFX_SHIELD,
+        {.wave = W_SINE, .f0 = 300, .f1 = 1200, .dur = 0.25f, .attack = 0.05f, .decay = 2, .vib_hz = 18, .vib_depth = 0.03f, .vol = 0.4f},
+        {.wave = W_TRI, .f0 = E6, .dur = 0.4f, .delay = 0.12f, .decay = 3, .vol = 0.25f},
+        {.wave = W_NOISE, .f0 = WHITE, .dur = 0.2f, .attack = 0.1f, .decay = 3, .lp0 = 3000, .lp1 = 9000, .vol = 0.15f});
+    SFX(SFX_POWER_UP,
+        {.wave = W_SAW, .f0 = 110, .f1 = 220, .dur = 0.35f, .decay = 2, .lp0 = 600, .lp1 = 3000, .vol = 0.4f},
+        {.wave = W_SQUARE, .f0 = C5, .dur = 0.08f, .duty = 0.3f, .vol = 0.25f},
+        {.wave = W_SQUARE, .f0 = G5, .dur = 0.08f, .delay = 0.06f, .duty = 0.3f, .vol = 0.25f},
+        {.wave = W_SQUARE, .f0 = C6, .dur = 0.25f, .delay = 0.12f, .decay = 2, .duty = 0.3f, .vol = 0.3f});
+    SFX(SFX_CHAOS,
+        {.wave = W_TRI, .f0 = E5, .dur = 0.07f, .vol = 0.3f},
+        {.wave = W_TRI, .f0 = B5, .dur = 0.07f, .delay = 0.05f, .vol = 0.3f},
+        {.wave = W_TRI, .f0 = G5, .dur = 0.07f, .delay = 0.10f, .vol = 0.3f},
+        {.wave = W_TRI, .f0 = D6, .dur = 0.07f, .delay = 0.15f, .vol = 0.3f},
+        {.wave = W_TRI, .f0 = C6, .dur = 0.07f, .delay = 0.20f, .vol = 0.3f},
+        {.wave = W_SINE, .f0 = G6, .dur = 0.5f, .delay = 0.25f, .decay = 2, .vib_hz = 9, .vib_depth = 0.04f, .vol = 0.3f});
     SFX(SFX_DASH,
         {.wave = W_NOISE, .f0 = WHITE, .dur = 0.16f, .attack = 0.03f, .decay = 2, .lp0 = 800, .lp1 = 6000, .vol = 0.6f},
         {.wave = W_SINE, .f0 = 300, .f1 = 700, .dur = 0.12f, .vol = 0.15f});
@@ -419,7 +439,7 @@ static const char *const SFX_NAMES[] = {
     "player_hurt", "player_death", "dash", "bomb", "weapon_switch", "denied",
     "coin", "key", "bomb_pickup", "heart", "item",
     "room_clear", "door_open", "unlock", "secret", "door_enter", "ui_start", "pause",
-    "sword", "deflect",
+    "sword", "deflect", "shield", "power_up", "chaos",
 };
 _Static_assert(sizeof SFX_NAMES / sizeof SFX_NAMES[0] == SFX_COUNT, "one WAV name per SfxId, in enum order");
 

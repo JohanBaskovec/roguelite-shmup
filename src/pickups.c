@@ -18,7 +18,7 @@ void pickup_spawn(PickupType type, int sub, V2 pos, V2 vel) {
 
 static SDL_FColor pickup_glow_color(const Pickup *k);
 
-static bool is_pedestal(PickupType t) { return t == PK_WEAPON || t == PK_UPGRADE || t == PK_STAT || t == PK_AUGMENT; }
+static bool is_pedestal(PickupType t) { return t == PK_WEAPON || t == PK_UPGRADE || t == PK_STAT || t == PK_AUGMENT || t == PK_ACTIVE; }
 
 PickupType reward_icon(RewardType r) {
     switch (r) {
@@ -27,6 +27,7 @@ PickupType reward_icon(RewardType r) {
     case RW_HEART: return PK_HEART;
     case RW_WEAPON: return PK_WEAPON;
     case RW_UPGRADE: return PK_UPGRADE;
+    case RW_ACTIVE: return PK_ACTIVE;
     default: return PK_COIN;
     }
 }
@@ -39,6 +40,7 @@ const char *reward_name(RewardType r) {
     case RW_HEART: return "HEARTS";
     case RW_WEAPON: return "WEAPON";
     case RW_UPGRADE: return "UPGRADE";
+    case RW_ACTIVE: return "ACTIVE";
     default: return "";
     }
 }
@@ -178,6 +180,7 @@ void reward_drop(RewardType r, V2 pos) {
     } break;
     case RW_WEAPON:
     case RW_UPGRADE: spawn_item_choices(r, pos); break;
+    case RW_ACTIVE: active_spawn_choices(pos); break;
     default:
         return;
     }
@@ -225,6 +228,10 @@ static bool collect(const Pickup *k) {
         break;
     case PK_STAT:
         stat_offer_take(k->sub);
+        fx_shake(0.3f);
+        break;
+    case PK_ACTIVE:
+        active_give(k->sub);
         fx_shake(0.3f);
         break;
     case PK_AUGMENT: {
@@ -382,6 +389,9 @@ void draw_pickup_icon(PickupType type, int sub, V2 p, float s, float t) {
         draw_ngon(p, s, sides, t * 2.0f + PI_F / (float)sides, c);
         draw_circle(p, s * 0.4f, COL_WHITE);
     } break;
+    case PK_ACTIVE:
+        draw_active_icon(sub, p, s, t);
+        break;
     case PK_STAT: {
         /* Green arrow up, red arrow down: a trade. */
         SDL_FColor g = col_hex(0x5dff8a, 1), r = col_hex(0xff4d6a, 1);
@@ -404,6 +414,7 @@ static SDL_FColor pickup_glow_color(const Pickup *k) {
     case PK_UPGRADE:
     case PK_AUGMENT: return col_hex(UPGRADES[k->sub].color, 1);
     case PK_STAT: return col_hex(COLOR_STATS, 1);
+    case PK_ACTIVE: return col_hex(ACTIVES[k->sub].color, 1);
     }
     return COL_WHITE;
 }
@@ -453,6 +464,17 @@ void pickups_draw(void) {
         if (k->type == PK_STAT) {
             draw_text_centered(k->pos.x, k->pos.y + 56.0f, ls, col_hex(0x5dff8a, 1), "%s", STATS[stat_offer_up(k->sub)].up_text);
             draw_text_centered(k->pos.x, k->pos.y + 56.0f + 13.0f * ls, ls, col_hex(0xff4d6a, 1), "%s", STATS[stat_offer_down(k->sub)].down_text);
+            continue;
+        }
+        if (k->type == PK_ACTIVE) {
+            if (G.pl.active != ACT_NONE)
+                draw_text_centered(k->pos.x, k->pos.y - 74.0f, 1.5f, col_a(COL_WHITE, 0.55f), "REPLACES %s", ACTIVES[G.pl.active].name);
+            draw_text_centered(k->pos.x, k->pos.y + 56.0f, ls, pickup_glow_color(k), "%s", ACTIVES[k->sub].name);
+            const char *desc = ACTIVES[k->sub].desc;
+            float dy = k->pos.y + 60.0f + 10.0f * ls;
+            draw_desc(k->pos.x, dy, 1.5f, col_a(COL_WHITE, 0.7f), desc);
+            draw_text_centered(k->pos.x, dy + (SDL_strchr(desc, '|') ? 33.0f : 16.5f), 1.5f, col_a(COL_WHITE, 0.5f),
+                               "recharge %.1f s", (double)active_cooldown(k->sub));
             continue;
         }
         bool weapon = k->type == PK_WEAPON;

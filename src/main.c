@@ -27,6 +27,8 @@ typedef struct {
     bool cleared;          /* --cleared: the starting room is already cleared (dev, like the F3 menu) */
     bool no_bot;           /* --no-bot: screenshots without the autopilot (the ship stays put) */
     int character;         /* --char NAME: normal / shotgunner / knight */
+    int active;            /* --active NAME: start with this active item */
+    bool active_room;      /* --active-room: start in an active room (choice of 3 active items) */
     bool char_select;      /* --char-select: open the character select screen at startup */
     bool show_secret;      /* --show-secret: mark secret corners (debug menu: SHOW SECRET CORNER) */
     bool all_upgrades;     /* --all-upgrades: start with one of every upgrade */
@@ -77,6 +79,17 @@ static void parse_args(int argc, char **argv, Options *o) {
                 exit(2);
             }
         }
+        else if (!strcmp(a, "--active") && more) {
+            const char *name = argv[++i];
+            o->active = -1;
+            for (int c = ACT_NONE + 1; c < ACT_COUNT; c++)
+                if (!strcmp(name, active_option_name(c))) o->active = c;
+            if (o->active < 0) {
+                fprintf(stderr, "unknown active item '%s' (dash, shield, boom, strength, chaos)\n", name);
+                exit(2);
+            }
+        }
+        else if (!strcmp(a, "--active-room")) o->active_room = true;
         else if (!strcmp(a, "--all-upgrades")) o->all_upgrades = true;
         else if (!strcmp(a, "--hp") && more) o->hp = atoi(argv[++i]);
         else if (!strcmp(a, "--coins") && more) o->coins = atoi(argv[++i]);
@@ -93,7 +106,7 @@ static void parse_args(int argc, char **argv, Options *o) {
 
 static void clear_edges(void) {
     Input *in = &G.in;
-    in->dash_pressed = in->bomb_pressed = in->pause_pressed = in->restart_pressed = in->confirm_pressed = false;
+    in->active_pressed = in->bomb_pressed = in->pause_pressed = in->restart_pressed = in->confirm_pressed = false;
     in->debug_pressed = in->char_pressed = false;
     in->weapon_select = -1;
     in->weapon_cycle = 0;
@@ -126,7 +139,7 @@ static void handle_event(const SDL_Event *e, SDL_Window *win, bool bot) {
         case SDL_SCANCODE_ESCAPE: in->pause_pressed = true; break;
         case SDL_SCANCODE_SPACE:
         case SDL_SCANCODE_LSHIFT:
-        case SDL_SCANCODE_RSHIFT: in->dash_pressed = true; break;
+        case SDL_SCANCODE_RSHIFT: in->active_pressed = true; break;
         case SDL_SCANCODE_E: in->bomb_pressed = true; break;
         case SDL_SCANCODE_RETURN:
         case SDL_SCANCODE_KP_ENTER: in->confirm_pressed = true; break;
@@ -148,7 +161,7 @@ static void handle_event(const SDL_Event *e, SDL_Window *win, bool bot) {
         break;
     case SDL_EVENT_MOUSE_BUTTON_DOWN:
         if (e->button.button == SDL_BUTTON_LEFT) in->confirm_pressed = true;
-        else if (e->button.button == SDL_BUTTON_RIGHT) in->dash_pressed = true;
+        else if (e->button.button == SDL_BUTTON_RIGHT) in->active_pressed = true;
         break;
     case SDL_EVENT_MOUSE_WHEEL:
         if (e->wheel.y > 0) in->weapon_cycle = -1;
@@ -186,7 +199,7 @@ int main(int argc, char **argv) {
             .runs = opt.runs, .max_ticks = opt.ticks, .depth = opt.depth, .stats_room = opt.stats_room,
             .shop_room = opt.shop_room, .coins = opt.coins, .debug_rooms = opt.debug_rooms, .secret = opt.secret,
             .all_upgrades = opt.all_upgrades, .hp = opt.hp, .character = opt.character, .workshop_room = opt.workshop_room,
-            .god = opt.god, .expect_rooms = opt.expect_rooms, .fail_shot = opt.fail_shot,
+            .active = opt.active, .active_room = opt.active_room, .god = opt.god, .expect_rooms = opt.expect_rooms, .fail_shot = opt.fail_shot,
         };
         return headless_run(&h);
     }
@@ -224,9 +237,11 @@ int main(int argc, char **argv) {
     G.reveal_secrets = opt.show_secret;
     G.show_stats = opt.show_stats;
     G.character = opt.character;
-    if (opt.stats_room || opt.shop_room || opt.workshop_room || opt.cleared || opt.depth > 0 || opt.coins > 0 || opt.debug_menu || opt.all_upgrades) {
+    if (opt.stats_room || opt.shop_room || opt.workshop_room || opt.active_room || opt.active || opt.cleared || opt.depth > 0 ||
+        opt.coins > 0 || opt.debug_menu || opt.all_upgrades) {
         game_new_run();
         G.pl.coins += opt.coins;
+        if (opt.active) active_give(opt.active);
         if (opt.all_upgrades)
             for (int u = 0; u < UPG_COUNT; u++)
                 if (!upgrade_capped(u)) upgrade_apply(u);
@@ -234,8 +249,9 @@ int main(int argc, char **argv) {
         if (opt.stats_room) room_enter(ROOM_STATS, RW_NONE, depth);
         else if (opt.shop_room) room_enter(ROOM_SHOP, RW_NONE, depth);
         else if (opt.workshop_room) room_enter(ROOM_WORKSHOP, RW_NONE, depth);
-        if (opt.cleared) room_debug_clear();
+        else if (opt.active_room) room_enter(ROOM_COMBAT, RW_ACTIVE, depth);
         else if (opt.depth > 0) room_enter(ROOM_COMBAT, RW_UPGRADE, depth);
+        if (opt.cleared) room_debug_clear();
     }
 
     if (opt.char_select) char_select_open();

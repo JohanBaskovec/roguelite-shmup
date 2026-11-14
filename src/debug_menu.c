@@ -11,7 +11,7 @@
 typedef enum {
     ROW_DEPTH, ROW_REWARD, ROW_SECRET_CONTENT,
     ROW_START, ROW_COMBAT, ROW_STATS, ROW_SHOP, ROW_WORKSHOP, ROW_SECRET,
-    ROW_GOD, ROW_FPS, ROW_ALWAYS_SECRET, ROW_REVEAL, ROW_COINS, ROW_BOMBS, ROW_UPGRADE, ROW_CLOSE,
+    ROW_GOD, ROW_FPS, ROW_ALWAYS_SECRET, ROW_REVEAL, ROW_COINS, ROW_BOMBS, ROW_UPGRADE, ROW_ACTIVE, ROW_CLOSE,
     ROW_COUNT
 } Row;
 
@@ -46,15 +46,16 @@ static struct {
     int depth, reward;
     int secret_content; /* 0 random, 1 item, 2 shop */
     int upgrade;        /* GIVE UPGRADE selection */
+    int active;         /* GIVE ACTIVE selection (ActiveId) */
     bool up, down, left, right; /* previous held state, for edge detection */
     V2 mouse;
-} M = {.sel = ROW_COMBAT, .depth = 3};
+} M = {.sel = ROW_COMBAT, .depth = 3, .active = ACT_DASH};
 
 static bool is_room_row(int row) { return row >= ROW_START && row <= ROW_SECRET; }
 /* The launch bay never has enemies: only its NO ENEMIES button exists. (A secret room
  * WITH ENEMIES is its rare guarded variant.) */
 static bool peaceful_row(int row) { return row == ROW_START; }
-static bool is_value_row(int row) { return row == ROW_DEPTH || row == ROW_REWARD || row == ROW_SECRET_CONTENT || row == ROW_UPGRADE; }
+static bool is_value_row(int row) { return row == ROW_DEPTH || row == ROW_REWARD || row == ROW_SECRET_CONTENT || row == ROW_UPGRADE || row == ROW_ACTIVE; }
 static bool is_toggle_row(int row) { return row == ROW_GOD || row == ROW_FPS || row == ROW_ALWAYS_SECRET || row == ROW_REVEAL; }
 static float row_y(int row) { return ROWS_Y + (float)row * ROW_H + (row >= ROW_START ? 16.0f : 0.0f) + (row >= ROW_GOD ? 16.0f : 0.0f); }
 
@@ -123,6 +124,7 @@ static void change_value(int row, int dir) {
     else if (row == ROW_REWARD) M.reward = (M.reward + dir + MENU_REWARDS) % MENU_REWARDS;
     else if (row == ROW_SECRET_CONTENT) M.secret_content = (M.secret_content + dir + 3) % 3;
     else if (row == ROW_UPGRADE) M.upgrade = (M.upgrade + dir + UPG_COUNT) % UPG_COUNT;
+    else if (row == ROW_ACTIVE) M.active = (M.active - 1 + dir + ACT_COUNT - 1) % (ACT_COUNT - 1) + 1;
     else if (is_room_row(row)) M.col = dir > 0;
     else return;
     sfx_play(SFX_WEAPON_SWITCH);
@@ -140,6 +142,14 @@ static void activate(int row, int dir) {
             sfx_play(SFX_DENIED);
         } else {
             upgrade_apply(M.upgrade);
+            sfx_play(SFX_ITEM);
+        }
+        break;
+    case ROW_ACTIVE:
+        if (dir != 0) {
+            change_value(row, dir);
+        } else {
+            active_give(M.active);
             sfx_play(SFX_ITEM);
         }
         break;
@@ -187,7 +197,7 @@ void debug_menu_update(void) {
     }
 
     if (in->confirm_pressed) {
-        if (hover == M.sel && M.sel == ROW_UPGRADE) {
+        if (hover == M.sel && (M.sel == ROW_UPGRADE || M.sel == ROW_ACTIVE)) {
             /* < name > on the left (click either half to browse), GIVE button on the right. */
             float x = in->mouse.x;
             activate(M.sel, x >= BTN_X1 + BTN_W * 0.5f ? 0 : x < BTN_X0 + BTN_W * 0.5f ? -1 : +1);
@@ -195,7 +205,7 @@ void debug_menu_update(void) {
             /* Click on the left half of a value decreases it, right half increases. */
             activate(M.sel, in->mouse.x < BTN_X1 - 10.0f ? -1 : +1);
         } else if (hover >= 0 || !in->fire) { /* ignore clicks outside the rows */
-            activate(M.sel, M.sel == ROW_UPGRADE ? 0 : +1); /* Enter on GIVE UPGRADE gives it */
+            activate(M.sel, M.sel == ROW_UPGRADE || M.sel == ROW_ACTIVE ? 0 : +1); /* Enter on GIVE gives it */
         }
     }
 }
@@ -270,6 +280,12 @@ void debug_menu_draw(void) {
             draw_text_centered(BTN_X0 + BTN_W * 0.5f + 40.0f, ty + 2.0f, 2.0f, upgrade_capped(M.upgrade) ? col_a(uc, 0.35f) : uc,
                                "< %s >", UPGRADES[M.upgrade].name);
             draw_button(BTN_X1 + BTN_W * 0.5f, y, BTN_W * 0.5f, "GIVE", uc, sel);
+        } break;
+        case ROW_ACTIVE: {
+            label = "GIVE ACTIVE";
+            SDL_FColor ac = col_hex(ACTIVES[M.active].color, 1);
+            draw_text_centered(BTN_X0 + BTN_W * 0.5f + 40.0f, ty + 2.0f, 2.0f, ac, "< %s >", ACTIVES[M.active].name);
+            draw_button(BTN_X1 + BTN_W * 0.5f, y, BTN_W * 0.5f, "GIVE", ac, sel);
         } break;
         case ROW_GOD: label = "GOD MODE"; SDL_snprintf(value, sizeof value, "%s", G.god ? "ON" : "OFF"); break;
         case ROW_FPS: label = "FPS OVERLAY"; SDL_snprintf(value, sizeof value, "%s", G.show_debug ? "ON" : "OFF"); break;

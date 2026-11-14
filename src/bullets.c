@@ -87,7 +87,7 @@ static void update_player_bullets(void) {
             }
             b->pos = v2_add(b->pos, v2_scale(b->vel, DT));
             /* PHASE ROUNDS fly through obstacles; only the arena walls stop them. */
-            wall = G.pl.upg_count[UPG_PHASE] ? arena_collide(&b->pos, b->radius, &n) : room_collide_circle(&b->pos, b->radius, &n);
+            wall = upg_has(UPG_PHASE) ? arena_collide(&b->pos, b->radius, &n) : room_collide_circle(&b->pos, b->radius, &n);
             upg_reflect(b); /* may append bullets to G.pb: b stays valid (fixed array) */
         }
 
@@ -155,7 +155,7 @@ static void update_enemy_bullets(void) {
             if (room_collide_circle(&b->pos, b->radius * 0.5f, NULL)) dead = true;
         }
 
-        if (!dead && G.state == GS_PLAYING && pl->invuln <= 0.0f && pl->dash_t <= 0.0f) {
+        if (!dead && G.state == GS_PLAYING && pl->invuln <= 0.0f && pl->dash_t <= 0.0f && !active_shield_on()) {
             float rr = b->radius * 0.75f + pl->hit_radius;
             if (v2_dist2(b->pos, pl->pos) < rr * rr) {
                 player_hurt(1);

@@ -255,7 +255,7 @@ static bool rect_ok(SDL_FRect r) {
             if (rect_overlaps(r, k)) return false;
         }
     bool row = G.room.type == ROOM_STATS || G.room.type == ROOM_SHOP || G.room.type == ROOM_WORKSHOP ||
-               G.room.reward == RW_WEAPON || G.room.reward == RW_UPGRADE;
+               G.room.reward == RW_WEAPON || G.room.reward == RW_UPGRADE || G.room.reward == RW_ACTIVE;
     if (row && rect_overlaps(r, pedestal_row)) return false;
     for (int i = 0; i < G.room.nobs; i++) {
         SDL_FRect o = G.room.obs[i];
@@ -308,9 +308,11 @@ static void gen_obstacles(void) {
 }
 
 RewardType room_roll_reward(void) {
-    static const int weights[RW_COUNT] = {
+    int weights[RW_COUNT] = {
         [RW_COINS] = 30, [RW_KEY] = 16, [RW_BOMBS] = 16, [RW_HEART] = 14, [RW_UPGRADE] = 14, [RW_WEAPON] = 10,
+        [RW_ACTIVE] = 6,
     };
+    if (G.pl.active == ACT_NONE) weights[RW_ACTIVE] = 22; /* no active item yet: find one soon */
     int total = 0;
     for (int i = 0; i < RW_COUNT; i++) total += weights[i];
     int roll = irand(0, total - 1);
@@ -373,6 +375,15 @@ static void gen_doors(void) {
                 if (r->doors[j].type == ROOM_COMBAT && r->doors[j].reward == d->reward) dup = true;
             if (!dup) break;
         }
+    }
+    /* The launch bay always leads to an active room while the ship has no active item. */
+    if (r->type == ROOM_START && G.pl.active == ACT_NONE) {
+        int cand[MAX_DOORS], n = 0;
+        for (int i = 0; i < MAX_DOORS; i++) {
+            if (r->doors[i].type == ROOM_COMBAT && r->doors[i].reward == RW_ACTIVE) return;
+            if (!r->doors[i].locked && r->doors[i].type == ROOM_COMBAT) cand[n++] = i;
+        }
+        if (n > 0) r->doors[cand[irand(0, n - 1)]].reward = RW_ACTIVE;
     }
 }
 
@@ -717,6 +728,7 @@ static SDL_FColor reward_color(RewardType rw) {
     case RW_HEART: return col_hex(0xff3355, 1);
     case RW_WEAPON: return col_hex(0x66f0ff, 1);
     case RW_UPGRADE: return col_hex(0xb57cff, 1);
+    case RW_ACTIVE: return col_hex(COLOR_ACTIVE, 1);
     default: return col_hex(0x8899aa, 1);
     }
 }

@@ -35,7 +35,8 @@ add_executable(neon_breach
     src/upgrades.c
     src/debug_menu.c
     src/characters.c
-    src/workshop.c)
+    src/workshop.c
+    src/actives.c)
 
 target_link_libraries(neon_breach PRIVATE SDL3::SDL3)
 
@@ -113,6 +114,25 @@ if(SHMUP_BUILD_TESTS)
              COMMAND neon_breach --shot ${_out}/render_workshop.bmp --workshop --cleared --no-bot --depth 4 --seed 5 --frames 60)
     add_test(NAME render_deep_enemies
              COMMAND neon_breach --shot ${_out}/render_deep.bmp --depth 15 --seed 8 --frames 300)
+    add_test(NAME sim_active_shield
+             COMMAND neon_breach --headless --god --active shield --seed 40 --runs 2 --ticks 24000 --expect-rooms 3
+                     --fail-shot ${_out}/fail_sim_active_shield.bmp)
+    add_test(NAME sim_active_boom
+             COMMAND neon_breach --headless --god --active boom --seed 40 --runs 2 --ticks 24000 --expect-rooms 3
+                     --fail-shot ${_out}/fail_sim_active_boom.bmp)
+    add_test(NAME sim_active_strength
+             COMMAND neon_breach --headless --god --active strength --seed 40 --runs 2 --ticks 24000 --expect-rooms 3
+                     --fail-shot ${_out}/fail_sim_active_strength.bmp)
+    add_test(NAME sim_active_chaos
+             COMMAND neon_breach --headless --god --active chaos --seed 40 --runs 2 --ticks 24000 --expect-rooms 3
+                     --fail-shot ${_out}/fail_sim_active_chaos.bmp)
+    add_test(NAME sim_active_rooms
+             COMMAND neon_breach --headless --god --active-room --seed 50 --runs 3 --ticks 24000 --expect-rooms 3
+                     --fail-shot ${_out}/fail_sim_active_rooms.bmp)
+    add_test(NAME render_active_room
+             COMMAND neon_breach --shot ${_out}/render_active_room.bmp --active-room --active dash --cleared --no-bot --depth 2 --seed 5 --frames 60)
+    add_test(NAME render_chaos
+             COMMAND neon_breach --shot ${_out}/render_chaos.bmp --active chaos --depth 6 --seed 3 --frames 500)
     add_test(NAME sim_debug_teleports
              COMMAND neon_breach --headless --debug-rooms --seed 1 --coins 40 --ticks 12000
                      --fail-shot ${_out}/fail_debug_teleports.bmp)
@@ -134,5 +154,7 @@ if(SHMUP_BUILD_TESTS)
                          sim_stats_rooms sim_shop_rooms render_shop_room sim_secret_rooms sim_all_upgrades sim_all_upgrades_mortal
                          sim_shotgunner sim_knight sim_knight_mortal render_char_select render_knight
                          sim_workshop render_workshop render_deep_enemies
+                         sim_active_shield sim_active_boom sim_active_strength sim_active_chaos sim_active_rooms
+                         render_active_room render_chaos
                          sim_debug_teleports render_debug_menu render_stats_room render_stats_overlay render_offscreen sfx_synthesis PROPERTIES TIMEOUT 600)
 endif()
