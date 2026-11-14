@@ -57,7 +57,7 @@ void stat_apply(int s, bool up) {
     }
 }
 
-float luck_drop_factor(void) { return fmaxf(0.25f, 1.0f + 0.3f * (float)G.pl.luck); }
+float luck_factor(void) { return fmaxf(0.25f, 1.0f + 0.3f * (float)G.pl.luck); }
 
 int stats_roll_offers(int *out, int max) {
     /* Distinct raised stats so the choice is about direction, not magnitude. */

@@ -2,11 +2,14 @@
 #include "game.h"
 #include "audio.h"
 
+#include <stdio.h>
+
 void pickup_spawn(PickupType type, int sub, V2 pos, V2 vel) {
     if (G.npk >= MAX_PICKUPS) return;
     Pickup *p = &G.pk[G.npk++];
     p->type = type;
     p->sub = sub;
+    p->price = 0;
     p->pos = pos;
     p->vel = vel;
     p->t = 0.0f;
@@ -39,19 +42,43 @@ const char *reward_name(RewardType r) {
 
 static V2 random_vel(float lo, float hi) { return v2_scale(v2_angle(frand(0.0f, TAU_F)), frand(lo, hi)); }
 
+const char *door_label(const Door *d) {
+    return d->type == ROOM_STATS ? "STATS" : d->type == ROOM_SHOP ? "SHOP" : reward_name(d->reward);
+}
+
+int shop_price(PickupType type, int sub) {
+    int base = type == PK_WEAPON ? (G.pl.wlevel[sub] > 0 ? 12 : 18) : type == PK_UPGRADE ? 14 : 8;
+    return base + G.room.depth / 4;
+}
+
+/* Luck nudges the amount of resources a room reward gives. */
+static int luck_adjust(int n) {
+    int luck = G.pl.luck;
+    if (luck > 0 && chance(0.15f * (float)luck)) n++;
+    if (luck < 0 && n > 1 && chance(-0.15f * (float)luck)) n--;
+    return n;
+}
+
 void reward_drop(RewardType r, V2 pos) {
     switch (r) {
     case RW_COINS: {
-        int n = irand(6, 10);
+        /* Coins only come from rewards, so a coin room pays roughly one shop item. */
+        float base = (float)irand(11, 16) + (float)G.room.depth * 0.5f;
+        int n = (int)roundf(base * luck_factor());
         for (int i = 0; i < n; i++) pickup_spawn(PK_COIN, 1, pos, random_vel(100.0f, 450.0f));
     } break;
-    case RW_KEY: pickup_spawn(PK_KEY, 0, pos, random_vel(50.0f, 120.0f)); break;
-    case RW_BOMBS:
-        for (int i = 0; i < 2; i++) pickup_spawn(PK_BOMB, 0, pos, random_vel(100.0f, 250.0f));
-        break;
-    case RW_HEART:
-        for (int i = 0; i < 2; i++) pickup_spawn(PK_HEART, 0, pos, random_vel(100.0f, 250.0f));
-        break;
+    case RW_KEY: {
+        int n = luck_adjust(1);
+        for (int i = 0; i < n; i++) pickup_spawn(PK_KEY, 0, pos, random_vel(50.0f, 160.0f));
+    } break;
+    case RW_BOMBS: {
+        int n = luck_adjust(2);
+        for (int i = 0; i < n; i++) pickup_spawn(PK_BOMB, 0, pos, random_vel(100.0f, 250.0f));
+    } break;
+    case RW_HEART: {
+        int n = luck_adjust(2);
+        for (int i = 0; i < n; i++) pickup_spawn(PK_HEART, 0, pos, random_vel(100.0f, 250.0f));
+    } break;
     case RW_WEAPON:
     case RW_UPGRADE: {
         int w = r == RW_WEAPON ? weapon_roll() : -1;
@@ -116,6 +143,22 @@ static bool collect(const Pickup *k) {
     return true;
 }
 
+static void buy(const Pickup *k) {
+    G.pl.coins -= k->price;
+    G.items_bought++;
+    sfx_play_ex(SFX_COIN, 1.0f, 0.7f, 0.0f);
+    fx_popup(v2(k->pos.x, k->pos.y - 90.0f), col_hex(0xffd23f, 1), "-%d COINS", k->price);
+    fx_burst(k->pos, 24, 100.0f, 400.0f, 0.4f, 2.5f, col_hex(0xffd23f, 1));
+}
+
+static void deny_purchase(const Pickup *k) {
+    static float last_t = -10.0f;
+    if (G.time - last_t < 1.0f && G.time >= last_t) return;
+    last_t = G.time;
+    sfx_play_at(SFX_DENIED, k->pos);
+    fx_popup(v2(k->pos.x, k->pos.y - 90.0f), col_hex(0xff4d6a, 1), "NEED %d COINS", k->price);
+}
+
 void pickups_update(void) {
     const Player *pl = &G.pl;
     /* Once the room is cleared, resources fly to the player: no backtracking chores. */
@@ -130,8 +173,14 @@ void pickups_update(void) {
 
         if (is_pedestal(k->type)) {
             if (k->t > 0.5f && dist < 40.0f) {
-                taken = collect(k);
-                if (taken && k->type == PK_STAT) stat_taken = true;
+                if (k->price > G.pl.coins) {
+                    deny_purchase(k);
+                } else {
+                    taken = collect(k);
+                    if (taken && k->price > 0) buy(k);
+                    /* Shop stat trades are bought one by one; free ones are a one-of-N choice. */
+                    if (taken && k->type == PK_STAT && k->price == 0) stat_taken = true;
+                }
             }
         } else {
             bool wants = !(k->type == PK_HEART && pl->hp >= pl->max_hp);
@@ -161,8 +210,8 @@ void pickups_update(void) {
     /* Stat trades are a one-of-N choice: the other offers vanish. */
     if (stat_taken) {
         for (int i = 0; i < G.npk; i++) {
-            if (G.pk[i].type != PK_STAT) continue;
-            fx_particle(G.pk[i].pos, v2(0, 0), 0.4f, 120.0f, col_hex(0x4dffd2, 1), 0.0f, PT_RING);
+            if (G.pk[i].type != PK_STAT || G.pk[i].price > 0) continue;
+            fx_particle(G.pk[i].pos, v2(0, 0), 0.4f, 120.0f, col_hex(COLOR_STATS, 1), 0.0f, PT_RING);
             fx_burst(G.pk[i].pos, 20, 80.0f, 300.0f, 0.4f, 2.5f, col_hex(0x4dffd2, 1));
             G.pk[i] = G.pk[--G.npk];
             i--;
@@ -240,7 +289,7 @@ static SDL_FColor pickup_glow_color(const Pickup *k) {
     case PK_HEART: return col_hex(0xff3355, 1);
     case PK_WEAPON: return col_hex(WEAPONS[k->sub].color, 1);
     case PK_UPGRADE: return col_hex(UPGRADES[k->sub].color, 1);
-    case PK_STAT: return col_hex(0x4dffd2, 1);
+    case PK_STAT: return col_hex(COLOR_STATS, 1);
     }
     return COL_WHITE;
 }
@@ -277,13 +326,23 @@ void pickups_draw(void) {
     for (int i = 0; i < G.npk; i++) {
         const Pickup *k = &G.pk[i];
         if (!is_pedestal(k->type)) continue;
+        if (k->price > 0) {
+            char buf[16];
+            int len = snprintf(buf, sizeof buf, "%d", k->price);
+            float w = (float)len * 8.0f * 2.5f;
+            bool afford = G.pl.coins >= k->price;
+            float x0 = k->pos.x - (w + 26.0f) * 0.5f;
+            draw_pickup_icon(PK_COIN, 1, v2(x0 + 9.0f, k->pos.y - 62.0f), 9.0f, G.time);
+            draw_text(x0 + 26.0f, k->pos.y - 72.0f, 2.5f, afford ? col_hex(0xffd23f, 1) : col_hex(0xff4d6a, 1), "%s", buf);
+        }
+        float ls = k->price > 0 ? 1.75f : 2.0f; /* shops pack 5 items in a row */
         if (k->type == PK_STAT) {
-            draw_text_centered(k->pos.x, k->pos.y + 56.0f, 2.0f, col_hex(0x5dff8a, 1), "%s", STATS[stat_offer_up(k->sub)].up_text);
-            draw_text_centered(k->pos.x, k->pos.y + 82.0f, 2.0f, col_hex(0xff4d6a, 1), "%s", STATS[stat_offer_down(k->sub)].down_text);
+            draw_text_centered(k->pos.x, k->pos.y + 56.0f, ls, col_hex(0x5dff8a, 1), "%s", STATS[stat_offer_up(k->sub)].up_text);
+            draw_text_centered(k->pos.x, k->pos.y + 56.0f + 13.0f * ls, ls, col_hex(0xff4d6a, 1), "%s", STATS[stat_offer_down(k->sub)].down_text);
             continue;
         }
         const char *name = k->type == PK_WEAPON ? WEAPONS[k->sub].name : UPGRADES[k->sub].name;
-        draw_text_centered(k->pos.x, k->pos.y + 56.0f, 2.0f, pickup_glow_color(k), "%s", name);
+        draw_text_centered(k->pos.x, k->pos.y + 56.0f, ls, pickup_glow_color(k), "%s", name);
         if (k->type == PK_WEAPON && G.pl.wlevel[k->sub] > 0)
             draw_text_centered(k->pos.x, k->pos.y + 80.0f, 1.5f, col_a(COL_WHITE, 0.7f), "LEVEL UP");
     }

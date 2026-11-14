@@ -15,7 +15,7 @@ void bot_input(void) {
     }
 
     /* Aim at the nearest enemy in line of sight, otherwise remember the nearest one. */
-    Enemy *t = NULL, *hidden = NULL;
+    Enemy *t = NULL, *hidden = NULL, *over = NULL;
     float best = 1e30f, best_hidden = 1e30f;
     bool overlapped = false;
     for (int i = 0; i < G.nen; i++) {
@@ -25,6 +25,7 @@ void bot_input(void) {
         /* An enemy sitting on top of the ship cannot be aimed at: get out instead. */
         if (d2 < (e->radius + 24.0f) * (e->radius + 24.0f)) {
             overlapped = true;
+            over = e;
             continue;
         }
         if (room_line_clear(pl->pos, e->pos, 10.0f)) { /* bullets are up to ~8 px wide */
@@ -34,16 +35,28 @@ void bot_input(void) {
             hidden = e;
         }
     }
-    in->mouse = t ? t->pos : hidden ? hidden->pos : v2(ARENA_CX, ARENA_Y0 + 120.0f);
+    /* Point-blank shots still connect (enemy hits are resolved before walls). */
+    in->mouse = t ? t->pos : over ? over->pos : hidden ? hidden->pos : v2(ARENA_CX, ARENA_Y0 + 120.0f);
     in->fire = true;
 
     V2 goal;
     /* Stats room: take one of the trades (varies with depth), then leave. */
     const Pickup *offer = NULL;
     int noffers = 0;
-    for (int i = 0; i < G.npk; i++) noffers += G.pk[i].type == PK_STAT;
+    for (int i = 0; i < G.npk; i++) noffers += G.pk[i].type == PK_STAT && G.pk[i].price == 0;
     for (int i = 0, k = 0; i < G.npk && noffers > 0; i++)
-        if (G.pk[i].type == PK_STAT && k++ == G.room.depth % noffers) offer = &G.pk[i];
+        if (G.pk[i].type == PK_STAT && G.pk[i].price == 0 && k++ == G.room.depth % noffers) offer = &G.pk[i];
+    /* Shop: buy the best affordable item (weapons, then upgrades, then trades; cheaper first). */
+    int best_rank = 1 << 30;
+    for (int i = 0; i < G.npk; i++) {
+        const Pickup *k = &G.pk[i];
+        if (k->price <= 0 || k->price > pl->coins) continue;
+        int rank = (k->type == PK_WEAPON ? 0 : k->type == PK_UPGRADE ? 1 : 2) * 1000 + k->price;
+        if (rank < best_rank) {
+            best_rank = rank;
+            offer = k;
+        }
+    }
 
     if (offer) {
         goal = offer->pos;
@@ -53,9 +66,11 @@ void bot_input(void) {
         for (int i = 0; i < G.room.ndoors; i++) {
             const Door *d = &G.room.doors[i];
             if (d->locked && pl->keys == 0) continue;
-            int score = d->type == ROOM_STATS ? 4
+            int score = d->type == ROOM_SHOP ? (pl->coins >= 25 ? 7 : pl->coins >= 14 ? 4 : 0)
+                      : d->type == ROOM_STATS ? 4
                       : d->reward == RW_UPGRADE || d->reward == RW_WEAPON ? 5
                       : d->reward == RW_HEART && pl->hp <= pl->max_hp / 2 ? 6
+                      : d->reward == RW_COINS && pl->coins < 40 ? 4
                       : d->reward == RW_KEY ? 3 : d->reward == RW_BOMBS ? 2 : 1;
             if (score > best_score) {
                 best_score = score;
@@ -99,7 +114,12 @@ void bot_input(void) {
     }
     if (v2_len2(avoid) > 0.0f) dir = v2_norm(v2_add(v2_scale(dir, 0.4f), v2_scale(avoid, 3.0f)));
 
-    if (overlapped) dir = v2_norm(v2_sub(v2(ARENA_CX, ARENA_CY), pl->pos));
+    /* Get out from under an enemy: away from it, never into a wall (the centre may be behind cover). */
+    if (overlapped) {
+        V2 away = v2_sub(pl->pos, over->pos);
+        V2 centre = v2_norm(v2_sub(v2(ARENA_CX, ARENA_CY), pl->pos));
+        dir = v2_len2(away) > 1.0f ? v2_norm(v2_add(v2_norm(away), v2_scale(centre, 0.3f))) : centre;
+    }
     if ((imminent || overlapped) && pl->dash_cd <= 0.0f) in->dash_pressed = true;
     if (pl->hp <= 2 && threats >= 6 && pl->bombs > 0 && pl->invuln <= 0.0f) in->bomb_pressed = true;
 

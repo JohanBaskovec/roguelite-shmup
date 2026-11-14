@@ -23,7 +23,7 @@ static bool in_arena(V2 p, float r) {
 
 /* Returns NULL when everything is fine, otherwise a description of the problem. */
 static const char *check_invariants(float room_time) {
-    static char msg[256];
+    static char msg[512];
     const Player *p = &G.pl;
     if (!finite_v2(p->pos) || !finite_v2(p->vel)) return "player position/velocity is not finite";
     if (G.state == GS_PLAYING && !G.transitioning && !in_arena(p->pos, PLAYER_BODY_R)) {
@@ -55,17 +55,22 @@ static const char *check_invariants(float room_time) {
         if (!finite_v2(G.pb[i].pos)) return "player bullet position is not finite";
     for (int i = 0; i < G.npk; i++)
         if (!finite_v2(G.pk[i].pos) || !in_arena(G.pk[i].pos, 0.0f)) return "pickup outside the arena";
-    /* Rule: every room starts with enemies; room rewards only appear once it is cleared. */
+    /* Rules: every room starts with enemies; enemies never drop anything - every pickup
+     * (resources included) is a room reward and only appears once the room is cleared. */
     if (G.room.nwaves < 1) return "room without enemy waves";
-    if (!G.room.cleared)
-        for (int i = 0; i < G.npk; i++)
-            if (G.pk[i].type == PK_STAT || G.pk[i].type == PK_WEAPON || G.pk[i].type == PK_UPGRADE)
-                return "room reward present before the room was cleared";
+    if (!G.room.cleared && G.npk > 0) {
+        snprintf(msg, sizeof msg, "pickup (type %d) present before the room was cleared - enemy drop or early reward?",
+                 G.pk[0].type);
+        return msg;
+    }
+    for (int i = 0; i < G.npk; i++)
+        if (G.pk[i].price < 0 || (G.pk[i].price > 0 && G.room.type != ROOM_SHOP)) return "priced item outside a shop";
     float stall = fminf(room_time, G.time - G.last_enemy_damage_t);
     if (G.room.type == ROOM_COMBAT && !G.room.cleared &&
         (room_time > MAX_ROOM_SECONDS || (G.nen > 0 && stall > MAX_STALL_SECONDS))) {
-        int len = snprintf(msg, sizeof msg, "room %d stalled (%.0f s in room, no enemy hit for %.0f s) - left:",
-                           G.room.depth, (double)room_time, (double)stall);
+        int len = snprintf(msg, sizeof msg, "room %d stalled (%.0f s in room, no enemy hit for %.0f s) - player@(%.0f,%.0f) %s, %d bullets - left:",
+                           G.room.depth, (double)room_time, (double)stall, (double)p->pos.x, (double)p->pos.y,
+                           WEAPONS[p->weapon].name, G.npb);
         for (int i = 0; i < G.nen && i < 3 && len < (int)sizeof msg - 40; i++)
             len += snprintf(msg + len, sizeof msg - (size_t)len, " %s@(%.0f,%.0f) hp %.0f/%.0f", ENEMIES[G.en[i].type].name,
                             (double)G.en[i].pos.x, (double)G.en[i].pos.y, (double)G.en[i].hp, (double)G.en[i].max_hp);
@@ -119,11 +124,14 @@ int headless_run(const HeadlessOptions *o) {
         game_init(seed);
         G.god = o->god;
         game_new_run();
+        G.pl.coins += o->coins;
         if (o->stats_room) room_enter(ROOM_STATS, RW_NONE, o->depth > 0 ? o->depth : 1);
+        else if (o->shop_room) room_enter(ROOM_SHOP, RW_NONE, o->depth > 0 ? o->depth : 1);
         else if (o->depth > 0) room_enter(ROOM_COMBAT, RW_UPGRADE, o->depth);
 
         int depth = G.room.depth;
-        int stats_rooms = G.room.type == ROOM_STATS;
+        int stats_rooms = G.room.type == ROOM_STATS, shops = G.room.type == ROOM_SHOP;
+        bool was_cleared = G.room.cleared;
         float room_time = 0.0f;
         const char *err = G.room.cleared ? "first room starts already cleared (every room must start with enemies)" : NULL;
         int tick = 0;
@@ -138,8 +146,21 @@ int headless_run(const HeadlessOptions *o) {
                     break;
                 }
                 stats_rooms += G.room.type == ROOM_STATS;
+                shops += G.room.type == ROOM_SHOP;
                 room_time = 0.0f;
+                was_cleared = false;
             }
+            if (G.room.cleared && !was_cleared && G.room.type == ROOM_SHOP) {
+                int items = 0;
+                for (int i = 0; i < G.npk; i++) items += G.pk[i].price > 0;
+                if (items != SHOP_ITEMS) {
+                    static char buf[96];
+                    snprintf(buf, sizeof buf, "shop opened with %d items for sale instead of %d", items, SHOP_ITEMS);
+                    err = buf;
+                    break;
+                }
+            }
+            was_cleared = G.room.cleared;
             room_time += DT;
             if ((err = check_invariants(room_time)) != NULL) break;
         }
@@ -151,7 +172,7 @@ int headless_run(const HeadlessOptions *o) {
         for (int w = 0; w < WPN_COUNT; w++)
             if (G.pl.wlevel[w]) printf("%.3s%d ", WEAPONS[w].name, G.pl.wlevel[w]);
         const Player *p = &G.pl;
-        printf("stats_rooms=%d", stats_rooms);
+        printf("coins=%d shops=%d bought=%d stats_rooms=%d", p->coins, shops, G.items_bought, stats_rooms);
         if (stats_rooms)
             printf(" [dmg x%.2f rate x%.2f range x%.2f speed x%.2f dash %.2fs hitbox %.1f luck %+d]", (double)p->dmg_mult,
                    (double)p->rate_mult, (double)p->range_mult, (double)(p->speed / 540.0f), (double)p->dash_cooldown,
@@ -160,6 +181,9 @@ int headless_run(const HeadlessOptions *o) {
         if (err) {
             printf("  invariant violated at tick %d: %s\n", tick, err);
             if (o->fail_shot && failures == 0) save_failure_shot(o->fail_shot);
+            failures++;
+        } else if (o->shop_room && o->coins >= 30 && G.items_bought == 0) {
+            printf("  started in a shop with %d coins but never bought anything\n", G.pl.coins);
             failures++;
         } else if (G.rooms_cleared < o->expect_rooms) {
             printf("  expected at least %d cleared rooms\n", o->expect_rooms);

@@ -30,6 +30,7 @@ void game_new_run(void) {
     player_init();
     G.rooms_cleared = 0;
     G.kills = 0;
+    G.items_bought = 0;
     G.run_time = 0.0f;
     G.shake = G.hitstop = G.hurt_flash = G.bomb_flash = 0.0f;
     G.banner_t = 0.0f;

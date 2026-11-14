@@ -295,14 +295,7 @@ static void on_death(Enemy *e) {
     else if (e->type == EN_SWARM) sfx_play_ex(SFX_EXPLODE_SMALL, 0.7f, 1.5f, (e->pos.x - ARENA_CX) / (ARENA_X1 - ARENA_CX) * 0.7f);
     else sfx_play_at(SFX_EXPLODE_SMALL, e->pos);
 
-    float luck = luck_drop_factor();
-    int coins = e->type == EN_TANK ? irand(3, 5) : (chance((e->type == EN_SWARM ? 0.12f : 0.32f) * luck) ? 1 : 0);
-    for (int i = 0; i < coins; i++)
-        pickup_spawn(PK_COIN, 1, e->pos, v2_scale(v2_angle(frand(0.0f, TAU_F)), frand(120.0f, 300.0f)));
-    V2 v = v2_scale(v2_angle(frand(0.0f, TAU_F)), 150.0f);
-    if (chance(0.025f * luck)) pickup_spawn(PK_HEART, 0, e->pos, v);
-    else if (chance(0.03f * luck)) pickup_spawn(PK_BOMB, 0, e->pos, v);
-    else if (chance(0.02f * luck)) pickup_spawn(PK_KEY, 0, e->pos, v);
+    /* No drops: resources only ever come from room rewards. */
 }
 
 void enemies_update(void) {

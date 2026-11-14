@@ -230,7 +230,7 @@ static bool rect_ok(SDL_FRect r) {
         if (rect_overlaps(r, keep_out[i])) return false;
     /* Rooms whose reward is a row of pedestals keep that row free. */
     const SDL_FRect pedestal_row = {ARENA_X0 + 150, ARENA_CY - 150, ARENA_X1 - ARENA_X0 - 300, 300};
-    if (G.room.type == ROOM_STATS && rect_overlaps(r, pedestal_row)) return false;
+    if ((G.room.type == ROOM_STATS || G.room.type == ROOM_SHOP) && rect_overlaps(r, pedestal_row)) return false;
     for (int i = 0; i < G.room.nobs; i++) {
         SDL_FRect o = G.room.obs[i];
         SDL_FRect grown = {o.x - 60, o.y - 60, o.w + 120, o.h + 120};
@@ -301,16 +301,24 @@ static void gen_doors(void) {
     int locked = chance(0.5f) ? irand(0, MAX_DOORS - 1) : -1;
     /* Occasionally one door leads to a Stats room (never two in a row). */
     int stats_door = r->type == ROOM_COMBAT && chance(0.2f) ? irand(0, MAX_DOORS - 1) : -1;
+    /* ...or to a Shop (from room 2 on, never two in a row), on another door. */
+    int shop_door = r->type != ROOM_START && r->type != ROOM_SHOP && chance(0.18f) ? irand(0, MAX_DOORS - 1) : -1;
+    if (shop_door >= 0 && shop_door == stats_door) shop_door = (stats_door + irand(1, MAX_DOORS - 1)) % MAX_DOORS;
     r->ndoors = MAX_DOORS;
     for (int i = 0; i < MAX_DOORS; i++) {
         Door *d = &r->doors[i];
         memset(d, 0, sizeof *d);
         d->side = sides[i];
         d->pos = door_position(sides[i]);
-        d->type = ROOM_COMBAT; /* later: treasure rooms, shops, bosses... */
+        d->type = ROOM_COMBAT; /* later: treasure rooms, bosses... */
         d->locked = (i == locked);
         if (!d->locked && stats_door == i) {
             d->type = ROOM_STATS;
+            d->reward = RW_NONE;
+            continue;
+        }
+        if (!d->locked && shop_door == i) {
+            d->type = ROOM_SHOP;
             d->reward = RW_NONE;
             continue;
         }
@@ -349,6 +357,7 @@ void room_enter(RoomType type, RewardType reward, int depth) {
     /* Every room, of every type, starts full of enemies. What makes a room
      * special is what appears once it is cleared (see room_clear). */
     if (type == ROOM_STATS) r->hue = 165.0f;
+    if (type == ROOM_SHOP) r->hue = 315.0f;
     if (type != ROOM_START) gen_obstacles(); /* keep the launch bay open for the tutorial */
     int extra = depth / 3;
     r->nwaves = type == ROOM_START ? 1 : 2 + (extra > 3 ? 3 : extra);
@@ -407,7 +416,56 @@ static void spawn_stat_offers(void) {
     for (int i = 0; i < n; i++) {
         V2 p = v2(ARENA_CX + ((float)i - (float)(n - 1) * 0.5f) * 410.0f, ARENA_CY - 20.0f);
         pickup_spawn(PK_STAT, offers[i], p, v2(0, 0));
-        fx_particle(p, v2(0, 0), 0.5f, 160.0f, col_hex(0x4dffd2, 1), 0.0f, PT_RING);
+        fx_particle(p, v2(0, 0), 0.5f, 160.0f, col_hex(COLOR_STATS, 1), 0.0f, PT_RING);
+    }
+}
+
+/* Shop: always SHOP_ITEMS priced items - a weapon, upgrades and stat trades. */
+static bool shop_has(PickupType type, int sub) {
+    for (int i = 0; i < G.npk; i++)
+        if (G.pk[i].price > 0 && G.pk[i].type == type && G.pk[i].sub == sub) return true;
+    return false;
+}
+
+static void spawn_shop_items(void) {
+    /* One of each category, plus two random slots so shops vary. */
+    static const PickupType extra[] = {PK_WEAPON, PK_UPGRADE, PK_UPGRADE, PK_STAT, PK_STAT};
+    PickupType kinds[SHOP_ITEMS] = {PK_WEAPON, PK_UPGRADE, PK_STAT, extra[irand(0, 4)], extra[irand(0, 4)]};
+    /* Sorted left to right: weapons, upgrades, stat trades. */
+    for (int i = 1; i < SHOP_ITEMS; i++)
+        for (int j = i; j > 0 && kinds[j - 1] > kinds[j]; j--) {
+            PickupType t = kinds[j];
+            kinds[j] = kinds[j - 1];
+            kinds[j - 1] = t;
+        }
+    int stat_offers[SHOP_ITEMS];
+    int nstat = stats_roll_offers(stat_offers, SHOP_ITEMS), used_stat = 0;
+
+    for (int i = 0; i < SHOP_ITEMS; i++) {
+        PickupType type = kinds[i];
+        int sub = -1;
+        if (type == PK_WEAPON) {
+            for (int tries = 0; tries < 12 && sub < 0; tries++) {
+                int w = weapon_roll();
+                if (w >= 0 && !shop_has(PK_WEAPON, w)) sub = w;
+            }
+            if (sub < 0) type = PK_UPGRADE; /* every weapon maxed out */
+        } else if (type == PK_STAT) {
+            if (used_stat < nstat) sub = stat_offers[used_stat++];
+            else type = PK_UPGRADE;
+        }
+        if (type == PK_UPGRADE) {
+            for (int tries = 0; tries < 24 && sub < 0; tries++) {
+                int u = upgrade_roll();
+                if (!shop_has(PK_UPGRADE, u)) sub = u;
+            }
+            if (sub < 0) sub = upgrade_roll();
+        }
+        V2 p = v2(ARENA_CX + ((float)i - (float)(SHOP_ITEMS - 1) * 0.5f) * 320.0f, ARENA_CY - 20.0f);
+        int before = G.npk;
+        pickup_spawn(type, sub, p, v2(0, 0));
+        if (G.npk > before) G.pk[G.npk - 1].price = shop_price(type, sub);
+        fx_particle(p, v2(0, 0), 0.5f, 160.0f, col_hex(COLOR_SHOP, 1), 0.0f, PT_RING);
     }
 }
 
@@ -419,6 +477,7 @@ static void room_clear(void) {
     sfx_play(SFX_ROOM_CLEAR);
     ebullets_clear(true);
     if (r->type == ROOM_STATS) spawn_stat_offers();
+    else if (r->type == ROOM_SHOP) spawn_shop_items();
     else if (r->reward != RW_NONE) reward_drop(r->reward, v2(ARENA_CX, ARENA_CY));
     fx_banner("ROOM CLEARED", "choose your next door", col_hex(0x66f0ff, 1), 1.4f);
     fx_shake(0.25f);
@@ -526,6 +585,14 @@ void room_draw_floor(void) {
             draw_text_centered(ARENA_CX, ARENA_CY - 150.0f, 2.0f, col_a(COL_WHITE, 0.4f), "every gain has a price");
         }
     }
+    if (r->type == ROOM_SHOP) {
+        bool items = false;
+        for (int i = 0; i < G.npk; i++) items |= G.pk[i].price > 0;
+        if (items) {
+            draw_text_centered(ARENA_CX, ARENA_CY - 200.0f, 3.0f, col_hex(COLOR_SHOP, 0.8f), "SHOP");
+            draw_text_centered(ARENA_CX, ARENA_CY - 160.0f, 2.0f, col_a(COL_WHITE, 0.4f), "walk into an item to buy it");
+        }
+    }
     if (r->type == ROOM_START) {
         SDL_FColor c = col_a(COL_WHITE, 0.35f);
         float y = ARENA_CY - 70.0f;
@@ -544,6 +611,14 @@ static void draw_padlock(V2 p, float s) {
     draw_circle(v2(p.x, p.y + s * 0.1f), s * 0.2f, col_hex(0x553300, 1));
 }
 
+/* Shopping bag with a coin on it. */
+static void draw_shop_icon(V2 p, float s) {
+    SDL_FColor c = col_hex(COLOR_SHOP, 1);
+    draw_arc(v2(p.x, p.y - s * 0.45f), s * 0.45f, s * 0.18f, PI_F, TAU_F, c);
+    draw_rect(p.x - s * 0.9f, p.y - s * 0.5f, s * 1.8f, s * 1.45f, c);
+    draw_pickup_icon(PK_COIN, 1, v2(p.x, p.y + s * 0.22f), s * 0.5f, 0.0f);
+}
+
 static void draw_door(const Door *d, bool cleared, bool entry) {
     Side side = d->side;
     V2 p = d->pos;
@@ -557,7 +632,10 @@ static void draw_door(const Door *d, bool cleared, bool entry) {
         gy = p.y - DOOR_HALF; gh = DOOR_HALF * 2;
         gx = side == SIDE_LEFT ? p.x - WALL_T : p.x; gw = WALL_T;
     }
-    SDL_FColor rc = entry ? col_hex(0x445566, 1) : d->type == ROOM_STATS ? col_hex(0x4dffd2, 1) : reward_color(d->reward);
+    SDL_FColor rc = entry ? col_hex(0x445566, 1)
+                  : d->type == ROOM_STATS ? col_hex(COLOR_STATS, 1)
+                  : d->type == ROOM_SHOP ? col_hex(COLOR_SHOP, 1)
+                  : reward_color(d->reward);
     bool open = cleared && !d->locked && !entry;
     float pulse = 0.5f + 0.5f * sinf(G.time * 6.0f);
 
@@ -617,10 +695,9 @@ static void draw_door(const Door *d, bool cleared, bool entry) {
     draw_blend_alpha();
     draw_ngon(ip, 24.0f * sc, 6, PI_F / 6.0f, col_hex(0x0a0c14, 0.85f));
     draw_ngon_outline(ip, 24.0f * sc, 6, PI_F / 6.0f, 2.0f, col_a(rc, 0.8f));
-    bool stats = d->type == ROOM_STATS;
-    draw_pickup_icon(stats ? PK_STAT : reward_icon(d->reward), -1, ip, 11.0f * sc, G.time);
-    if (pop >= 1.0f)
-        draw_text_centered(ip.x, ip.y + 34.0f, 1.5f, col_a(rc, 0.9f), "%s", stats ? "STATS" : reward_name(d->reward));
+    if (d->type == ROOM_SHOP) draw_shop_icon(ip, 11.0f * sc);
+    else draw_pickup_icon(d->type == ROOM_STATS ? PK_STAT : reward_icon(d->reward), -1, ip, 11.0f * sc, G.time);
+    if (pop >= 1.0f) draw_text_centered(ip.x, ip.y + 34.0f, 1.5f, col_a(rc, 0.9f), "%s", door_label(d));
 }
 
 void room_draw_walls(void) {

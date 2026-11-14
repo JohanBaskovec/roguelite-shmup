@@ -9,6 +9,9 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   and any future shop / treasure / boss room.** What makes a room special is only what appears
   once all its enemies are dead (reward drop, stat trades, ...). Never create a room that starts
   cleared or spawns its reward before the fight is over.
+- **Enemies never drop anything.** Resources (coins, keys, bombs, hearts) only come from room
+  rewards, after the room is cleared. Luck affects reward quantities, not drops.
+- A shop always sells exactly 5 items (weapons, upgrades, stat trades), paid with coins.
 - After a room is cleared the player chooses between 3 doors; each door previews what the next
   room gives. One door may be locked (costs a key).
 

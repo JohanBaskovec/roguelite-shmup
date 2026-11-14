@@ -136,6 +136,7 @@ typedef enum { PK_COIN, PK_KEY, PK_BOMB, PK_HEART, PK_WEAPON, PK_UPGRADE, PK_STA
 typedef struct {
     PickupType type;
     int sub;        /* coin value, WeaponId, UpgradeId or encoded stat offer */
+    int price;      /* shop price in coins, 0 = free */
     V2 pos, vel;
     float t;
 } Pickup;
@@ -236,6 +237,7 @@ typedef struct {
     float banner_t, banner_max;
     SDL_FColor banner_col;
     int rooms_cleared, kills;
+    int items_bought; /* shop purchases this run */
     float gameover_t;
     float last_enemy_damage_t; /* G.time of the last hit on an enemy (stall detection in tests) */
 
@@ -265,6 +267,9 @@ typedef struct {
 extern const StatDef STATS[ST_COUNT];
 
 #define STATS_ROOM_OFFERS 4
+#define SHOP_ITEMS 5 /* a shop always sells exactly this many items */
+#define COLOR_STATS 0x4dffd2
+#define COLOR_SHOP 0xff6bd6
 static inline int stat_offer_encode(int up, int down) { return up * ST_COUNT + down; }
 static inline int stat_offer_up(int offer) { return offer / ST_COUNT; }
 static inline int stat_offer_down(int offer) { return offer % ST_COUNT; }
@@ -274,7 +279,8 @@ bool stat_can_change(int s, bool up);
 void stat_apply(int s, bool up);
 int stats_roll_offers(int *out, int max);
 void stat_offer_take(int offer);
-float luck_drop_factor(void);
+/* Multiplier applied to room rewards (coin amount); >= 0.25. */
+float luck_factor(void);
 
 /* game.c */
 void game_init(uint64_t seed);
@@ -335,6 +341,9 @@ void draw_pickup_icon(PickupType type, int sub, V2 pos, float s, float t);
 void draw_heart(V2 p, float s, SDL_FColor col, bool left_half_only);
 PickupType reward_icon(RewardType r);
 const char *reward_name(RewardType r);
+/* Label shown on a door: STATS, SHOP or the reward name. */
+const char *door_label(const Door *d);
+int shop_price(PickupType type, int sub);
 
 /* fx.c */
 void fx_particle(V2 pos, V2 vel, float life, float size, SDL_FColor col, float drag, int shape);

@@ -73,6 +73,12 @@ if(SHMUP_BUILD_TESTS)
     add_test(NAME sim_stats_rooms
              COMMAND neon_breach --headless --god --stats --seed 50 --runs 12 --ticks 36000 --expect-rooms 2
                      --fail-shot ${_out}/fail_sim_stats.bmp)
+    # Starts in a shop with 60 coins: the bot must buy items; a shop must always offer 5.
+    add_test(NAME sim_shop_rooms
+             COMMAND neon_breach --headless --god --shop --coins 60 --seed 60 --runs 8 --ticks 36000 --expect-rooms 2
+                     --fail-shot ${_out}/fail_sim_shop.bmp)
+    add_test(NAME render_shop_room
+             COMMAND neon_breach --shot ${_out}/render_shop.bmp --shop --coins 10 --god --seed 4 --frames 435)
     add_test(NAME render_stats_room
              COMMAND neon_breach --shot ${_out}/render_stats.bmp --stats --seed 4 --frames 20)
     add_test(NAME render_offscreen
@@ -80,5 +86,5 @@ if(SHMUP_BUILD_TESTS)
     add_test(NAME sfx_synthesis COMMAND neon_breach --dump-sfx ${_out}/sfx)
 
     set_tests_properties(sim_god_seed1 sim_god_seed2 sim_god_seed3 sim_mortal_runs sim_deep_rooms
-                         sim_stats_rooms render_stats_room render_offscreen sfx_synthesis PROPERTIES TIMEOUT 600)
+                         sim_stats_rooms sim_shop_rooms render_shop_room render_stats_room render_offscreen sfx_synthesis PROPERTIES TIMEOUT 600)
 endif()
