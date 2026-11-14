@@ -31,14 +31,16 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   (`ENEMIES` table). Difficulty only comes from more enemies, more waves and new, harder types.
 - When a room is cleared the ship is teleported back to the entry spot at the bottom (headless checks it).
 - **Active items** (`src/actives.c`, `Player.active`): the ship starts with none (not even the dash).
-  They are found in active rooms (combat rooms with `RW_ACTIVE`): choice of 3 distinct items, never the
-  one held; taking one replaces it. The launch bay always has an active-room door while the ship has
-  none. CHAOS only lends hook-only upgrades the player does not own (`Player.chaos`, read by `has()` /
+  They are found in active rooms (combat rooms with `RW_ACTIVE`, a door like any other): choice of 3
+  distinct items. Taking another one replaces the item held; taking the same one levels it up
+  (`Player.act_level`, max `MAX_ACTIVE_LEVEL`, numbers in `active_duration` / `active_desc` /
+  `active_cooldown`); an item at max level is no longer offered. CHAOS only lends hook-only upgrades the player does not own (`Player.chaos`, read by `has()` /
   `upg_has()`) and takes them all back when it ends. Recharges scale with the RECHARGE stat
   (`Player.dash_cooldown`).
 - A shop always sells exactly 5 items (weapons, upgrades, stat trades), paid with coins.
 - After a room is cleared the player chooses between 3 doors; each door previews what the next
-  room gives. One door may be locked (costs a key).
+  room gives. One door may be locked (costs a key). The 3 doors are always different (no reward or
+  special room behind two doors, locked or not).
 
 These rules are enforced by invariants in `src/headless.c`; keep them there when adding rooms.
 Besides the two peaceful room types, the only exception is the F3 debug menu (`src/debug_menu.c`), a dev tool that can teleport into a

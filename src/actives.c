@@ -4,19 +4,58 @@
 
 /*
  * Active items: a single slot, used with SPACE / SHIFT / right click, then it recharges.
- * The ship starts without one; active rooms (RW_ACTIVE) offer a choice of 3, and taking
- * one replaces the item held. Every recharge time scales with the RECHARGE stat
- * (Player.dash_cooldown, which is also the dash's own recharge).
+ * The ship starts without one; active rooms (RW_ACTIVE) offer a choice of 3. Taking a
+ * different one replaces the item held; taking the same one again levels it up (like
+ * weapons): longer effects, bigger explosions, faster recharge. Every recharge time also
+ * scales with the RECHARGE stat (Player.dash_cooldown, which is the dash's own recharge).
  */
 
 const ActiveDef ACTIVES[ACT_COUNT] = {
-    [ACT_NONE] = {"NONE", "", 0x8899aa, 0.0f, 0.0f},
-    [ACT_DASH] = {"DASH", "Quick dash, invulnerable", 0x7dfcff, DASH_BASE_CD, 0.13f},
-    [ACT_SHIELD] = {"SHIELD", "Invincible for 2.5 s", 0x9fe8ff, 10.0f, 2.5f},
-    [ACT_BOOM] = {"BOOM", "All your shots explode at once|and keep flying", 0xff8a3d, 6.0f, 0.0f},
-    [ACT_STRENGTH] = {"STRENGTH", "Quadruple shots for 4 s", 0xff4d4d, 18.0f, 4.0f},
-    [ACT_CHAOS] = {"CHAOS", "20 random new upgrades|for 8 s", 0xd77dff, 40.0f, 8.0f},
+    [ACT_NONE] = {"NONE", 0x8899aa, 0.0f},
+    [ACT_DASH] = {"DASH", 0x7dfcff, DASH_BASE_CD},
+    [ACT_SHIELD] = {"SHIELD", 0x9fe8ff, 10.0f},
+    [ACT_BOOM] = {"BOOM", 0xff8a3d, 6.0f},
+    [ACT_STRENGTH] = {"STRENGTH", 0xff4d4d, 18.0f},
+    [ACT_CHAOS] = {"CHAOS", 0xd77dff, 40.0f},
 };
+
+/* ---- Numbers per level ------------------------------------------------------- */
+
+static int lv(int level) { return (level < 1 ? 1 : level > MAX_ACTIVE_LEVEL ? MAX_ACTIVE_LEVEL : level) - 1; }
+
+float active_duration(int a, int level) {
+    switch (a) {
+    case ACT_DASH: return 0.13f + 0.02f * (float)lv(level);
+    case ACT_SHIELD: return 2.5f + 0.5f * (float)lv(level);
+    case ACT_STRENGTH: return 4.0f + 1.0f * (float)lv(level);
+    case ACT_CHAOS: return 8.0f + 1.5f * (float)lv(level);
+    default: return 0.0f;
+    }
+}
+
+int active_chaos_count(int level) { return 20 + 2 * lv(level); }
+static float shield_radius(int level) { return 34.0f + 5.0f * (float)lv(level); }
+static float boom_radius(int level) { return 70.0f * (1.0f + 0.15f * (float)lv(level)); }
+static float boom_power(int level) { return 1.0f + 0.25f * (float)lv(level); } /* damage multiplier */
+
+const char *active_desc(int a, int level) {
+    static char bufs[4][96];
+    static int next;
+    char *b = bufs[next++ & 3];
+    switch (a) {
+    case ACT_DASH: SDL_snprintf(b, 96, "Quick dash, invulnerable|for %.2f s", (double)active_duration(a, level)); break;
+    case ACT_SHIELD: SDL_snprintf(b, 96, "Invincible for %.1f s|the bubble eats bullets", (double)active_duration(a, level)); break;
+    case ACT_BOOM:
+        SDL_snprintf(b, 96, "All your shots explode at once|and keep flying (x%.2f damage)", (double)(1.5f * boom_power(level)));
+        break;
+    case ACT_STRENGTH: SDL_snprintf(b, 96, "Quadruple shots for %.0f s", (double)active_duration(a, level)); break;
+    case ACT_CHAOS:
+        SDL_snprintf(b, 96, "%d random new upgrades|for %.1f s", active_chaos_count(level), (double)active_duration(a, level));
+        break;
+    default: b[0] = 0; break;
+    }
+    return b;
+}
 
 static const char *const OPTION_NAMES[ACT_COUNT] = {"none", "dash", "shield", "boom", "strength", "chaos"};
 
@@ -31,10 +70,12 @@ static const int CHAOS_POOL[] = {
     UPG_WOUNDED_FURY, UPG_SCAR_TISSUE, UPG_LAST_STAND, UPG_BLOOD_SCENT, UPG_LOADED_DICE,
 };
 
-float active_cooldown(int a) {
+/* -12% per level, and the RECHARGE stat. */
+float active_cooldown(int a, int level) {
     const Player *p = &G.pl;
     if (a <= ACT_NONE || a >= ACT_COUNT) return 0.0f;
-    return a == ACT_DASH ? p->dash_cooldown : ACTIVES[a].cooldown * p->dash_cooldown / DASH_BASE_CD;
+    float base = a == ACT_DASH ? p->dash_cooldown : ACTIVES[a].cooldown * p->dash_cooldown / DASH_BASE_CD;
+    return base * powf(0.88f, (float)lv(level));
 }
 
 bool active_strength_on(void) { return G.pl.active == ACT_STRENGTH && G.pl.act_t > 0.0f; }
@@ -58,14 +99,22 @@ static void end_effect(void) {
 
 void active_give(int a) {
     Player *p = &G.pl;
-    end_effect();
-    p->active = a;
+    char title[48], desc[96];
+    if (a == p->active) {
+        /* The same item again: a level up (a running effect keeps going). */
+        if (p->act_level < MAX_ACTIVE_LEVEL) p->act_level++;
+        SDL_snprintf(title, sizeof title, "%s - LEVEL %d", ACTIVES[a].name, p->act_level);
+    } else {
+        end_effect();
+        p->active = a;
+        p->act_level = 1;
+        SDL_snprintf(title, sizeof title, "%s", ACTIVES[a].name);
+    }
     p->act_cd = p->act_cd_max = 0.0f; /* ready at once */
-    char desc[96];
-    SDL_snprintf(desc, sizeof desc, "%s", ACTIVES[a].desc);
+    SDL_snprintf(desc, sizeof desc, "%s", active_desc(a, p->act_level));
     for (char *c = desc; *c; c++)
         if (*c == '|') *c = ' ';
-    fx_banner(ACTIVES[a].name, desc, col_hex(ACTIVES[a].color, 1), 2.6f);
+    fx_banner(title, desc, col_hex(ACTIVES[a].color, 1), 2.6f);
 }
 
 /* ---- Effects ---------------------------------------------------------------- */
@@ -75,7 +124,7 @@ static void use_dash(void) {
     const Input *in = &G.in;
     V2 mv = v2_norm(v2((in->right ? 1.0f : 0.0f) - (in->left ? 1.0f : 0.0f), (in->down ? 1.0f : 0.0f) - (in->up ? 1.0f : 0.0f)));
     p->dash_dir = (mv.x != 0.0f || mv.y != 0.0f) ? mv : v2_angle(p->aim_angle);
-    p->dash_t = ACTIVES[ACT_DASH].duration;
+    p->dash_t = active_duration(ACT_DASH, p->act_level);
     sfx_play_at(SFX_DASH, p->pos);
     fx_burst(p->pos, 12, 100.0f, 350.0f, 0.25f, 2.5f, col_hex(CHARACTERS[G.character].color, 1));
 }
@@ -83,13 +132,14 @@ static void use_dash(void) {
 /* Every shot in flight blows up where it is, and keeps going. */
 static void use_boom(void) {
     Player *p = &G.pl;
-    float radius = fminf(70.0f * sqrtf(p->bullet_size), 120.0f);
+    float radius = fminf(boom_radius(p->act_level) * sqrtf(p->bullet_size), 170.0f);
+    float power = boom_power(p->act_level);
     SDL_FColor c = col_hex(ACTIVES[ACT_BOOM].color, 1);
     int n = 0;
     for (int i = 0; i < G.npb; i++) {
         const PBullet *b = &G.pb[i];
         if (b->life <= 0.0f || (b->flags & PB_FRAGMENT)) continue;
-        float dmg = fmaxf(b->damage * 1.5f, 6.0f * p->dmg_mult);
+        float dmg = fmaxf(b->damage * 1.5f, 6.0f * p->dmg_mult) * power;
         for (int j = 0; j < G.nen; j++) {
             Enemy *e = &G.en[j];
             float r = radius + e->radius;
@@ -103,12 +153,12 @@ static void use_boom(void) {
     }
     /* No shots out (sword, or not firing): the ship itself goes off. */
     if (n == 0 || p->weapon == WPN_SWORD) {
-        float big = 240.0f;
+        float big = 240.0f * (1.0f + 0.1f * (float)lv(p->act_level));
         for (int j = 0; j < G.nen; j++) {
             Enemy *e = &G.en[j];
             float r = big + e->radius;
             if (e->hp > 0.0f && v2_dist2(e->pos, p->pos) < r * r)
-                enemy_damage(e, 80.0f * p->dmg_mult, v2_scale(v2_norm(v2_sub(e->pos, p->pos)), 500.0f));
+                enemy_damage(e, 80.0f * p->dmg_mult * power, v2_scale(v2_norm(v2_sub(e->pos, p->pos)), 500.0f));
         }
         fx_particle(p->pos, v2(0, 0), 0.4f, big * 2.0f, col_a(c, 0.8f), 0.0f, PT_RING);
         fx_burst(p->pos, 50, 200.0f, 900.0f, 0.5f, 3.0f, c);
@@ -122,7 +172,7 @@ static void use_chaos(void) {
     int cand[ARRAY_LEN(CHAOS_POOL)], n = 0;
     for (int i = 0; i < ARRAY_LEN(CHAOS_POOL); i++)
         if (p->upg_count[CHAOS_POOL[i]] == 0 && !upgrade_capped(CHAOS_POOL[i])) cand[n++] = CHAOS_POOL[i];
-    int give = n < CHAOS_UPGRADES ? n : CHAOS_UPGRADES;
+    int want = active_chaos_count(p->act_level), give = n < want ? n : want;
     for (int i = 0; i < give; i++) { /* partial Fisher-Yates */
         int j = irand(i, n - 1), t = cand[i];
         cand[i] = cand[j];
@@ -130,7 +180,7 @@ static void use_chaos(void) {
         p->chaos[cand[i]] = true;
     }
     char sub[64];
-    SDL_snprintf(sub, sizeof sub, "+%d random upgrades for %.0f s", give, (double)ACTIVES[ACT_CHAOS].duration);
+    SDL_snprintf(sub, sizeof sub, "+%d random upgrades for %.1f s", give, (double)active_duration(ACT_CHAOS, p->act_level));
     fx_banner("CHAOS", sub, col_hex(ACTIVES[ACT_CHAOS].color, 1), 1.6f);
     fx_burst(p->pos, 60, 200.0f, 800.0f, 0.6f, 3.0f, col_hex(ACTIVES[ACT_CHAOS].color, 1));
 }
@@ -157,8 +207,8 @@ static void use_active(void) {
         break;
     default: return;
     }
-    p->act_t = a == ACT_DASH ? 0.0f : ACTIVES[a].duration;
-    p->act_cd = p->act_cd_max = active_cooldown(a);
+    p->act_t = a == ACT_DASH ? 0.0f : active_duration(a, p->act_level);
+    p->act_cd = p->act_cd_max = active_cooldown(a, p->act_level);
     G.active_uses++;
     upg_on_active();
 }
@@ -195,7 +245,7 @@ void actives_update(void) {
     if (active_shield_on()) {
         for (int i = 0; i < G.neb; i++) {
             EBullet *b = &G.eb[i];
-            float r = 34.0f + b->radius;
+            float r = shield_radius(p->act_level) + b->radius;
             if (b->life > 0.0f && v2_dist2(b->pos, p->pos) < r * r) {
                 b->life = -1.0f;
                 fx_particle(b->pos, v2(0, 0), 0.15f, b->radius * 2.5f, col_hex(ACTIVES[ACT_SHIELD].color, 0.8f), 0.0f, PT_GLOW);
@@ -214,11 +264,12 @@ void actives_draw(void) {
     float fade = p->act_t < 0.5f && fmodf(G.time, 0.1f) < 0.05f ? 0.35f : 1.0f;
     draw_blend_add();
     switch (p->active) {
-    case ACT_SHIELD:
-        draw_glow(p->pos, 60.0f, col_a(c, 0.25f * fade));
-        draw_ring(p->pos, 34.0f + 1.5f * sinf(G.time * 12.0f), 3.0f, col_a(c, 0.8f * fade));
-        draw_ngon_outline(p->pos, 30.0f, 6, G.time * 1.5f, 1.5f, col_a(c, 0.4f * fade));
-        break;
+    case ACT_SHIELD: {
+        float r = shield_radius(p->act_level);
+        draw_glow(p->pos, r * 1.75f, col_a(c, 0.25f * fade));
+        draw_ring(p->pos, r + 1.5f * sinf(G.time * 12.0f), 3.0f, col_a(c, 0.8f * fade));
+        draw_ngon_outline(p->pos, r - 4.0f, 6, G.time * 1.5f, 1.5f, col_a(c, 0.4f * fade));
+    } break;
     case ACT_STRENGTH:
         draw_glow(p->pos, 70.0f, col_a(c, (0.22f + 0.08f * sinf(G.time * 20.0f)) * fade));
         for (int i = 0; i < 4; i++) {
@@ -286,7 +337,7 @@ void draw_active_icon(int a, V2 p, float s, float t) {
 void active_spawn_choices(V2 center) {
     int cand[ACT_COUNT], n = 0;
     for (int a = ACT_NONE + 1; a < ACT_COUNT; a++)
-        if (a != G.pl.active) cand[n++] = a;
+        if (a != G.pl.active || G.pl.act_level < MAX_ACTIVE_LEVEL) cand[n++] = a; /* the held one = level up */
     int k = n < REWARD_CHOICES ? n : REWARD_CHOICES;
     for (int i = 0; i < k; i++) {
         int j = irand(i, n - 1), t = cand[i];

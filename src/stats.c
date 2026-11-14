@@ -62,6 +62,20 @@ void stat_apply(int s, bool up) {
     case ST_SHIELD: if (up) player_add_shield(6); break;
     default: break;
     }
+    /* An offer is rolled when it appears but may be taken later (shops sell several trades,
+     * upgrades change stats in between): the floors and caps hold no matter what. */
+    p->dmg_mult = fmaxf(p->dmg_mult, 0.3f);
+    p->rate_mult = fmaxf(p->rate_mult, 0.3f);
+    p->range_mult = clampf(p->range_mult, 0.35f, 3.0f * 1.3f);
+    p->shot_speed_mult = fmaxf(p->shot_speed_mult, 0.4f);
+    p->speed = clampf(p->speed, 330.0f, 900.0f);
+    p->dash_cooldown = clampf(p->dash_cooldown, 0.15f, 2.0f);
+    p->hit_radius = clampf(p->hit_radius, 2.0f, 9.0f);
+    p->luck = p->luck < -3 ? -3 : p->luck > 5 ? 5 : p->luck;
+    p->spread_mult = clampf(p->spread_mult, SPREAD_MIN, SPREAD_MAX);
+    if (p->max_hp < 2) p->max_hp = 2;
+    if (p->max_hp > 24) p->max_hp = 24;
+    if (p->hp > p->max_hp) p->hp = p->max_hp;
 }
 
 float luck_factor(void) { return fmaxf(0.25f, 1.0f + 0.3f * (float)G.pl.luck); }

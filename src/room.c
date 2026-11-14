@@ -307,12 +307,14 @@ static void gen_obstacles(void) {
     }
 }
 
-RewardType room_roll_reward(void) {
+/* A random combat reward, never one of the `used` ones (bit mask of RewardType). */
+static RewardType roll_reward_except(unsigned used) {
     int weights[RW_COUNT] = {
         [RW_COINS] = 30, [RW_KEY] = 16, [RW_BOMBS] = 16, [RW_HEART] = 14, [RW_UPGRADE] = 14, [RW_WEAPON] = 10,
-        [RW_ACTIVE] = 6,
+        [RW_ACTIVE] = 8,
     };
-    if (G.pl.active == ACT_NONE) weights[RW_ACTIVE] = 22; /* no active item yet: find one soon */
+    for (int i = 0; i < RW_COUNT; i++)
+        if (used & (1u << i)) weights[i] = 0;
     int total = 0;
     for (int i = 0; i < RW_COUNT; i++) total += weights[i];
     int roll = irand(0, total - 1);
@@ -322,6 +324,8 @@ RewardType room_roll_reward(void) {
     }
     return RW_COINS;
 }
+
+RewardType room_roll_reward(void) { return roll_reward_except(0); }
 
 static void gen_doors(void) {
     Room *r = &G.room;
@@ -341,6 +345,9 @@ static void gen_doors(void) {
         if (workshop_door == stats_door || workshop_door == shop_door) workshop_door = -1;
     }
     r->ndoors = MAX_DOORS;
+    /* Every door is unique: special rooms appear once, and no reward is behind two doors
+     * (locked or not). Special and locked doors first, then the others from what is left. */
+    unsigned used = 1u << RW_NONE;
     for (int i = 0; i < MAX_DOORS; i++) {
         Door *d = &r->doors[i];
         memset(d, 0, sizeof *d);
@@ -366,24 +373,14 @@ static void gen_doors(void) {
         if (d->locked) {
             /* Locked doors always hide something good. */
             d->reward = chance(0.5f) ? RW_WEAPON : RW_UPGRADE;
-            continue;
-        }
-        for (int tries = 0; tries < 12; tries++) {
-            d->reward = room_roll_reward();
-            bool dup = false;
-            for (int j = 0; j < i; j++)
-                if (r->doors[j].type == ROOM_COMBAT && r->doors[j].reward == d->reward) dup = true;
-            if (!dup) break;
+            used |= 1u << d->reward;
         }
     }
-    /* The launch bay always leads to an active room while the ship has no active item. */
-    if (r->type == ROOM_START && G.pl.active == ACT_NONE) {
-        int cand[MAX_DOORS], n = 0;
-        for (int i = 0; i < MAX_DOORS; i++) {
-            if (r->doors[i].type == ROOM_COMBAT && r->doors[i].reward == RW_ACTIVE) return;
-            if (!r->doors[i].locked && r->doors[i].type == ROOM_COMBAT) cand[n++] = i;
-        }
-        if (n > 0) r->doors[cand[irand(0, n - 1)]].reward = RW_ACTIVE;
+    for (int i = 0; i < MAX_DOORS; i++) {
+        Door *d = &r->doors[i];
+        if (d->type != ROOM_COMBAT || d->locked) continue;
+        d->reward = roll_reward_except(used);
+        used |= 1u << d->reward;
     }
 }
 

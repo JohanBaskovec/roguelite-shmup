@@ -45,10 +45,12 @@ static const char *check_invariants(float room_time) {
     for (int i = 0; i < G.npk; i++) {
         const Pickup *k = &G.pk[i];
         if (k->type != PK_ACTIVE) continue;
-        if (k->sub <= ACT_NONE || k->sub >= ACT_COUNT || k->sub == p->active) return "invalid active item offered (or the one already held)";
+        if (k->sub <= ACT_NONE || k->sub >= ACT_COUNT || (k->sub == p->active && p->act_level >= MAX_ACTIVE_LEVEL))
+            return "invalid active item offered (or the one held, already at max level)";
         if (!k->choice || G.room.type != ROOM_COMBAT || G.room.reward != RW_ACTIVE) return "active item outside an active room's choice";
     }
     if (p->active < ACT_NONE || p->active >= ACT_COUNT) return "active item id out of range";
+    if (p->active == ACT_NONE ? p->act_level != 0 : p->act_level < 1 || p->act_level > MAX_ACTIVE_LEVEL) return "active item level out of range";
     if (p->act_cd < 0.0f || p->act_t < 0.0f || !isfinite(p->act_cd) || !isfinite(p->act_t)) return "active item timers invalid";
     if (p->dash_t > 0.0f && p->active != ACT_DASH) return "dashing without the dash active item";
     {
@@ -60,8 +62,16 @@ static const char *check_invariants(float room_time) {
             if (!chaos_on) return "CHAOS upgrades still lent after the effect ended";
             if (p->upg_count[u] > 0) return "CHAOS lent an upgrade the player already owns";
         }
-        if (lent > CHAOS_UPGRADES) return "CHAOS lent too many upgrades";
+        if (lent > active_chaos_count(p->act_level)) return "CHAOS lent too many upgrades";
     }
+    for (int i = 0; i < G.room.ndoors; i++)
+        for (int j = i + 1; j < G.room.ndoors; j++) {
+            const Door *a = &G.room.doors[i], *b = &G.room.doors[j];
+            if (a->type == b->type && (a->type != ROOM_COMBAT || a->reward == b->reward)) {
+                snprintf(msg, sizeof msg, "two identical doors (%s)", door_label(a));
+                return msg;
+            }
+        }
     if (G.nmc < 0 || G.nmc > MAX_MACHINES) return "machine count out of range";
     if (G.nmc > 0 && (G.room.type != ROOM_WORKSHOP || !G.room.cleared)) return "workshop machines outside a cleared workshop";
     if (!(p->spread_mult >= SPREAD_MIN * 0.99f) || !(p->spread_mult <= SPREAD_MAX * 1.01f)) return "spread out of range";
@@ -537,14 +547,40 @@ static int debug_rooms_run(const HeadlessOptions *o) {
                 lent++;
                 chaos_ok = chaos_ok && pl->upg_count[u] == 0 && upg_has(u) == 1;
             }
-        chaos_ok = chaos_ok && lent == CHAOS_UPGRADES;
-        for (int t = 0; t < (int)(ACTIVES[ACT_CHAOS].duration * TICK_RATE) + 240; t++) TICK(); /* + hitstops */
+        chaos_ok = chaos_ok && lent == active_chaos_count(1);
+        for (int t = 0; t < (int)(active_duration(ACT_CHAOS, 1) * TICK_RATE) + 240; t++) TICK(); /* + hitstops */
         int after = 0, still = 0;
         for (int u = 0; u < UPG_COUNT; u++) {
             after += pl->upg_count[u];
             still += pl->chaos[u];
         }
         chaos_ok = chaos_ok && still == 0 && after == owned && pl->dmg_mult == dmg && pl->rate_mult == rate && pl->speed == speed;
+
+        /* Taking the item held again levels it up: longer, stronger, faster recharge. */
+        active_give(ACT_SHIELD);
+        active_give(ACT_SHIELD);
+        in->active_pressed = true;
+        TICK();
+        bool level_ok = pl->act_level == 2 && fabsf(pl->act_t - (active_duration(ACT_SHIELD, 2) - DT)) < 0.02f &&
+                        active_duration(ACT_SHIELD, 2) > active_duration(ACT_SHIELD, 1) &&
+                        fabsf(pl->act_cd_max - active_cooldown(ACT_SHIELD, 2)) < 0.02f && pl->act_cd_max < active_cooldown(ACT_SHIELD, 1);
+        bool offered_held = false, offered_max = false;
+        for (int k = 0; k < 30; k++) {
+            G.npk = 0;
+            active_spawn_choices(v2(ARENA_CX, ARENA_CY));
+            for (int i = 0; i < G.npk; i++) offered_held |= G.pk[i].sub == ACT_SHIELD;
+        }
+        for (int k = 0; k < 10; k++) active_give(ACT_SHIELD);
+        for (int k = 0; k < 30; k++) {
+            G.npk = 0;
+            active_spawn_choices(v2(ARENA_CX, ARENA_CY));
+            for (int i = 0; i < G.npk; i++) offered_max |= G.pk[i].sub == ACT_SHIELD;
+            level_ok = level_ok && G.npk == REWARD_CHOICES;
+        }
+        G.npk = 0;
+        level_ok = level_ok && offered_held && !offered_max && pl->act_level == MAX_ACTIVE_LEVEL;
+        failures += !level_ok;
+        printf("scripted actives: level up (offered while it can level, never at max %d) -> %s\n", MAX_ACTIVE_LEVEL, level_ok ? "OK" : "FAILED");
 #undef TICK
         printf("scripted actives: none -> %s, dash -> %s, shield -> %s, boom -> %s, strength %d -> %d shots -> %s, chaos %d upgrades -> %s\n",
                none_ok ? "OK" : "FAILED", dash_ok ? "OK" : "FAILED", shield_ok ? "OK" : "FAILED", boom_ok ? "OK" : "FAILED",
@@ -577,11 +613,6 @@ int headless_run(const HeadlessOptions *o) {
                                         G.pl.dmg_mult != cd->dmg_mult
                                     ? "run did not start with the character's stats / weapon"
                                 : G.pl.active != ACT_NONE ? "run started with an active item (they must be found)" : NULL;
-        if (!start_err && G.room.type == ROOM_START) {
-            bool active_door = false;
-            for (int i = 0; i < G.room.ndoors; i++) active_door |= G.room.doors[i].reward == RW_ACTIVE && !G.room.doors[i].locked;
-            if (!active_door) start_err = "launch bay without an (unlocked) active room door";
-        }
         if (o->active) active_give(o->active);
         G.pl.coins += o->coins;
         if (o->all_upgrades)
@@ -668,7 +699,7 @@ int headless_run(const HeadlessOptions *o) {
             if (G.pl.wlevel[w]) printf("%.3s%d ", WEAPONS[w].name, G.pl.wlevel[w]);
         const Player *p = &G.pl;
         printf("hits=%d coins=%d shops=%d bought=%d secrets=%d stats_rooms=%d", hits, p->coins, shops, G.items_bought, secrets, stats_rooms);
-        printf(" active=%s uses=%d", active_option_name(p->active), G.active_uses);
+        printf(" active=%s%d uses=%d", active_option_name(p->active), p->act_level, G.active_uses);
         if (workshops) printf(" workshops=%d machine_uses=%d augments=%d", workshops, G.machine_uses, G.augments);
         if (start_revives > p->revives) printf(" second_winds=%d", start_revives - p->revives);
         if (stats_rooms)

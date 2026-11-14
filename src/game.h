@@ -76,18 +76,17 @@ typedef enum {
  * they come from active rooms (RW_ACTIVE, choice of 3). */
 typedef enum { ACT_NONE, ACT_DASH, ACT_SHIELD, ACT_BOOM, ACT_STRENGTH, ACT_CHAOS, ACT_COUNT } ActiveId;
 
+/* Numbers per level (duration, power, recharge) live in actives.c: active_duration / active_desc... */
 typedef struct {
     const char *name;
-    const char *desc;     /* '|' splits it over two lines */
     uint32_t color;
-    float cooldown;       /* seconds, scaled by the RECHARGE stat (Player.dash_cooldown / DASH_BASE_CD) */
-    float duration;       /* effect time (0 = instant) */
+    float cooldown;       /* seconds at level 1, scaled by the RECHARGE stat (Player.dash_cooldown / DASH_BASE_CD) */
 } ActiveDef;
 
 extern const ActiveDef ACTIVES[ACT_COUNT];
 
 #define DASH_BASE_CD 0.6f    /* Player.dash_cooldown at the start: the dash's own recharge */
-#define CHAOS_UPGRADES 20    /* CHAOS: temporary upgrades granted */
+#define MAX_ACTIVE_LEVEL 5   /* taking the active item held again levels it up, like weapons */
 
 typedef struct {
     const char *name;
@@ -267,6 +266,7 @@ typedef struct {
     float dash_t, dash_cooldown; /* dash_cooldown: the RECHARGE stat (dash recharge, scales every active) */
     V2 dash_dir;
     int active;                 /* ActiveId held (ACT_NONE at the start) */
+    int act_level;              /* 1..MAX_ACTIVE_LEVEL (0 without an active item) */
     float act_cd, act_cd_max;   /* recharge left / total of the last use */
     float act_t;                /* effect time left (shield, strength, chaos) */
     bool chaos[UPG_COUNT];      /* CHAOS: temporary upgrades (only ones not owned), removed when it ends */
@@ -501,11 +501,14 @@ void actives_draw(void);              /* shield bubble, strength / chaos auras *
 void active_give(int a);
 bool active_strength_on(void);        /* STRENGTH: x4 shots */
 bool active_shield_on(void);          /* SHIELD: invincible */
-float active_cooldown(int a);         /* with the RECHARGE stat */
+float active_cooldown(int a, int level); /* with the RECHARGE stat */
+float active_duration(int a, int level); /* effect time (dash: invulnerable dash time; 0 = instant) */
+int active_chaos_count(int level);       /* CHAOS: upgrades lent */
+const char *active_desc(int a, int level); /* '|' splits it over two lines */
 void active_end_chaos(void);
 const char *active_option_name(int a); /* lowercase name for --active */
 void draw_active_icon(int a, V2 pos, float s, float t);
-/* Active room: REWARD_CHOICES distinct actives, never the one already held. */
+/* Active room: REWARD_CHOICES distinct actives; the one held only while it can still level up. */
 void active_spawn_choices(V2 center);
 #define COLOR_ACTIVE 0xffe94d
 

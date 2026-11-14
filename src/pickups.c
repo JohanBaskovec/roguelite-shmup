@@ -467,14 +467,19 @@ void pickups_draw(void) {
             continue;
         }
         if (k->type == PK_ACTIVE) {
-            if (G.pl.active != ACT_NONE)
+            /* The item held again: a level up. Another one: replaces it. */
+            bool level_up = k->sub == G.pl.active;
+            int level = level_up ? G.pl.act_level + 1 : 1;
+            if (level_up)
+                draw_text_centered(k->pos.x, k->pos.y - 74.0f, 2.0f, col_hex(0x7dff9a, 1), "LEVEL UP -> %d", level);
+            else if (G.pl.active != ACT_NONE)
                 draw_text_centered(k->pos.x, k->pos.y - 74.0f, 1.5f, col_a(COL_WHITE, 0.55f), "REPLACES %s", ACTIVES[G.pl.active].name);
             draw_text_centered(k->pos.x, k->pos.y + 56.0f, ls, pickup_glow_color(k), "%s", ACTIVES[k->sub].name);
-            const char *desc = ACTIVES[k->sub].desc;
+            const char *desc = active_desc(k->sub, level);
             float dy = k->pos.y + 60.0f + 10.0f * ls;
             draw_desc(k->pos.x, dy, 1.5f, col_a(COL_WHITE, 0.7f), desc);
             draw_text_centered(k->pos.x, dy + (SDL_strchr(desc, '|') ? 33.0f : 16.5f), 1.5f, col_a(COL_WHITE, 0.5f),
-                               "recharge %.1f s", (double)active_cooldown(k->sub));
+                               "recharge %.1f s", (double)active_cooldown(k->sub, level));
             continue;
         }
         bool weapon = k->type == PK_WEAPON;

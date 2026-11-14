@@ -51,11 +51,14 @@ static void draw_active_slot(void) {
     }
     draw_active_icon(p->active, v2(x + 30.0f, y + h * 0.5f), 14.0f, G.time);
     draw_text(x + 58.0f, y + 8.0f, 2.0f, c, "%s", ACTIVES[p->active].name);
+    for (int l = 0; l < MAX_ACTIVE_LEVEL; l++) /* level pips, like the weapon slots */
+        draw_rect(x + w - 12.0f - (float)(MAX_ACTIVE_LEVEL - l) * 13.0f, y + 12.0f, 10.0f, 6.0f, l < p->act_level ? c : col_hex(0x2a3040, 1));
     float bx = x + 58.0f, bw = w - 70.0f, by = y + 34.0f;
     draw_rect(bx, by, bw, 8.0f, col_hex(0x1a2035, 1));
-    if (p->act_t > 0.0f && ACTIVES[p->active].duration > 0.0f) {
+    float dur = active_duration(p->active, p->act_level);
+    if (p->act_t > 0.0f && dur > 0.0f) {
         /* effect running: the bar drains */
-        draw_rect(bx, by, bw * p->act_t / ACTIVES[p->active].duration, 8.0f, COL_WHITE);
+        draw_rect(bx, by, bw * fminf(p->act_t / dur, 1.0f), 8.0f, COL_WHITE);
     } else {
         float k = ready || p->act_cd_max <= 0.0f ? 1.0f : 1.0f - p->act_cd / p->act_cd_max;
         draw_rect(bx, by, bw * k, 8.0f, ready ? c : col_a(c, 0.5f));
