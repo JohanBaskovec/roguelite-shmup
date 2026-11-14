@@ -255,7 +255,7 @@ static bool rect_ok(SDL_FRect r) {
             if (rect_overlaps(r, k)) return false;
         }
     bool row = G.room.type == ROOM_STATS || G.room.type == ROOM_SHOP || G.room.type == ROOM_WORKSHOP ||
-               G.room.reward == RW_WEAPON || G.room.reward == RW_UPGRADE || G.room.reward == RW_ACTIVE;
+               G.room.reward == RW_UPGRADE || G.room.reward == RW_ACTIVE;
     if (row && rect_overlaps(r, pedestal_row)) return false;
     for (int i = 0; i < G.room.nobs; i++) {
         SDL_FRect o = G.room.obs[i];
@@ -310,7 +310,7 @@ static void gen_obstacles(void) {
 /* A random combat reward, never one of the `used` ones (bit mask of RewardType). */
 static RewardType roll_reward_except(unsigned used) {
     int weights[RW_COUNT] = {
-        [RW_COINS] = 30, [RW_KEY] = 16, [RW_BOMBS] = 16, [RW_HEART] = 14, [RW_UPGRADE] = 14, [RW_WEAPON] = 10,
+        [RW_COINS] = 30, [RW_KEY] = 16, [RW_BOMBS] = 16, [RW_HEART] = 14, [RW_UPGRADE] = 24,
         [RW_ACTIVE] = 8,
     };
     for (int i = 0; i < RW_COUNT; i++)
@@ -372,7 +372,7 @@ static void gen_doors(void) {
         }
         if (d->locked) {
             /* Locked doors always hide something good. */
-            d->reward = chance(0.5f) ? RW_WEAPON : RW_UPGRADE;
+            d->reward = RW_UPGRADE;
             used |= 1u << d->reward;
         }
     }
@@ -512,17 +512,11 @@ static void spawn_stat_offers(void) {
 }
 
 /* Shop: always SHOP_ITEMS priced items - a weapon mod, upgrades and stat trades. */
-static bool shop_has(PickupType type, int sub) {
-    for (int i = 0; i < G.npk; i++)
-        if (G.pk[i].price > 0 && G.pk[i].type == type && G.pk[i].sub == sub) return true;
-    return false;
-}
-
 static void spawn_shop_items(void) {
     /* One of each category, plus two random slots so shops vary. Sorted left to right. */
-    enum { K_WEAPON, K_UPGRADE, K_STAT };
-    static const int extra[] = {K_WEAPON, K_UPGRADE, K_UPGRADE, K_STAT, K_STAT};
-    int kinds[SHOP_ITEMS] = {K_WEAPON, K_UPGRADE, K_STAT, extra[irand(0, 4)], extra[irand(0, 4)]};
+    enum { K_UPGRADE, K_STAT };
+    static const int extra[] = {K_UPGRADE, K_UPGRADE, K_UPGRADE, K_STAT, K_STAT};
+    int kinds[SHOP_ITEMS] = {K_UPGRADE, K_UPGRADE, K_STAT, extra[irand(0, 4)], extra[irand(0, 4)]};
     for (int i = 1; i < SHOP_ITEMS; i++)
         for (int j = i; j > 0 && kinds[j - 1] > kinds[j]; j--) {
             int t = kinds[j];
@@ -535,22 +529,16 @@ static void spawn_shop_items(void) {
     for (int i = 0; i < SHOP_ITEMS; i++) {
         PickupType type = PK_UPGRADE;
         int sub = -1;
-        if (kinds[i] == K_WEAPON) {
-            for (int tries = 0; tries < 12 && sub < 0; tries++) {
-                int w = weapon_roll();
-                if (w >= 0 && !shop_has(PK_UPGRADE, w)) sub = w;
-            }
-            /* every weapon mod owned: an upgrade instead */
-        } else if (kinds[i] == K_STAT && used_stat < nstat) {
+        if (kinds[i] == K_STAT && used_stat < nstat) {
             type = PK_STAT;
             sub = stat_offers[used_stat++];
+        } else {
+            sub = upgrade_fresh();
         }
-        if (type == PK_UPGRADE) {
-            for (int tries = 0; tries < 24 && sub < 0; tries++) {
-                int u = upgrade_roll();
-                if (!shop_has(PK_UPGRADE, u)) sub = u;
-            }
-            if (sub < 0) sub = upgrade_roll();
+        if (sub < 0) { /* every upgrade owned: a stat trade */
+            type = PK_STAT;
+            sub = used_stat < nstat ? stat_offers[used_stat++] : -1;
+            if (sub < 0) continue;
         }
         V2 p = v2(ARENA_CX + ((float)i - (float)(SHOP_ITEMS - 1) * 0.5f) * 320.0f, ARENA_CY - 20.0f);
         int before = G.npk;
@@ -612,6 +600,7 @@ void room_return_from_secret(void) {
     G.room = G.parent;
     G.npk = G.parent_npk;
     memcpy(G.pk, G.parent_pk, sizeof(Pickup) * (size_t)G.npk);
+    pickups_refresh_owned(); /* an offer left here may have been taken in the secret room */
     G.npb = G.neb = G.nen = G.nsp = 0;
     fx_clear();
     nav_reset();
@@ -723,7 +712,6 @@ static SDL_FColor reward_color(RewardType rw) {
     case RW_KEY: return col_hex(0xd9e3f0, 1);
     case RW_BOMBS: return col_hex(0xff8a3d, 1);
     case RW_HEART: return col_hex(0xff3355, 1);
-    case RW_WEAPON: return col_hex(0x66f0ff, 1);
     case RW_UPGRADE: return col_hex(0xb57cff, 1);
     case RW_ACTIVE: return col_hex(COLOR_ACTIVE, 1);
     default: return col_hex(0x8899aa, 1);
@@ -898,7 +886,7 @@ static void draw_door(const Door *d, bool cleared, bool entry) {
     if (d->type == ROOM_SHOP) draw_shop_icon(ip, 11.0f * sc);
     else if (d->type == ROOM_WORKSHOP) draw_workshop_icon(ip, 11.0f * sc);
     else if (d->type == ROOM_SECRET) draw_text_centered(ip.x + 1.0f, ip.y - 12.0f * sc, 3.0f * sc, col_hex(COLOR_SECRET, 1), "%s", G.room.type == ROOM_SECRET ? "v" : "?");
-    else draw_pickup_icon(d->type == ROOM_STATS ? PK_STAT : reward_icon(d->reward), d->reward == RW_WEAPON ? -2 : -1, ip, 11.0f * sc, G.time);
+    else draw_pickup_icon(d->type == ROOM_STATS ? PK_STAT : reward_icon(d->reward), -1, ip, 11.0f * sc, G.time);
     if (pop >= 1.0f) draw_text_centered(ip.x, ip.y + 34.0f, 1.5f, col_a(rc, 0.9f), "%s", door_label(d));
 }
 

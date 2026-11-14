@@ -33,6 +33,12 @@ static bool in_arena(V2 p, float r) {
            p.y <= ARENA_Y1 - r + tol;
 }
 
+static bool on_floor(int u) {
+    for (int i = 0; i < G.npk; i++)
+        if (G.pk[i].type == PK_UPGRADE && G.pk[i].sub == u) return true;
+    return false;
+}
+
 /* Returns NULL when everything is fine, otherwise a description of the problem. */
 static const char *check_invariants(float room_time) {
     static char msg[512];
@@ -45,8 +51,7 @@ static const char *check_invariants(float room_time) {
     if (p->hp < 0 || p->hp > p->max_hp) return "player hp out of range";
     if (p->coins < 0 || p->keys < 0 || p->bombs < 0) return "negative resource count";
     for (int u = 0; u < UPG_COUNT; u++) {
-        if (p->upg_count[u] > 0 && !upgrade_available(u)) return "player owns a weapon mod its character cannot have (sword?)";
-        if (upgrade_is_weapon(u) && p->upg_count[u] > 1) return "weapon mod owned twice";
+        if (p->upg_count[u] < 0 || p->upg_count[u] > 1) return "upgrade owned twice (every upgrade is taken at most once)";
         if (p->upg_off[u] && p->upg_count[u] == 0) return "upgrade turned off without being owned";
         if (p->upg_off[u] && upg_has(u) != 0) return "upgrade turned off but still in effect";
     }
@@ -54,11 +59,18 @@ static const char *check_invariants(float room_time) {
     for (int i = 0; i < G.npk; i++) {
         const Pickup *k = &G.pk[i];
         if ((k->type == PK_UPGRADE || k->type == PK_AUGMENT) && (k->sub < 0 || k->sub >= UPG_COUNT)) return "invalid upgrade offered";
-        if (k->type == PK_UPGRADE && !upgrade_available(k->sub)) return "weapon mod offered that this character cannot have";
+        if (k->type == PK_UPGRADE && p->upg_count[k->sub] > 0) return "upgrade offered that the player already owns";
+        if (k->type == PK_AUGMENT && p->upg_count[k->sub] > 0) return "augment offered that the player already owns";
+        for (int j = i + 1; j < G.npk; j++)
+            if (k->type == PK_UPGRADE && G.pk[j].type == PK_UPGRADE && G.pk[j].sub == k->sub) return "the same upgrade offered twice";
         if (k->type == PK_UPGRADE && UPGRADES[k->sub].tier > 0) return "workshop-exclusive upgrade offered outside the augment machine";
         if (k->type == PK_AUGMENT && (G.room.type != ROOM_WORKSHOP || UPGRADES[k->sub].tier == 0 || !k->choice))
             return "augment pad outside a workshop (or not an exclusive one-of-N choice)";
     }
+    for (int i = 0; i < G.nmc; i++)
+        if (G.mc[i].type == MC_GAMBLE && !G.mc[i].broken && G.mc[i].prize == PK_UPGRADE &&
+            (p->upg_count[G.mc[i].prize_sub] > 0 || on_floor(G.mc[i].prize_sub)))
+            return "slot machine prize already owned (or also on the floor)";
     for (int i = 0; i < G.npk; i++) {
         const Pickup *k = &G.pk[i];
         if (k->type != PK_ACTIVE) continue;
@@ -141,7 +153,7 @@ static const char *check_invariants(float room_time) {
         (room_time > MAX_ROOM_SECONDS || (G.nen > 0 && stall > MAX_STALL_SECONDS))) {
         int len = snprintf(msg, sizeof msg, "room %d stalled (%.0f s in room, no enemy hit for %.0f s) - player@(%.0f,%.0f) %s, %d bullets - left:",
                            G.room.depth, (double)room_time, (double)stall, (double)p->pos.x, (double)p->pos.y,
-                           gun_name(), G.npb);
+                           gun_main_mod() >= 0 ? UPGRADES[gun_main_mod()].name : "plain shots", G.npb);
         for (int i = 0; i < G.nen && i < 3 && len < (int)sizeof msg - 40; i++)
             len += snprintf(msg + len, sizeof msg - (size_t)len, " %s@(%.0f,%.0f) hp %.0f/%.0f", ENEMIES[G.en[i].type].name,
                             (double)G.en[i].pos.x, (double)G.en[i].pos.y, (double)G.en[i].hp, (double)G.en[i].max_hp);
@@ -170,7 +182,7 @@ static const char *check_room_reward(void) {
         snprintf(buf, sizeof buf, "shop opened with %d items for sale instead of %d", priced, SHOP_ITEMS);
         return buf;
     }
-    bool item_room = G.room.type == ROOM_COMBAT && (G.room.reward == RW_WEAPON || G.room.reward == RW_UPGRADE || G.room.reward == RW_ACTIVE);
+    bool item_room = G.room.type == ROOM_COMBAT && (G.room.reward == RW_UPGRADE || G.room.reward == RW_ACTIVE);
     if (item_room && count_choices() != REWARD_CHOICES) {
         snprintf(buf, sizeof buf, "%s room offers %d items to choose from instead of %d",
                  reward_name(G.room.reward), count_choices(), REWARD_CHOICES);
@@ -178,13 +190,8 @@ static const char *check_room_reward(void) {
     }
     if (G.room.type == ROOM_COMBAT && G.room.reward == RW_UPGRADE)
         for (int i = 0; i < G.npk; i++)
-            if (G.pk[i].type != PK_UPGRADE || upgrade_is_weapon(G.pk[i].sub)) return "upgrade room offers a weapon mod (or no upgrade)";
-    if (G.room.type == ROOM_COMBAT && G.room.reward == RW_WEAPON) {
-        int left = 0, mods = 0; /* weapon mods still to gain: the room offers only those when it can */
-        for (int u = UPG_W_SCATTER; u <= UPG_W_SWORD; u++) left += !upgrade_capped(u);
-        for (int i = 0; i < G.npk; i++) mods += G.pk[i].type == PK_UPGRADE && upgrade_is_weapon(G.pk[i].sub);
-        if (mods < (left < REWARD_CHOICES ? left : REWARD_CHOICES)) return "weapon room offers other upgrades while weapon mods remain";
-    }
+            if (G.pk[i].type != PK_UPGRADE && G.pk[i].type != PK_STAT)
+                return "upgrade room offers neither an upgrade nor, once all are owned, a stat trade";
     if (G.room.type == ROOM_COMBAT && G.room.reward == RW_ACTIVE) {
         int seen = 0;
         for (int i = 0; i < G.npk; i++) {
@@ -212,7 +219,7 @@ static const char *check_room_reward(void) {
         int items = 0, resources = 0;
         for (int i = 0; i < G.npk; i++) {
             const Pickup *k = &G.pk[i];
-            items += k->type == PK_UPGRADE && !k->choice && k->price == 0;
+            items += (k->type == PK_UPGRADE || k->type == PK_STAT) && !k->choice && k->price == 0;
             resources += k->type == PK_COIN || k->type == PK_BOMB || k->type == PK_KEY;
         }
         if (G.room.secret_shop ? items != 0 : items < 1 || items > 2) {
@@ -256,10 +263,10 @@ static void clear_edges(void) {
 /* Debug-menu teleports: every room type, with and without enemies, must land in a
  * coherent state, and the bot must be able to finish the room and leave it. */
 static int debug_rooms_run(const HeadlessOptions *o) {
-    static const RoomType types[] = {ROOM_START, ROOM_COMBAT, ROOM_COMBAT, ROOM_COMBAT, ROOM_COMBAT, ROOM_STATS, ROOM_SHOP, ROOM_WORKSHOP, ROOM_SECRET, ROOM_SECRET};
-    static const RewardType rewards[] = {RW_NONE, RW_NONE, RW_WEAPON, RW_UPGRADE, RW_ACTIVE, RW_NONE, RW_NONE, RW_NONE, RW_NONE, RW_NONE};
-    static const int secret_shop[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
-    static const char *names[] = {"launch bay", "combat", "weapon", "upgrade", "active", "stats", "shop", "workshop", "secret", "secret shop"};
+    static const RoomType types[] = {ROOM_START, ROOM_COMBAT, ROOM_COMBAT, ROOM_COMBAT, ROOM_STATS, ROOM_SHOP, ROOM_WORKSHOP, ROOM_SECRET, ROOM_SECRET};
+    static const RewardType rewards[] = {RW_NONE, RW_NONE, RW_UPGRADE, RW_ACTIVE, RW_NONE, RW_NONE, RW_NONE, RW_NONE, RW_NONE};
+    static const int secret_shop[] = {0, 0, 0, 0, 0, 0, 0, 0, 1};
+    static const char *names[] = {"launch bay", "combat", "upgrade", "active", "stats", "shop", "workshop", "secret", "secret shop"};
     int failures = 0;
     for (int t = 0; t < ARRAY_LEN(types); t++) {
         for (int with = types[t] == ROOM_START ? 0 : 1; with >= 0; with--) {
@@ -440,7 +447,7 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         Player *pl = &G.pl;
         bool desc_ok = SDL_strstr(upgrade_desc(UPG_THERMITE), "15%") != NULL;
         upgrade_apply(UPG_THERMITE);
-        desc_ok = desc_ok && SDL_strstr(upgrade_desc(UPG_THERMITE), "30%") && SDL_strstr(upgrade_desc_at(UPG_THERMITE, 1), "15%");
+        desc_ok = desc_ok && SDL_strstr(upgrade_desc_at(UPG_THERMITE, 2), "30%") && SDL_strstr(upgrade_desc(UPG_THERMITE), "15%");
         upgrade_apply(UPG_LOADED_DICE);
         desc_ok = desc_ok && SDL_strstr(upgrade_desc_at(UPG_THERMITE, 1), "30%") && SDL_strstr(upgrade_desc_at(UPG_PAYLOAD, 1), "40%");
 
@@ -451,22 +458,21 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         bool hurt_ok = fabsf(full - 1.0f) < 1e-4f && fabsf(wounded - 1.3f) < 1e-4f;
         pl->hp = pl->max_hp;
 
-        /* Weapon rooms: 3 distinct weapon mods not owned, never the Knight's sword; upgrade rooms: none. */
+        /* Upgrade rooms: 3 distinct upgrades not owned, the ones reshaping the shots among them. */
         upgrade_apply(UPG_W_NEEDLER);
-        bool sig_ok = true;
-        for (int k = 0; k < 30 && sig_ok; k++) {
-            G.npk = 0;
-            reward_drop(RW_WEAPON, v2(ARENA_CX, ARENA_CY));
-            for (int i = 0; i < G.npk; i++)
-                for (int j = i + 1; j < G.npk; j++) sig_ok = sig_ok && G.pk[i].sub != G.pk[j].sub;
-            for (int i = 0; i < G.npk; i++)
-                sig_ok = sig_ok && G.pk[i].type == PK_UPGRADE && upgrade_is_weapon(G.pk[i].sub) && G.pk[i].sub != UPG_W_NEEDLER &&
-                         G.pk[i].sub != UPG_W_SWORD;
-            sig_ok = sig_ok && G.npk == REWARD_CHOICES;
+        bool sig_ok = true, shot_seen = false;
+        for (int k = 0; k < 60 && sig_ok; k++) {
             G.npk = 0;
             reward_drop(RW_UPGRADE, v2(ARENA_CX, ARENA_CY));
-            for (int i = 0; i < G.npk; i++) sig_ok = sig_ok && !upgrade_is_weapon(G.pk[i].sub);
+            for (int i = 0; i < G.npk; i++)
+                for (int j = i + 1; j < G.npk; j++) sig_ok = sig_ok && G.pk[i].sub != G.pk[j].sub;
+            for (int i = 0; i < G.npk; i++) {
+                sig_ok = sig_ok && G.pk[i].type == PK_UPGRADE && G.pk[i].sub != UPG_W_NEEDLER && UPGRADES[G.pk[i].sub].tier == 0;
+                shot_seen = shot_seen || upgrade_is_weapon(G.pk[i].sub);
+            }
+            sig_ok = sig_ok && G.npk == REWARD_CHOICES;
         }
+        sig_ok = sig_ok && shot_seen;
         G.npk = 0;
         upgrade_toggle(UPG_W_NEEDLER); /* back to the plain blaster for the deflector check */
 
@@ -489,7 +495,7 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         float spread = pl->spread_mult;
         stat_apply(ST_SPREAD, true);
         bool spread_ok = fabsf(pl->spread_mult - spread * 0.75f) < 1e-4f && stat_can_change(ST_SPREAD, false);
-        printf("scripted: chances in descriptions -> %s, wounded fury -> %s, weapon rooms -> %s, deflector -> %s, spread -> %s\n",
+        printf("scripted: chances in descriptions -> %s, wounded fury -> %s, upgrade rooms -> %s, deflector -> %s, spread -> %s\n",
                desc_ok ? "OK" : "FAILED", hurt_ok ? "OK" : "FAILED", sig_ok ? "OK" : "FAILED", deflect_ok ? "OK" : "FAILED",
                spread_ok ? "OK" : "FAILED");
         failures += !desc_ok + !hurt_ok + !sig_ok + !deflect_ok + !spread_ok;
@@ -752,12 +758,38 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         int waves = 0;
         for (int i = 0; i < G.npb; i++) waves += (G.pb[i].flags & PB_WAVE) != 0;
         names[nres] = "weapon mods combine", oks[nres++] = shots[0] == 1 && shots[1] == 8 && shots[2] == 16 && shots[3] == 2 &&
-                                                         waves == 2 && SDL_strcmp(gun_name(), "WAVE GUN") == 0;
+                                                         waves == 2 && gun_main_mod() == UPG_W_WAVE;
 
-        FRESH(); /* a sword-less character never gets the sword, the Knight's sword swings */
-        bool sword_ok = !upgrade_available(UPG_W_SWORD) && upgrade_capped(UPG_W_SWORD);
-        for (int k = 0; k < 200; k++) sword_ok = sword_ok && weapon_roll() != UPG_W_SWORD;
-        names[nres] = "sword knight-only", oks[nres++] = sword_ok;
+        FRESH(); /* every character can find the sword */
+        bool sword_seen = false;
+        for (int k = 0; k < 400 && !sword_seen; k++) sword_seen = upgrade_roll() == UPG_W_SWORD;
+        names[nres] = "sword for everyone", oks[nres++] = sword_seen && !upgrade_capped(UPG_W_SWORD);
+
+        /* An upgrade owned never comes back: not rolled, not offered, not taken twice; an offer
+         * left on the floor turns into another one once the same upgrade is taken elsewhere. */
+        FRESH();
+        upgrade_apply(UPG_W_SEEKER);
+        upgrade_apply(UPG_RAPID);
+        upgrade_apply(UPG_RAPID);
+        bool once_ok = pl->upg_count[UPG_RAPID] == 1 && upgrade_capped(UPG_RAPID) && upgrade_capped(UPG_W_SEEKER);
+        for (int k = 0; k < 300; k++) once_ok = once_ok && upgrade_roll() != UPG_RAPID && upgrade_roll() != UPG_W_SEEKER;
+        G.npk = 0;
+        reward_drop(RW_UPGRADE, v2(ARENA_CX, ARENA_CY));
+        int first = G.pk[0].sub;
+        upgrade_apply(first); /* as if found elsewhere */
+        pickups_refresh_owned();
+        for (int i = 0; i < G.npk; i++)
+            once_ok = once_ok && (G.pk[i].type != PK_UPGRADE || (G.pl.upg_count[G.pk[i].sub] == 0 && G.pk[i].sub != first));
+        once_ok = once_ok && G.npk == REWARD_CHOICES;
+        /* Every upgrade owned: rooms fall back to stat trades. */
+        for (int u = 0; u < UPG_COUNT; u++) pl->upg_count[u] = 1;
+        player_recompute();
+        G.npk = 0;
+        reward_drop(RW_UPGRADE, v2(ARENA_CX, ARENA_CY));
+        once_ok = once_ok && upgrade_roll() < 0 && upgrade_fresh() < 0 && G.npk == REWARD_CHOICES;
+        for (int i = 0; i < G.npk; i++) once_ok = once_ok && G.pk[i].type == PK_STAT;
+        G.npk = 0;
+        names[nres] = "owned upgrades never come back", oks[nres++] = once_ok;
 #undef DUMMY
 #undef FRESH
 #undef TICK
@@ -781,7 +813,7 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         Input *in = &G.in;
         Stats base;
         stats_compute(&base, false); /* nothing owned yet */
-        static const int give[] = {UPG_HULL, UPG_GLASS_CANNON, UPG_RAPID, UPG_RAPID, UPG_BIG_IRON, UPG_MULTI, UPG_FOUR_LEAF,
+        static const int give[] = {UPG_HULL, UPG_GLASS_CANNON, UPG_RAPID, UPG_BIG_IRON, UPG_MULTI, UPG_FOUR_LEAF,
                                    UPG_THRUSTER, UPG_TESLA, UPG_W_SEEKER, UPG_W_RAILGUN, UPG_SKELETON_KEY, UPG_DRONE};
         for (int i = 0; i < ARRAY_LEN(give); i++) upgrade_apply(give[i]);
         Stats on;
@@ -789,18 +821,19 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         bool sync = stats_in_sync();
         int list[UPG_COUNT];
         int n = upgrade_menu_list(list);
-        bool order_ok = n == 12 && upgrade_is_weapon(list[0]) && upgrade_is_weapon(list[1]) && !upgrade_is_weapon(list[2]);
+        bool order_ok = n == 12;
+        for (int i = 1; i < n; i++) order_ok = order_ok && list[i - 1] < list[i];
         int hp0 = pl->hp;
         for (int i = 0; i < n; i++) upgrade_toggle(list[i]);
         bool off_ok = pl->dmg_mult == base.dmg_mult && pl->rate_mult == base.rate_mult && pl->max_hp == base.max_hp &&
                       pl->extra_proj == 0 && pl->drones == 0 && pl->luck == base.luck && pl->speed == base.speed &&
-                      SDL_strcmp(gun_name(), "BLASTER") == 0 && upg_has(UPG_TESLA) == 0 && pl->upg_off[UPG_HULL] &&
+                      gun_main_mod() < 0 && upg_has(UPG_TESLA) == 0 && pl->upg_off[UPG_HULL] &&
                       !pl->upg_off[UPG_SKELETON_KEY] && !upgrade_toggleable(UPG_SKELETON_KEY) && stats_in_sync();
         int hp_off = pl->hp;
         for (int i = 0; i < n; i++) upgrade_toggle(list[i]);
         bool on_ok = pl->dmg_mult == on.dmg_mult && pl->rate_mult == on.rate_mult && pl->max_hp == on.max_hp &&
                      pl->extra_proj == on.extra_proj && pl->drones == on.drones && pl->hp == hp_off && hp_off <= hp0 &&
-                     upg_has(UPG_W_RAILGUN) == 1 && SDL_strcmp(gun_name(), "RAILGUN") == 0 && stats_in_sync();
+                     upg_has(UPG_W_RAILGUN) == 1 && gun_main_mod() == UPG_W_RAILGUN && stats_in_sync();
         /* A stat trade while an upgrade is off: it stays when the upgrade comes back. */
         upgrade_toggle(UPG_RAPID);
         stat_apply(ST_FIRE_RATE, true);

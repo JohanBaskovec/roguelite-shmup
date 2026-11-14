@@ -48,7 +48,7 @@ typedef enum {
     UPG_CHAIN_REACTION, UPG_GROWTH, UPG_TURRET_MODE, UPG_RUN_GUN, UPG_FROSTBITE, UPG_PYROMANIAC,
     UPG_TOXIC_CLOUD, UPG_OVERKILL, UPG_MISSILE_POD, UPG_ORBITAL, UPG_SPIKED_HULL, UPG_ECHO,
     UPG_MAGNUM, UPG_SPRAY, UPG_HEAVY_CALIBER, UPG_EMERGENCY, UPG_RAMPAGE, UPG_BLACK_HOLE, UPG_XRAY,
-    /* weapon mods (one stack each, offered by weapon rooms); UPG_W_SWORD is Knight-only */
+    /* weapon mods (offered by weapon rooms); UPG_W_SWORD replaces the gun with a sword */
     UPG_W_SCATTER, UPG_W_NEEDLER, UPG_W_SEEKER, UPG_W_BOUNCER, UPG_W_RAILGUN, UPG_W_FLAMER, UPG_W_ROCKETS,
     UPG_W_CHAKRAM, UPG_W_CLUSTER, UPG_W_ARC, UPG_W_VULCAN, UPG_W_WAVE, UPG_W_SWORD,
     /* workshop exclusives (UpgradeDef.tier = max hearts paid), never offered anywhere else */
@@ -80,9 +80,9 @@ typedef struct {
     const char *name;
     const char *desc;
     uint32_t color;
-    int max;        /* how many times it can be taken (0 = unlimited) */
     int tier;       /* > 0: workshop exclusive, costs this many heart containers */
 } UpgradeDef;
+/* Every upgrade is taken at most once: one owned (even turned off) is never offered again. */
 
 extern const UpgradeDef UPGRADES[UPG_COUNT];
 
@@ -202,7 +202,7 @@ typedef struct {
     int uses;          /* SUPPLY: payouts left before it breaks */
     bool broken;       /* SUPPLY: used up; GAMBLE: prize already won */
     bool inside;       /* the player stood on it last tick (a use needs a fresh step in) */
-    PickupType prize;  /* GAMBLE: PK_UPGRADE (a weapon mod or another upgrade) */
+    PickupType prize;  /* GAMBLE: PK_UPGRADE (not owned), or PK_STAT / PK_COIN once every upgrade is owned */
     int prize_sub;
     float anim, spin;  /* feedback timers; GAMBLE: spin > 0 while the reels turn */
     int plays;
@@ -216,8 +216,8 @@ typedef struct {
 /* ---- Rooms --------------------------------------------------------------- */
 
 typedef enum { ROOM_START, ROOM_COMBAT, ROOM_STATS, ROOM_TREASURE, ROOM_SHOP, ROOM_BOSS, ROOM_SECRET, ROOM_WORKSHOP } RoomType;
-/* RW_WEAPON: a choice of 3 weapon mods (upgrades); RW_UPGRADE: 3 other upgrades. */
-typedef enum { RW_NONE, RW_COINS, RW_KEY, RW_BOMBS, RW_HEART, RW_WEAPON, RW_UPGRADE, RW_ACTIVE, RW_COUNT } RewardType;
+/* RW_UPGRADE: a choice of 3 upgrades not owned (any of them, those reshaping the shots included). */
+typedef enum { RW_NONE, RW_COINS, RW_KEY, RW_BOMBS, RW_HEART, RW_UPGRADE, RW_ACTIVE, RW_COUNT } RewardType;
 typedef enum { SIDE_LEFT, SIDE_TOP, SIDE_RIGHT, SIDE_BOTTOM } Side;
 
 typedef struct {
@@ -441,11 +441,10 @@ static inline int stat_offer_up(int offer) { return offer / ST_COUNT; }
 static inline int stat_offer_down(int offer) { return offer % ST_COUNT; }
 
 /* upgrades.c - passive upgrades and their effects (hooks called by the systems they modify) */
-int upgrade_roll(void);               /* never a weapon mod nor a workshop exclusive */
-void upgrade_apply(int u);            /* take one stack (with its banner) */
+int upgrade_roll(void);               /* not owned, never a weapon mod nor a workshop exclusive; -1: none left */
+void upgrade_apply(int u);            /* take it (with its banner); does nothing if already owned */
 void upgrade_grant(int u);            /* same, silently (starting weapon mod) */
-bool upgrade_capped(int u);
-bool upgrade_available(int u);        /* the sword is Knight-only */
+bool upgrade_capped(int u);           /* cannot be offered: owned, or useless right now */
 /* Upgrades menu: turn an owned upgrade off / back on (false for one-time ones, see upgrade_toggleable). */
 bool upgrade_toggle(int u);
 bool upgrade_toggleable(int u);
@@ -569,8 +568,6 @@ void weapon_bullet_death(PBullet *b);  /* explosive / cluster shots */
 void weapon_echo(float aim, float dmg); /* ECHO: a weaker copy of the last volley */
 int weapon_mod_by_name(const char *name); /* --weapon NAME: UpgradeId of that weapon mod, or -1 */
 const char *weapon_option_name(int u);    /* lowercase name of a weapon mod */
-int weapon_roll(void);                    /* a weapon mod not owned yet (and available), or -1 */
-const char *gun_name(void);              /* BLASTER, or the main weapon mod turned on */
 int gun_main_mod(void);                  /* that weapon mod (UpgradeId), -1 for the plain blaster */
 bool sword_on(void);                     /* the sword replaces the gun */
 float gun_volley_shots(void);            /* projectiles per volley right now (HUD, tests) */
@@ -610,6 +607,10 @@ const char *reward_name(RewardType r);
 /* Label shown on a door: STATS, SHOP or the reward name. */
 const char *door_label(const Door *d);
 int shop_price(PickupType type, int sub);
+/* An upgrade not owned and not already on the floor (weapon mods first if asked), -1: none left. */
+int upgrade_fresh(void); /* an upgrade not owned nor already on offer (floor, slot machine), -1: none */
+/* Pickups / prizes showing an upgrade the player now owns get another one (or a stat trade). */
+void pickups_refresh_owned(void);
 
 /* fx.c */
 void fx_particle(V2 pos, V2 vel, float life, float size, SDL_FColor col, float drag, int shape);
@@ -639,6 +640,7 @@ void debug_teleport(RoomType type, RewardType reward, int depth, bool with_enemi
 #define WORKSHOP_MACHINE_DY 250.0f
 V2 workshop_machine_spot(int i); /* 0 = supply press, 1 = slot machine */
 void workshop_spawn(void);
+void workshop_refresh_prize(void); /* a prize the player now owns gets replaced */
 void workshop_update(void);
 void workshop_draw(void);
 float gamble_win_chance(void);

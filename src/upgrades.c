@@ -11,118 +11,118 @@
  */
 
 const UpgradeDef UPGRADES[UPG_COUNT] = {
-    [UPG_RAPID] = {"OVERCLOCK", "+18% fire rate", 0xff5f7e, 0},
-    [UPG_DAMAGE] = {"HEAVY ROUNDS", "+22% damage", 0xff8a3d, 0},
-    [UPG_MULTI] = {"SPLIT SHOT", "+1 projectile on every weapon", 0x66f0ff, 4},
-    [UPG_PIERCE] = {"PIERCER", "Shots pierce one more enemy", 0xf28cff, 0},
-    [UPG_BOUNCE] = {"RUBBER CORE", "Shots bounce off walls twice", 0xffe14d, 0},
-    [UPG_HOMING] = {"SMART ROUNDS", "Shots steer towards enemies", 0x9dff6a, 3},
-    [UPG_THRUSTER] = {"THRUSTERS", "+10% speed, faster recharge|of your active item", 0x7da8ff, 4},
-    [UPG_HULL] = {"HULL PLATING", "+1 heart container", 0xff3355, 0},
-    [UPG_DRONE] = {"WING DRONE", "An auto-firing drone joins you", 0xb6ffb0, 0},
-    [UPG_MAGNET] = {"MAGNET", "Bigger pickup radius", 0xffd23f, 3},
-    [UPG_VELOCITY] = {"ACCELERATOR", "+20% shot speed, +8% damage", 0x9ad7ff, 0},
+    [UPG_RAPID] = {"OVERCLOCK", "+18% fire rate", 0xff5f7e},
+    [UPG_DAMAGE] = {"HEAVY ROUNDS", "+22% damage", 0xff8a3d},
+    [UPG_MULTI] = {"SPLIT SHOT", "+1 projectile per volley", 0x66f0ff},
+    [UPG_PIERCE] = {"PIERCER", "Shots pierce one more enemy", 0xf28cff},
+    [UPG_BOUNCE] = {"RUBBER CORE", "Shots bounce off walls twice", 0xffe14d},
+    [UPG_HOMING] = {"SMART ROUNDS", "Shots steer towards enemies", 0x9dff6a},
+    [UPG_THRUSTER] = {"THRUSTERS", "+10% speed, faster recharge|of your active item", 0x7da8ff},
+    [UPG_HULL] = {"HULL PLATING", "+1 heart container", 0xff3355},
+    [UPG_DRONE] = {"WING DRONE", "An auto-firing drone joins you", 0xb6ffb0},
+    [UPG_MAGNET] = {"MAGNET", "Bigger pickup radius", 0xffd23f},
+    [UPG_VELOCITY] = {"ACCELERATOR", "+20% shot speed, +8% damage", 0x9ad7ff},
 
-    [UPG_FROST] = {"CRYO ROUNDS", "Hits chill enemies: -45% speed", 0x8fe9ff, 1},
-    [UPG_VENOM] = {"VENOM TIPS", "Hits poison enemies over time", 0x7dff4a, 0},
-    [UPG_THERMITE] = {"THERMITE", "Hits may set enemies on fire", 0xff7a2e, 0},
-    [UPG_ARC] = {"ARC EMITTER", "Hits may chain lightning", 0x9db8ff, 0},
-    [UPG_PAYLOAD] = {"PAYLOAD", "Shots may explode on impact", 0xffa64d, 0},
-    [UPG_SHRAPNEL] = {"SHRAPNEL", "Hits may burst into fragments", 0xd0d0e0, 0},
-    [UPG_BIG_IRON] = {"BIG IRON", "Bigger shots, +20% damage", 0xc9a0ff, 3},
-    [UPG_CRIT] = {"LUCKY STRIKE", "Chance of triple-damage shots", 0xfff07a, 3},
-    [UPG_GUILLOTINE] = {"GUILLOTINE", "Hits execute enemies below 15%", 0xff4466, 1},
-    [UPG_BOOMERANG] = {"RETURN VECTOR", "Shots fly back to you", 0x66ffd9, 1},
-    [UPG_PHASE] = {"PHASE ROUNDS", "Shots pass through obstacles", 0xb08cff, 1},
-    [UPG_IMPACT] = {"IMPACT DRIVER", "Huge knockback, +10% damage", 0xffb070, 2},
-    [UPG_TAIL_GUN] = {"TAIL GUN", "Also fires backwards", 0x7dd3ff, 3},
-    [UPG_FLANK] = {"FLANK CANNONS", "Periodic shots to both sides", 0x7dffc8, 2},
-    [UPG_CAPACITOR] = {"CAPACITOR", "Every 10th volley: a mega shot", 0x66e0ff, 2},
-    [UPG_WIDE_LENS] = {"WIDE LENS", "+1 projectile, wider spread", 0x99ccff, 3},
-    [UPG_FOCUS_LENS] = {"FOCUS LENS", "Tighter spread, +10% damage", 0xa0ffea, 2},
+    [UPG_FROST] = {"CRYO ROUNDS", "Hits chill enemies: -45% speed", 0x8fe9ff},
+    [UPG_VENOM] = {"VENOM TIPS", "Hits poison enemies over time", 0x7dff4a},
+    [UPG_THERMITE] = {"THERMITE", "Hits may set enemies on fire", 0xff7a2e},
+    [UPG_ARC] = {"ARC EMITTER", "Hits may chain lightning", 0x9db8ff},
+    [UPG_PAYLOAD] = {"PAYLOAD", "Shots may explode on impact", 0xffa64d},
+    [UPG_SHRAPNEL] = {"SHRAPNEL", "Hits may burst into fragments", 0xd0d0e0},
+    [UPG_BIG_IRON] = {"BIG IRON", "Bigger shots, +20% damage", 0xc9a0ff},
+    [UPG_CRIT] = {"LUCKY STRIKE", "Chance of triple-damage shots", 0xfff07a},
+    [UPG_GUILLOTINE] = {"GUILLOTINE", "Hits execute enemies below 15%", 0xff4466},
+    [UPG_BOOMERANG] = {"RETURN VECTOR", "Shots fly back to you", 0x66ffd9},
+    [UPG_PHASE] = {"PHASE ROUNDS", "Shots pass through obstacles", 0xb08cff},
+    [UPG_IMPACT] = {"IMPACT DRIVER", "Huge knockback, +10% damage", 0xffb070},
+    [UPG_TAIL_GUN] = {"TAIL GUN", "Also fires backwards", 0x7dd3ff},
+    [UPG_FLANK] = {"FLANK CANNONS", "Periodic shots to both sides", 0x7dffc8},
+    [UPG_CAPACITOR] = {"CAPACITOR", "Every 10th volley: a mega shot", 0x66e0ff},
+    [UPG_WIDE_LENS] = {"WIDE LENS", "+1 projectile, wider spread", 0x99ccff},
+    [UPG_FOCUS_LENS] = {"FOCUS LENS", "Tighter spread, +10% damage", 0xa0ffea},
 
-    [UPG_GLASS_CANNON] = {"GLASS CANNON", "+60% damage, -1 heart container", 0xe0f4ff, 1},
-    [UPG_TITAN_HULL] = {"TITAN HULL", "+2 heart containers, -8% speed", 0xff5577, 2},
-    [UPG_FEATHER] = {"FEATHERWEIGHT", "+15% speed, smaller hitbox", 0xe6f0ff, 2},
-    [UPG_LONG_BARREL] = {"LONG BARREL", "+40% range, faster shots", 0xb4c8ff, 3},
-    [UPG_HAIR_TRIGGER] = {"HAIR TRIGGER", "+30% fire rate, -10% damage", 0xff7a9a, 3},
-    [UPG_FOUR_LEAF] = {"FOUR-LEAF CHIP", "+2 luck", 0x5dff8a, 2},
-    [UPG_MICRO_HULL] = {"MICRO HULL", "-25% hitbox size", 0xd8d8ff, 2},
+    [UPG_GLASS_CANNON] = {"GLASS CANNON", "+60% damage, -1 heart container", 0xe0f4ff},
+    [UPG_TITAN_HULL] = {"TITAN HULL", "+2 heart containers, -8% speed", 0xff5577},
+    [UPG_FEATHER] = {"FEATHERWEIGHT", "+15% speed, smaller hitbox", 0xe6f0ff},
+    [UPG_LONG_BARREL] = {"LONG BARREL", "+40% range, faster shots", 0xb4c8ff},
+    [UPG_HAIR_TRIGGER] = {"HAIR TRIGGER", "+30% fire rate, -10% damage", 0xff7a9a},
+    [UPG_FOUR_LEAF] = {"FOUR-LEAF CHIP", "+2 luck", 0x5dff8a},
+    [UPG_MICRO_HULL] = {"MICRO HULL", "-25% hitbox size", 0xd8d8ff},
 
-    [UPG_PIGGY_BANK] = {"PIGGY BANK", "+12 coins, +3 per room cleared", 0xffd23f, 1},
-    [UPG_BOMB_BELT] = {"BOMB BELT", "+3 bombs, bombs hit 60% harder", 0xff8a3d, 2},
-    [UPG_SKELETON_KEY] = {"SKELETON KEY", "+3 keys", 0xd9e3f0, 1},
-    [UPG_COUPON] = {"COUPON", "Shop prices -30%", 0xff9de0, 1},
+    [UPG_PIGGY_BANK] = {"PIGGY BANK", "+12 coins, +3 per room cleared", 0xffd23f},
+    [UPG_BOMB_BELT] = {"BOMB BELT", "+3 bombs, bombs hit 60% harder", 0xff8a3d},
+    [UPG_SKELETON_KEY] = {"SKELETON KEY", "+3 keys", 0xd9e3f0},
+    [UPG_COUPON] = {"COUPON", "Shop prices -30%", 0xff9de0},
 
-    [UPG_REACTIVE] = {"REACTIVE ARMOR", "Getting hit fires a bullet ring", 0xff6a4d, 2},
-    [UPG_SECOND_WIND] = {"SECOND WIND", "Survive one lethal hit", 0xfff5c0, 3},
-    [UPG_BARRIER] = {"BARRIER CELL", "+1 shield, recharges each room", 0x66d9ff, 3},
-    [UPG_ORB] = {"GUARDIAN ORB", "Orbiting orb blocks bullets", 0xffe3a0, 3},
-    [UPG_TESLA] = {"TESLA FIELD", "Zaps nearby enemies", 0x80c8ff, 3},
-    [UPG_LEECH] = {"LEECH CORE", "Kills slowly restore health", 0xff3a6e, 2},
-    [UPG_ADRENALINE] = {"ADRENALINE", "Faster when at 1 heart or less", 0xff3355, 1},
-    [UPG_BLOODLUST] = {"BLOODLUST", "Kills boost damage this room", 0xc8102e, 2},
-    [UPG_RAM] = {"RAM PLATING", "Ramming enemies hurts them|while dashing or shielded", 0xffc26b, 2},
-    [UPG_DASH_NOVA] = {"NOVA TRIGGER", "Using your active item|fires a ring of shots", 0x7dfcff, 2},
-    [UPG_CHRONO] = {"CHRONO FIELD", "Enemy bullets 15% slower", 0xa8a0ff, 2},
-    [UPG_VOLATILE] = {"VOLATILE TARGETS", "Enemies explode when they die", 0xff5a1f, 2},
-    [UPG_MINES] = {"MINE LAYER", "Drops mines as you move", 0xffaa33, 2},
+    [UPG_REACTIVE] = {"REACTIVE ARMOR", "Getting hit fires a bullet ring", 0xff6a4d},
+    [UPG_SECOND_WIND] = {"SECOND WIND", "Survive one lethal hit", 0xfff5c0},
+    [UPG_BARRIER] = {"BARRIER CELL", "+1 shield, recharges each room", 0x66d9ff},
+    [UPG_ORB] = {"GUARDIAN ORB", "Orbiting orb blocks bullets", 0xffe3a0},
+    [UPG_TESLA] = {"TESLA FIELD", "Zaps nearby enemies", 0x80c8ff},
+    [UPG_LEECH] = {"LEECH CORE", "Kills slowly restore health", 0xff3a6e},
+    [UPG_ADRENALINE] = {"ADRENALINE", "Faster when at 1 heart or less", 0xff3355},
+    [UPG_BLOODLUST] = {"BLOODLUST", "Kills boost damage this room", 0xc8102e},
+    [UPG_RAM] = {"RAM PLATING", "Ramming enemies hurts them|while dashing or shielded", 0xffc26b},
+    [UPG_DASH_NOVA] = {"NOVA TRIGGER", "Using your active item|fires a ring of shots", 0x7dfcff},
+    [UPG_CHRONO] = {"CHRONO FIELD", "Enemy bullets 15% slower", 0xa8a0ff},
+    [UPG_VOLATILE] = {"VOLATILE TARGETS", "Enemies explode when they die", 0xff5a1f},
+    [UPG_MINES] = {"MINE LAYER", "Drops mines as you move", 0xffaa33},
 
     /* '|' splits a description over two lines on pedestals (a space in banners). */
-    [UPG_DEFLECTOR] = {"DEFLECTOR SHELLS", "Huge slow shots, 1/3 fire rate|they reflect enemy bullets", 0x7dffef, 1},
-    [UPG_WOUNDED_FURY] = {"WOUNDED FURY", "+30% damage while not|at full health", 0xff4a4a, 2},
-    [UPG_SCAR_TISSUE] = {"SCAR TISSUE", "+25% fire rate while not|at full health", 0xff8a8a, 2},
-    [UPG_LAST_STAND] = {"LAST STAND", "Per missing heart: +10% damage|and +5% speed", 0xd02040, 1},
-    [UPG_BLOOD_SCENT] = {"BLOOD SCENT", "Shots home in on enemies|while not at full health", 0xff6060, 1},
-    [UPG_LOADED_DICE] = {"LOADED DICE", "Doubles the chance of every|upgrade effect", 0xe6ff66, 1},
-    [UPG_SCOPE] = {"SNIPER SCOPE", "Shots gain up to +60% damage|the longer they fly", 0xd8f6ff, 2},
-    [UPG_POINT_BLANK] = {"POINT BLANK", "+50% damage to enemies|close to you", 0xff9a5a, 2},
-    [UPG_BULLY] = {"BULLY", "+40% damage to enemies|under half health", 0xff6a8a, 2},
-    [UPG_GIANT_SLAYER] = {"GIANT SLAYER", "+60% damage to big enemies|(200+ health)", 0xc0a0ff, 2},
-    [UPG_MOMENTUM] = {"MOMENTUM", "Each hit: +1% damage (max +40%)|lost after 1 s without a hit", 0xffd36b, 1},
-    [UPG_SMART_BOUNCE] = {"SMART BOUNCE", "+1 bounce; every bounce aims|at the nearest enemy", 0xfff08a, 1},
-    [UPG_CHAIN_REACTION] = {"CHAIN REACTION", "Every kill fires 6 shots|outward", 0xff7ad9, 2},
-    [UPG_GROWTH] = {"GROWTH", "+3% damage per room cleared|from now on (max +60%)", 0x7dff8a, 1},
-    [UPG_TURRET_MODE] = {"TURRET MODE", "+40% fire rate while|standing still", 0x8ab8ff, 1},
-    [UPG_RUN_GUN] = {"RUN AND GUN", "+20% damage while moving", 0x8affd8, 1},
-    [UPG_FROSTBITE] = {"FROSTBITE", "Chilled enemies take +35%|damage; hits may chill", 0xa8f0ff, 1},
-    [UPG_PYROMANIAC] = {"PYROMANIAC", "Burning enemies explode on|death; hits may ignite", 0xff6a2a, 1},
-    [UPG_TOXIC_CLOUD] = {"TOXIC CLOUD", "Poisoned enemies spread it on|death; hits may poison", 0x9aff3a, 1},
-    [UPG_OVERKILL] = {"OVERKILL", "Excess damage on a kill|spills into the nearest enemy", 0xff4a6a, 1},
-    [UPG_MISSILE_POD] = {"MISSILE POD", "Fires a homing missile|every 1.5 s", 0xffb04d, 3},
-    [UPG_ORBITAL] = {"ORBITAL STRIKE", "A strike from orbit hits|an enemy every 3 s", 0x9fe8ff, 3},
-    [UPG_SPIKED_HULL] = {"SPIKED HULL", "Enemies touching your hull|take heavy damage", 0xd0d0e0, 2},
-    [UPG_ECHO] = {"ECHO", "Every volley is echoed|0.12 s later (50% damage)", 0xb0a0ff, 1},
-    [UPG_MAGNUM] = {"MAGNUM ROUNDS", "+2 pierce, +15% damage,|-15% fire rate", 0xffc080, 2},
-    [UPG_SPRAY] = {"SPRAY AND PRAY", "+45% fire rate,|+60% spread", 0xff8ad0, 2},
-    [UPG_HEAVY_CALIBER] = {"HEAVY CALIBER", "+40% damage, bigger shots,|-20% shot speed", 0xc08a5a, 2},
-    [UPG_EMERGENCY] = {"EMERGENCY SHIELD", "Once per room, the first|hit is blocked", 0x66d9ff, 1},
-    [UPG_RAMPAGE] = {"RAMPAGE", "+3% fire rate per kill in the|room (max +45%)", 0xff5a3a, 1},
-    [UPG_BLACK_HOLE] = {"BLACK HOLE", "Kills may open a vortex|that pulls enemies in", 0x8a5aff, 2},
-    [UPG_XRAY] = {"X-RAY VISOR", "Secret corners are|always visible", 0xb0ffb0, 1},
+    [UPG_DEFLECTOR] = {"DEFLECTOR SHELLS", "Huge slow shots, 1/3 fire rate|they reflect enemy bullets", 0x7dffef},
+    [UPG_WOUNDED_FURY] = {"WOUNDED FURY", "+30% damage while not|at full health", 0xff4a4a},
+    [UPG_SCAR_TISSUE] = {"SCAR TISSUE", "+25% fire rate while not|at full health", 0xff8a8a},
+    [UPG_LAST_STAND] = {"LAST STAND", "Per missing heart: +10% damage|and +5% speed", 0xd02040},
+    [UPG_BLOOD_SCENT] = {"BLOOD SCENT", "Shots home in on enemies|while not at full health", 0xff6060},
+    [UPG_LOADED_DICE] = {"LOADED DICE", "Doubles the chance of every|upgrade effect", 0xe6ff66},
+    [UPG_SCOPE] = {"SNIPER SCOPE", "Shots gain up to +60% damage|the longer they fly", 0xd8f6ff},
+    [UPG_POINT_BLANK] = {"POINT BLANK", "+50% damage to enemies|close to you", 0xff9a5a},
+    [UPG_BULLY] = {"BULLY", "+40% damage to enemies|under half health", 0xff6a8a},
+    [UPG_GIANT_SLAYER] = {"GIANT SLAYER", "+60% damage to big enemies|(200+ health)", 0xc0a0ff},
+    [UPG_MOMENTUM] = {"MOMENTUM", "Each hit: +1% damage (max +40%)|lost after 1 s without a hit", 0xffd36b},
+    [UPG_SMART_BOUNCE] = {"SMART BOUNCE", "+1 bounce; every bounce aims|at the nearest enemy", 0xfff08a},
+    [UPG_CHAIN_REACTION] = {"CHAIN REACTION", "Every kill fires 6 shots|outward", 0xff7ad9},
+    [UPG_GROWTH] = {"GROWTH", "+3% damage per room cleared|from now on (max +60%)", 0x7dff8a},
+    [UPG_TURRET_MODE] = {"TURRET MODE", "+40% fire rate while|standing still", 0x8ab8ff},
+    [UPG_RUN_GUN] = {"RUN AND GUN", "+20% damage while moving", 0x8affd8},
+    [UPG_FROSTBITE] = {"FROSTBITE", "Chilled enemies take +35%|damage; hits may chill", 0xa8f0ff},
+    [UPG_PYROMANIAC] = {"PYROMANIAC", "Burning enemies explode on|death; hits may ignite", 0xff6a2a},
+    [UPG_TOXIC_CLOUD] = {"TOXIC CLOUD", "Poisoned enemies spread it on|death; hits may poison", 0x9aff3a},
+    [UPG_OVERKILL] = {"OVERKILL", "Excess damage on a kill|spills into the nearest enemy", 0xff4a6a},
+    [UPG_MISSILE_POD] = {"MISSILE POD", "Fires a homing missile|every 1.5 s", 0xffb04d},
+    [UPG_ORBITAL] = {"ORBITAL STRIKE", "A strike from orbit hits|an enemy every 3 s", 0x9fe8ff},
+    [UPG_SPIKED_HULL] = {"SPIKED HULL", "Enemies touching your hull|take heavy damage", 0xd0d0e0},
+    [UPG_ECHO] = {"ECHO", "Every volley is echoed|0.12 s later (50% damage)", 0xb0a0ff},
+    [UPG_MAGNUM] = {"MAGNUM ROUNDS", "+2 pierce, +15% damage,|-15% fire rate", 0xffc080},
+    [UPG_SPRAY] = {"SPRAY AND PRAY", "+45% fire rate,|+60% spread", 0xff8ad0},
+    [UPG_HEAVY_CALIBER] = {"HEAVY CALIBER", "+40% damage, bigger shots,|-20% shot speed", 0xc08a5a},
+    [UPG_EMERGENCY] = {"EMERGENCY SHIELD", "Once per room, the first|hit is blocked", 0x66d9ff},
+    [UPG_RAMPAGE] = {"RAMPAGE", "+3% fire rate per kill in the|room (max +45%)", 0xff5a3a},
+    [UPG_BLACK_HOLE] = {"BLACK HOLE", "Kills may open a vortex|that pulls enemies in", 0x8a5aff},
+    [UPG_XRAY] = {"X-RAY VISOR", "Secret corners are|always visible", 0xb0ffb0},
 
     /* Weapon mods: they change the gun itself and stack with each other (weapons.c, gun_profile). */
-    [UPG_W_SCATTER] = {"SCATTER", "x8 pellets in a wide fan,|short range, slower fire", 0xffa94d, 1},
-    [UPG_W_NEEDLER] = {"NEEDLER", "Double fire rate, half damage,|shots pierce 2 more enemies", 0xf28cff, 1},
-    [UPG_W_SEEKER] = {"SEEKER", "Homing missiles: +1 shot,|slower but stronger", 0x9dff6a, 1},
-    [UPG_W_BOUNCER] = {"BOUNCER", "Big orbs that bounce 4 times|and pierce, slower fire", 0xffe14d, 1},
-    [UPG_W_RAILGUN] = {"RAILGUN", "Rails: x9 damage, pierce|everything, very slow fire", 0xe0f4ff, 1},
-    [UPG_W_FLAMER] = {"FLAMER", "Short-range flames that|pierce and set enemies ablaze", 0xff7a1a, 1},
-    [UPG_W_ROCKETS] = {"ROCKETS", "Accelerating rockets that|explode, slow fire", 0xffb04d, 1},
-    [UPG_W_CHAKRAM] = {"CHAKRAM", "Spinning blades that pierce|everything and fly back", 0xa8ff5a, 1},
-    [UPG_W_CLUSTER] = {"CLUSTER", "Shells burst into 6|fragments, slower fire", 0xff5fd2, 1},
-    [UPG_W_ARC] = {"ARC CASTER", "Hits chain lightning|through 3 more enemies", 0x9db8ff, 1},
-    [UPG_W_VULCAN] = {"VULCAN", "Minigun: the fire rate climbs|while you hold the trigger", 0xffe08a, 1},
-    [UPG_W_WAVE] = {"WAVE GUN", "Twin shots that weave|and pierce one more enemy", 0x5dffd8, 1},
-    [UPG_W_SWORD] = {"SWORD", "Replaces the gun: arc slashes|that cut enemy bullets", 0xc9d4ff, 1},
+    [UPG_W_SCATTER] = {"SCATTER", "x8 pellets in a wide fan,|short range, slower fire", 0xffa94d},
+    [UPG_W_NEEDLER] = {"NEEDLER", "Double fire rate, half damage,|shots pierce 2 more enemies", 0xf28cff},
+    [UPG_W_SEEKER] = {"SEEKER", "Homing missiles: +1 shot,|slower but stronger", 0x9dff6a},
+    [UPG_W_BOUNCER] = {"BOUNCER", "Big orbs that bounce 4 times|and pierce, slower fire", 0xffe14d},
+    [UPG_W_RAILGUN] = {"RAILGUN", "Rails: x9 damage, pierce|everything, very slow fire", 0xe0f4ff},
+    [UPG_W_FLAMER] = {"FLAMER", "Short-range flames that|pierce and set enemies ablaze", 0xff7a1a},
+    [UPG_W_ROCKETS] = {"ROCKETS", "Accelerating rockets that|explode, slow fire", 0xffb04d},
+    [UPG_W_CHAKRAM] = {"CHAKRAM", "Spinning blades that pierce|everything and fly back", 0xa8ff5a},
+    [UPG_W_CLUSTER] = {"CLUSTER", "Shells burst into 6|fragments, slower fire", 0xff5fd2},
+    [UPG_W_ARC] = {"ARC CASTER", "Hits chain lightning|through 3 more enemies", 0x9db8ff},
+    [UPG_W_VULCAN] = {"VULCAN", "Minigun: the fire rate climbs|while you hold the trigger", 0xffe08a},
+    [UPG_W_WAVE] = {"WAVE GUN", "Twin shots that weave|and pierce one more enemy", 0x5dffd8},
+    [UPG_W_SWORD] = {"SWORD", "Replaces the gun: arc slashes|that cut enemy bullets", 0xc9d4ff},
 
     /* Workshop exclusives: tier = heart containers paid at the augment machine. */
-    [UPG_X_BLOOD_ROUNDS] = {"BLOOD ROUNDS", "+30% damage; every hit makes|enemies bleed (40%/s, 3 s)", 0xff2050, 1, 1},
-    [UPG_X_OVERDRIVE] = {"OVERDRIVE CORE", "+30% fire rate, +15% speed,|active item recharges 30% faster", 0xff9f1c, 1, 1},
-    [UPG_X_HELLFIRE] = {"HELLFIRE ENGINE", "+40% damage; every hit sets|enemies ablaze (100%/s, 2 s)", 0xff5a00, 1, 2},
-    [UPG_X_STORM] = {"STORM CORE", "+30% fire rate; hits may chain|lightning through 3 enemies", 0x9db8ff, 1, 2},
-    [UPG_X_DEMON] = {"DEMON HEART", "Damage x1.8, +2 projectiles,|every kill explodes", 0xb0103a, 1, 3},
-    [UPG_X_GOD_CANNON] = {"GOD CANNON", "+50% dmg, +25% rate, +1 shot,|+2 pierce, shots home", 0xfff5c0, 1, 3},
+    [UPG_X_BLOOD_ROUNDS] = {"BLOOD ROUNDS", "+30% damage; every hit makes|enemies bleed (40%/s, 3 s)", 0xff2050, 1},
+    [UPG_X_OVERDRIVE] = {"OVERDRIVE CORE", "+30% fire rate, +15% speed,|active item recharges 30% faster", 0xff9f1c, 1},
+    [UPG_X_HELLFIRE] = {"HELLFIRE ENGINE", "+40% damage; every hit sets|enemies ablaze (100%/s, 2 s)", 0xff5a00, 2},
+    [UPG_X_STORM] = {"STORM CORE", "+30% fire rate; hits may chain|lightning through 3 enemies", 0x9db8ff, 2},
+    [UPG_X_DEMON] = {"DEMON HEART", "Damage x1.8, +2 projectiles,|every kill explodes", 0xb0103a, 3},
+    [UPG_X_GOD_CANNON] = {"GOD CANNON", "+50% dmg, +25% rate, +1 shot,|+2 pierce, shots home", 0xfff5c0, 3},
 };
 
 /* Stacks owned (0 while turned off), +1 while CHAOS lends it (only lent when not owned). */
@@ -178,20 +178,15 @@ const char *upgrade_desc_at(int u, int n) {
     return b;
 }
 
-const char *upgrade_desc(int u) {
-    int n = G.pl.upg_count[u] + 1;
-    if (UPGRADES[u].max > 0 && n > UPGRADES[u].max) n = UPGRADES[u].max;
-    return upgrade_desc_at(u, n);
-}
+const char *upgrade_desc(int u) { return upgrade_desc_at(u, G.pl.upg_count[u] > 0 ? G.pl.upg_count[u] : 1); }
 
 /* ---- Rolling & applying -------------------------------------------------- */
 
-bool upgrade_available(int u) { return u != UPG_W_SWORD || G.character == CHAR_KNIGHT; }
-
 bool upgrade_capped(int u) {
     const Player *p = &G.pl;
-    if (!upgrade_available(u)) return true;
-    if (UPGRADES[u].max > 0 && p->upg_count[u] >= UPGRADES[u].max) return true;
+    /* Every upgrade is taken once: owned (even turned off) = never offered again. Every
+     * character can get every upgrade (the Knight's sword included). */
+    if (p->upg_count[u] > 0) return true;
     /* Caps count every upgrade owned, even those turned off for now. */
     Stats all;
     stats_compute(&all, true);
@@ -212,12 +207,11 @@ bool upgrade_capped(int u) {
 }
 
 int upgrade_roll(void) {
-    for (int tries = 0; tries < 64; tries++) {
-        int u = irand(0, UPG_COUNT - 1);
-        /* exclusives: workshop only; weapon mods: weapon rooms (weapon_roll) */
-        if (UPGRADES[u].tier == 0 && !upgrade_is_weapon(u) && !upgrade_capped(u)) return u;
-    }
-    return UPG_DAMAGE;
+    /* exclusives: workshop only */
+    int cand[UPG_COUNT], n = 0;
+    for (int u = 0; u < UPG_COUNT; u++)
+        if (UPGRADES[u].tier == 0 && !upgrade_capped(u)) cand[n++] = u;
+    return n ? cand[irand(0, n - 1)] : -1;
 }
 
 int upgrade_roll_exclusive(int tier) {
@@ -349,9 +343,9 @@ void player_recompute(void) {
 
 void upgrade_grant(int u) {
     Player *p = &G.pl;
+    if (u < 0 || u >= UPG_COUNT || p->upg_count[u] > 0) return; /* never twice */
     p->chaos[u] = false; /* owned for real now: CHAOS no longer lends it */
     p->upg_count[u]++;
-    p->upg_off[u] = false; /* taking another stack turns it back on */
     player_recompute();
     /* One-time effects of taking it. */
     switch (u) {
@@ -367,6 +361,7 @@ void upgrade_grant(int u) {
 }
 
 void upgrade_apply(int u) {
+    if (u < 0 || u >= UPG_COUNT || G.pl.upg_count[u] > 0) return;
     upgrade_grant(u);
     char desc[96];
     SDL_snprintf(desc, sizeof desc, "%s", upgrade_desc_at(u, G.pl.upg_count[u]));

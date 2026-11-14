@@ -3,9 +3,9 @@
 #include "game.h"
 
 /*
- * Upgrades menu (TAB, from a run or the pause screen): every upgrade found, weapon mods
- * first. Each one can be turned off and back on (upgrade_toggle): a build can be shaped,
- * e.g. a weapon mod that does not fit the others. The world is frozen while it is open.
+ * Upgrades menu (TAB, from a run or the pause screen): every upgrade found. Each one can be
+ * turned off and back on (upgrade_toggle): a build can be shaped, e.g. an upgrade reshaping
+ * the shots that does not fit the others. The world is frozen while it is open.
  */
 
 #define COLS 4
@@ -24,10 +24,8 @@ static struct {
 
 int upgrade_menu_list(int *out) {
     int n = 0;
-    for (int u = UPG_W_SCATTER; u <= UPG_W_SWORD; u++)
-        if (G.pl.upg_count[u] > 0) out[n++] = u;
     for (int u = 0; u < UPG_COUNT; u++)
-        if (G.pl.upg_count[u] > 0 && !upgrade_is_weapon(u)) out[n++] = u;
+        if (G.pl.upg_count[u] > 0) out[n++] = u;
     return n;
 }
 
@@ -118,10 +116,6 @@ void upgrade_menu_draw(void) {
     draw_text_centered(SCREEN_W * 0.5f, 60.0f, 5.0f, col_hex(0xb57cff, 1), "UPGRADES");
     draw_text_centered(SCREEN_W * 0.5f, 122.0f, 1.75f, col_a(COL_WHITE, 0.6f),
                        "CLICK / ENTER / SPACE  turn on - off      ARROWS / WHEEL  move      TAB / ESC  back");
-    if (sword_on()) draw_text_centered(SCREEN_W * 0.5f, 160.0f, 2.0f, col_hex(0x66f0ff, 0.9f), "WEAPON: SWORD");
-    else
-        draw_text_centered(SCREEN_W * 0.5f, 160.0f, 2.0f, col_hex(0x66f0ff, 0.9f), "WEAPON: %s  -  %.0f SHOT%s PER VOLLEY", gun_name(),
-                           (double)gun_volley_shots(), gun_volley_shots() > 1.5f ? "S" : "");
 
     int list[UPG_COUNT];
     int n = upgrade_menu_list(list);
@@ -142,10 +136,7 @@ void upgrade_menu_draw(void) {
         draw_pickup_icon(PK_UPGRADE, u, v2(x + 26.0f, y + CELL_H * 0.5f), 11.0f, G.time);
         if (!on) draw_rect(x + 8.0f, y + 6.0f, 38.0f, CELL_H - 12.0f, rgba(0.03f, 0.03f, 0.06f, 0.7f));
         SDL_FColor tc = on ? c : col_hex(0x4a5470, 1);
-        draw_text(x + 54.0f, y + (upgrade_is_weapon(u) ? 8.0f : 16.0f), 2.0f, tc, "%s", UPGRADES[u].name);
-        if (upgrade_is_weapon(u)) draw_text(x + 54.0f, y + 31.0f, 1.0f, col_a(tc, 0.7f), "WEAPON MOD");
-        if (p->upg_count[u] > 1)
-            draw_text(x + 60.0f + draw_text_width(UPGRADES[u].name, 2.0f), y + 20.0f, 1.5f, col_a(tc, 0.8f), "x%d", p->upg_count[u]);
+        draw_text(x + 54.0f, y + 16.0f, 2.0f, tc, "%s", UPGRADES[u].name);
         const char *tag = fixed ? "ONE-TIME" : on ? "ON" : "OFF";
         SDL_FColor gc = fixed ? col_hex(0x6a7490, 1) : on ? col_hex(0x7dff9a, 1) : col_hex(0xff5f7e, 1);
         float ts = fixed ? 1.25f : 2.0f;

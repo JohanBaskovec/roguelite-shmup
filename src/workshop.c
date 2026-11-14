@@ -27,6 +27,25 @@ static V2 centre(void) { return v2(ARENA_CX, ARENA_CY - 60.0f); }
 /* Machines: a lower row, either side of the entry (room.c keeps obstacles off these spots). */
 V2 workshop_machine_spot(int i) { return v2(ARENA_CX + (i == 0 ? -WORKSHOP_MACHINE_X : WORKSHOP_MACHINE_X), ARENA_CY + WORKSHOP_MACHINE_DY); }
 
+/* The slot machine's prize: an upgrade not owned, a stat trade once every upgrade is owned,
+ * 10 coins if even that is impossible. */
+static void roll_prize(Machine *g) {
+    int offer;
+    g->prize_sub = upgrade_fresh();
+    g->prize = PK_UPGRADE;
+    if (g->prize_sub >= 0) return;
+    g->prize = stats_roll_offers(&offer, 1) > 0 ? PK_STAT : PK_COIN;
+    g->prize_sub = g->prize == PK_STAT ? offer : 10;
+}
+
+void workshop_refresh_prize(void) {
+    for (int i = 0; i < G.nmc; i++) {
+        Machine *m = &G.mc[i];
+        if (m->type == MC_GAMBLE && !m->broken && m->prize == PK_UPGRADE && G.pl.upg_count[m->prize_sub] > 0)
+            roll_prize(m);
+    }
+}
+
 void workshop_spawn(void) {
     V2 c = centre();
     G.nmc = 0;
@@ -40,9 +59,7 @@ void workshop_spawn(void) {
     memset(g, 0, sizeof *g);
     g->type = MC_GAMBLE;
     g->pos = workshop_machine_spot(1);
-    int w = chance(0.4f) ? weapon_roll() : -1; /* a weapon mod, sometimes */
-    g->prize = PK_UPGRADE;
-    g->prize_sub = w >= 0 ? w : upgrade_roll();
+    roll_prize(g);
 
     /* One pad per tier the player can pay for (never the last heart container), centred. */
     int pads[3], npads = 0;
@@ -206,11 +223,16 @@ void workshop_draw(void) {
         } else if (m->broken) {
             draw_text_centered(p.x, ty, 2.0f, c, "PRIZE WON");
         } else {
-            uint32_t pc = UPGRADES[m->prize_sub].color;
-            const char *name = UPGRADES[m->prize_sub].name;
-            const char *desc = upgrade_desc(m->prize_sub);
-            draw_text_centered(p.x, ty - 4.0f, 1.75f, col_hex(pc, 1), "WIN: %s", name);
-            draw_desc(p.x, ty + 18.0f, 1.25f, col_a(COL_WHITE, 0.75f), desc);
+            if (m->prize == PK_UPGRADE) {
+                draw_text_centered(p.x, ty - 4.0f, 1.75f, col_hex(UPGRADES[m->prize_sub].color, 1), "WIN: %s", UPGRADES[m->prize_sub].name);
+                draw_desc(p.x, ty + 18.0f, 1.25f, col_a(COL_WHITE, 0.75f), upgrade_desc(m->prize_sub));
+            } else if (m->prize == PK_STAT) {
+                draw_text_centered(p.x, ty - 4.0f, 1.75f, col_hex(COLOR_STATS, 1), "WIN: A STAT TRADE");
+                draw_text_centered(p.x, ty + 18.0f, 1.25f, col_hex(0x5dff8a, 1), "%s", STATS[stat_offer_up(m->prize_sub)].up_text);
+                draw_text_centered(p.x, ty + 32.0f, 1.25f, col_hex(0xff4d6a, 1), "%s", STATS[stat_offer_down(m->prize_sub)].down_text);
+            } else {
+                draw_text_centered(p.x, ty - 4.0f, 1.75f, col_hex(0xffd23f, 1), "WIN: %d COINS", m->prize_sub);
+            }
             draw_text_centered(p.x, ty + 52.0f, 1.5f, c, "%d COINS - %d%% TO WIN", GAMBLE_COST, (int)roundf(gamble_win_chance() * 100.0f));
         }
     }

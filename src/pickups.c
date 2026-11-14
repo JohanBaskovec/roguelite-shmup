@@ -25,7 +25,6 @@ PickupType reward_icon(RewardType r) {
     case RW_KEY: return PK_KEY;
     case RW_BOMBS: return PK_BOMB;
     case RW_HEART: return PK_HEART;
-    case RW_WEAPON:
     case RW_UPGRADE: return PK_UPGRADE;
     case RW_ACTIVE: return PK_ACTIVE;
     default: return PK_COIN;
@@ -38,7 +37,6 @@ const char *reward_name(RewardType r) {
     case RW_KEY: return "KEY";
     case RW_BOMBS: return "BOMBS";
     case RW_HEART: return "HEARTS";
-    case RW_WEAPON: return "WEAPON";
     case RW_UPGRADE: return "UPGRADE";
     case RW_ACTIVE: return "ACTIVE";
     default: return "";
@@ -54,7 +52,8 @@ const char *door_label(const Door *d) {
 }
 
 int shop_price(PickupType type, int sub) {
-    int base = type == PK_UPGRADE ? (upgrade_is_weapon(sub) ? 18 : 14) : 8;
+    (void)sub;
+    int base = type == PK_UPGRADE ? 14 : 8;
     int price = base + G.room.depth / 4;
     if (upg_has(UPG_COUPON)) price = (int)roundf((float)price * 0.7f);
     return price > 1 ? price : 1;
@@ -74,54 +73,84 @@ void pickup_spawn_choice(PickupType type, int sub, V2 pos) {
     if (G.npk > before) G.pk[G.npk - 1].choice = true;
 }
 
-static bool choice_has(PickupType type, int sub) {
-    for (int i = 0; i < G.npk; i++)
-        if (G.pk[i].choice && G.pk[i].type == type && G.pk[i].sub == sub) return true;
-    return false;
-}
-
-/* Weapon / upgrade rooms: REWARD_CHOICES distinct items in a row, take one. A weapon room
- * offers weapon mods and tops up with other upgrades once fewer than that can still be gained. */
-static void spawn_item_choices(RewardType r, V2 center) {
-    for (int i = 0; i < REWARD_CHOICES; i++) {
-        int sub = -1;
-        for (int tries = 0; r == RW_WEAPON && tries < 16 && sub < 0; tries++) {
-            int w = weapon_roll();
-            if (w >= 0 && !choice_has(PK_UPGRADE, w)) sub = w;
-        }
-        for (int tries = 0; sub < 0 && tries < 32; tries++) {
-            int u = upgrade_roll();
-            if (!choice_has(PK_UPGRADE, u)) sub = u;
-        }
-        if (sub < 0) sub = upgrade_roll();
-        V2 p = v2(center.x + ((float)i - (float)(REWARD_CHOICES - 1) * 0.5f) * 420.0f, center.y - 20.0f);
-        pickup_spawn_choice(PK_UPGRADE, sub, p);
-        fx_particle(p, v2(0, 0), 0.5f, 160.0f, col_hex(upgrade_is_weapon(sub) ? 0x66f0ff : 0xb57cff, 1), 0.0f, PT_RING);
-    }
-}
-
 static bool item_present(PickupType type, int sub) {
     for (int i = 0; i < G.npk; i++)
         if (G.pk[i].type == type && G.pk[i].sub == sub) return true;
     return false;
 }
 
+static bool on_offer(int u) {
+    if (item_present(PK_UPGRADE, u)) return true;
+    for (int i = 0; i < G.nmc; i++) /* the slot machine's prize */
+        if (G.mc[i].type == MC_GAMBLE && !G.mc[i].broken && G.mc[i].prize == PK_UPGRADE && G.mc[i].prize_sub == u) return true;
+    return false;
+}
+
+int upgrade_fresh(void) {
+    int cand[UPG_COUNT], n = 0;
+    for (int u = 0; u < UPG_COUNT; u++)
+        if (UPGRADES[u].tier == 0 && !upgrade_capped(u) && !on_offer(u)) cand[n++] = u;
+    return n ? cand[irand(0, n - 1)] : -1;
+}
+
+/* Every upgrade owned: a stat trade instead (not one already on the floor), -1 if none. */
+static int fresh_stat_offer(void) {
+    int offers[ST_COUNT];
+    int n = stats_roll_offers(offers, ST_COUNT);
+    for (int i = 0; i < n; i++)
+        if (!item_present(PK_STAT, offers[i])) return offers[i];
+    return n > 0 ? offers[0] : -1;
+}
+
+/* Upgrade rooms: REWARD_CHOICES distinct upgrades in a row, take one (stat trades once every
+ * upgrade is owned). */
+static void spawn_item_choices(V2 center) {
+    for (int i = 0; i < REWARD_CHOICES; i++) {
+        PickupType type = PK_UPGRADE;
+        int sub = upgrade_fresh();
+        if (sub < 0) {
+            type = PK_STAT;
+            sub = fresh_stat_offer();
+            if (sub < 0) continue;
+        }
+        V2 p = v2(center.x + ((float)i - (float)(REWARD_CHOICES - 1) * 0.5f) * 420.0f, center.y - 20.0f);
+        pickup_spawn_choice(type, sub, p);
+        uint32_t c = type == PK_STAT ? COLOR_STATS : 0xb57cff;
+        fx_particle(p, v2(0, 0), 0.5f, 160.0f, col_hex(c, 1), 0.0f, PT_RING);
+    }
+}
+
+void pickups_refresh_owned(void) {
+    for (int i = 0; i < G.npk; i++) {
+        Pickup *k = &G.pk[i];
+        if (k->type != PK_UPGRADE || G.pl.upg_count[k->sub] == 0) continue;
+        int sub = upgrade_fresh();
+        if (sub < 0) {
+            int offer = fresh_stat_offer();
+            if (offer < 0) continue;
+            k->type = PK_STAT;
+            sub = offer;
+        }
+        k->sub = sub;
+        if (k->price > 0) k->price = shop_price(k->type, k->sub);
+        fx_particle(k->pos, v2(0, 0), 0.4f, 140.0f, COL_WHITE, 0.0f, PT_RING);
+    }
+    workshop_refresh_prize();
+}
+
 void secret_reward_drop(V2 center, bool items) {
     /* Items: free pedestals, all of them can be taken (not a one-of-N choice). */
     int n = !items ? 0 : chance(0.12f) ? 2 : 1;
     for (int i = 0; i < n; i++) {
-        int sub = -1;
-        for (int tries = 0; chance(0.5f) && tries < 8 && sub < 0; tries++) { /* a weapon mod, half the time */
-            int w = weapon_roll();
-            if (w >= 0 && !item_present(PK_UPGRADE, w)) sub = w;
+        PickupType type = PK_UPGRADE;
+        int sub = upgrade_fresh();
+        if (sub < 0) { /* every upgrade owned */
+            type = PK_STAT;
+            sub = fresh_stat_offer();
+            if (sub < 0) continue;
         }
-        for (int tries = 0; sub < 0 && tries < 32; tries++) {
-            int u = upgrade_roll();
-            if (!item_present(PK_UPGRADE, u)) sub = u;
-        }
-        if (sub < 0) sub = upgrade_roll();
         V2 p = v2(center.x + ((float)i - (float)(n - 1) * 0.5f) * 360.0f, center.y - 40.0f);
-        pickup_spawn(PK_UPGRADE, sub, p, v2(0, 0));
+        pickup_spawn(type, sub, p, v2(0, 0));
         fx_particle(p, v2(0, 0), 0.5f, 160.0f, col_hex(COLOR_SECRET, 1), 0.0f, PT_RING);
     }
     /* Resources: always coins, often bombs, sometimes keys. */
@@ -155,8 +184,7 @@ void reward_drop(RewardType r, V2 pos) {
         int n = luck_adjust(2);
         for (int i = 0; i < n; i++) pickup_spawn(PK_HEART, 0, pos, random_vel(100.0f, 250.0f));
     } break;
-    case RW_WEAPON:
-    case RW_UPGRADE: spawn_item_choices(r, pos); break;
+    case RW_UPGRADE: spawn_item_choices(pos); break;
     case RW_ACTIVE: active_spawn_choices(pos); break;
     default:
         return;
@@ -196,6 +224,7 @@ static bool collect(const Pickup *k) {
         fx_popup(pop, col_hex(0xff3355, 1), "+HP");
         break;
     case PK_UPGRADE:
+        if (p->upg_count[k->sub] > 0) return false; /* never twice (pickups_refresh_owned swaps it) */
         upgrade_apply(k->sub);
         fx_shake(0.3f);
         break;
@@ -249,6 +278,7 @@ void pickups_update(void) {
     /* Once the room is cleared, resources fly to the player: no backtracking chores. */
     bool vacuum = G.room.cleared && G.room.clear_t > 0.6f;
     bool choice_taken = false;
+    pickups_refresh_owned();
     for (int i = 0; i < G.npk; i++) {
         Pickup *k = &G.pk[i];
         k->t += DT;
@@ -351,12 +381,6 @@ void draw_pickup_icon(PickupType type, int sub, V2 p, float s, float t) {
         /* the upgrade's own icon inside a blood-red ring */
         __attribute__((fallthrough));
     case PK_UPGRADE: {
-        if (sub == -2 || upgrade_is_weapon(sub)) { /* weapon mods (-2: any, weapon doors): a hexagon around a sight */
-            SDL_FColor c = col_hex(sub >= 0 ? UPGRADES[sub].color : 0x66f0ff, 1);
-            draw_ngon_outline(p, s * 1.05f, 6, t * 1.5f, s * 0.2f, c);
-            draw_tri(v2(p.x, p.y - s * 0.7f), v2(p.x + s * 0.55f, p.y + s * 0.5f), v2(p.x - s * 0.55f, p.y + s * 0.5f), c);
-            break;
-        }
         SDL_FColor c = col_hex(sub >= 0 ? UPGRADES[sub].color : 0xb57cff, 1);
         int sides = sub >= 0 ? 3 + sub % 4 : 4; /* a little shape variety across 50+ upgrades */
         draw_ngon(p, s, sides, t * 2.0f, c);
@@ -457,8 +481,6 @@ void pickups_draw(void) {
         }
         const char *name = UPGRADES[k->sub].name;
         const char *desc = upgrade_desc(k->sub);
-        if (k->type == PK_UPGRADE && upgrade_is_weapon(k->sub))
-            draw_text_centered(k->pos.x, k->pos.y - (k->price > 0 ? 96.0f : 74.0f), 1.5f, col_hex(0x66f0ff, 0.8f), "WEAPON MOD");
         if (k->type == PK_AUGMENT) {
             int hearts = UPGRADES[k->sub].tier;
             draw_text_centered(k->pos.x, k->pos.y - 74.0f, 2.0f, col_hex(0xff4d6a, 1), "-%d HEART%s", hearts, hearts > 1 ? "S" : "");

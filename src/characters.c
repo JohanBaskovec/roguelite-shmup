@@ -10,7 +10,7 @@
 
 const CharDef CHARACTERS[CHAR_COUNT] = {
     [CHAR_NORMAL] = {
-        .name = "NORMAL", .desc = {"Balanced fighter", "Rapid twin-linked Blaster", "No weaknesses, no tricks"},
+        .name = "NORMAL", .desc = {"Balanced fighter", "Rapid, precise shots", "No weaknesses, no tricks"},
         .color = 0x66f0ff, .hearts = 3, .armor = 0,
         .dmg_mult = 1.0f, .speed_mult = 1.0f, .hit_radius = PLAYER_HIT_R, .start_upgrade = -1,
     },
@@ -142,7 +142,7 @@ void char_select_draw(void) {
         stat_line(sx, sw, sy + 32.0f, "SPEED", buf, cmp(c->speed_mult, base->speed_mult, 1));
         SDL_snprintf(buf, sizeof buf, "%.0fpx", (double)c->hit_radius);
         stat_line(sx, sw, sy + 64.0f, "HITBOX", buf, cmp(c->hit_radius, base->hit_radius, -1));
-        stat_line(sx, sw, sy + 96.0f, "WEAPON", c->start_upgrade >= 0 ? UPGRADES[c->start_upgrade].name : "BLASTER", 0);
+        stat_line(sx, sw, sy + 96.0f, "STARTS WITH", c->start_upgrade >= 0 ? UPGRADES[c->start_upgrade].name : "-", 0);
 
         for (int l = 0; l < 3; l++)
             if (c->desc[l][0])

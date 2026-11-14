@@ -151,18 +151,6 @@ int gun_main_mod(void) {
     return -1;
 }
 
-const char *gun_name(void) {
-    int u = gun_main_mod();
-    return u >= 0 ? UPGRADES[u].name : "BLASTER";
-}
-
-int weapon_roll(void) {
-    int cand[UPG_COUNT], n = 0;
-    for (int u = UPG_W_SCATTER; u <= UPG_W_SWORD; u++)
-        if (!upgrade_capped(u)) cand[n++] = u; /* owned (even turned off) or not for this character */
-    return n ? cand[irand(0, n - 1)] : -1;
-}
-
 /* ---- Special shots -------------------------------------------------------- */
 
 void weapon_on_hit(PBullet *b, Enemy *e, float dmg) {

@@ -9,32 +9,27 @@ static void resource(PickupType t, float x, float y, int value) {
     draw_text(x + 22.0f, y - 8.0f, 2.0f, COL_WHITE, "%d", value);
 }
 
-/* The gun, top right: its main weapon mod, every mod turned on, and the upgrades menu key. */
-static void draw_gun_panel(void) {
+/* Upgrades, top right: an icon per upgrade turned on, and the upgrades menu key. */
+static void draw_upgrades_panel(void) {
     const Player *p = &G.pl;
     const float w = 600.0f, h = 60.0f, x = SCREEN_W - 40.0f - w, y = 14.0f;
-    int main_mod = gun_main_mod();
-    SDL_FColor c = col_hex(main_mod >= 0 ? UPGRADES[main_mod].color : 0x66f0ff, 1);
+    SDL_FColor c = col_hex(0xb57cff, 1);
     draw_rect(x, y, w, h, col_a(col_mul(c, 0.14f), 1.0f));
     draw_rect_outline(x, y, w, h, 2.0f, col_a(c, 0.6f));
-    draw_text(x + 12.0f, y + 8.0f, 1.0f, col_a(COL_WHITE, 0.45f), "WEAPON");
-    draw_text(x + 12.0f, y + 22.0f, 2.5f, c, "%s", gun_name());
-    /* the other mods turned on, as coloured tags */
-    float tx = x + 24.0f + draw_text_width(gun_name(), 2.5f);
-    for (int u = UPG_W_SCATTER; u <= UPG_W_SWORD; u++) {
-        if (u == main_mod || !upg_has(u) || (main_mod == UPG_W_SWORD)) continue;
-        float tw = draw_text_width(UPGRADES[u].name, 1.25f) + 10.0f;
-        if (tx + tw > x + w - 150.0f) break;
-        SDL_FColor uc = col_hex(UPGRADES[u].color, 1);
-        draw_rect_outline(tx, y + 24.0f, tw, 18.0f, 1.0f, col_a(uc, 0.7f));
-        draw_text(tx + 5.0f, y + 29.0f, 1.25f, uc, "%s", UPGRADES[u].name);
-        tx += tw + 6.0f;
+    int list[UPG_COUNT];
+    int found = upgrade_menu_list(list), off = 0, shown = 0, on = 0;
+    for (int i = 0; i < found; i++) off += p->upg_off[list[i]];
+    on = found - off;
+    const float step = 26.0f, right = x + w - 150.0f;
+    int fit = (int)((right - (x + 24.0f)) / step);
+    for (int i = 0; i < found; i++) {
+        if (p->upg_off[list[i]]) continue;
+        if (shown == fit - 1 && on > fit) break; /* room left for "+N" */
+        draw_pickup_icon(PK_UPGRADE, list[i], v2(x + 24.0f + step * (float)shown, y + h * 0.5f), 9.0f, G.time);
+        shown++;
     }
-    int found = 0, off = 0;
-    for (int u = 0; u < UPG_COUNT; u++) {
-        found += p->upg_count[u] > 0;
-        off += p->upg_count[u] > 0 && p->upg_off[u];
-    }
+    if (shown < on) draw_text(x + 14.0f + step * (float)shown, y + h * 0.5f - 6.0f, 1.5f, col_a(COL_WHITE, 0.7f), "+%d", on - shown);
+    if (found == 0) draw_text(x + 14.0f, y + h * 0.5f - 6.0f, 1.5f, col_a(COL_WHITE, 0.35f), "NO UPGRADE YET");
     draw_text(x + w - 130.0f, y + 12.0f, 1.5f, col_hex(0xb57cff, 0.9f), "TAB  %d UPG", found);
     if (off) draw_text(x + w - 130.0f, y + 36.0f, 1.25f, col_hex(0xff5f7e, 0.9f), "%d TURNED OFF", off);
     else draw_text(x + w - 130.0f, y + 36.0f, 1.25f, col_a(COL_WHITE, 0.4f), "ON / OFF");
@@ -204,7 +199,7 @@ void hud_draw(void) {
         else draw_text_centered(SCREEN_W * 0.5f, 52.0f, 2.0f, col_hex(0x66f0ff, a), "CHOOSE A DOOR");
     }
 
-    draw_gun_panel();
+    draw_upgrades_panel();
     if (G.show_stats) draw_stats_overlay();
 
     if (audio_muted()) draw_text(SCREEN_W - 120.0f, SCREEN_H - 24.0f, 2.0f, col_a(COL_WHITE, 0.5f), "MUTED");

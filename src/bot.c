@@ -98,7 +98,7 @@ void bot_input(void) {
     /* Free pedestals that are not a choice (secret room loot): take them all. */
     for (int i = 0; i < G.npk && !offer; i++) {
         const Pickup *k = &G.pk[i];
-        if (k->price == 0 && !k->choice && k->type == PK_UPGRADE) offer = k;
+        if (k->price == 0 && !k->choice && (k->type == PK_UPGRADE || k->type == PK_STAT)) offer = k;
     }
     /* Secret room: once it has seen the corner flash, bomb it after the fight, then go in. */
     const Room *r = &G.room;
@@ -137,7 +137,7 @@ void bot_input(void) {
                       : d->type == ROOM_STATS ? 4
                       : d->type == ROOM_WORKSHOP ? (pl->coins >= GAMBLE_COST || pl->max_hp >= 6 ? 5 : 2)
                       : d->reward == RW_ACTIVE ? (pl->active == ACT_NONE ? 7 : 2)
-                      : d->reward == RW_UPGRADE || d->reward == RW_WEAPON ? 5
+                      : d->reward == RW_UPGRADE ? 5
                       : d->reward == RW_HEART && pl->hp <= pl->max_hp / 2 ? 6
                       : d->reward == RW_COINS && pl->coins < 40 ? 4
                       : d->reward == RW_KEY ? 3 : d->reward == RW_BOMBS ? 2 : 1;

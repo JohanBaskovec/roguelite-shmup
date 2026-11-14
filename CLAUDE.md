@@ -14,12 +14,18 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   secret room's 10% ambush variant (`Room.peaceful` false: one wave, loot after it).
 - **Enemies never drop anything.** Resources (coins, keys, bombs, hearts) only come from room
   rewards, after the room is cleared. Luck affects reward quantities, not drops.
-- **There is a single gun; weapons are upgrades.** Weapon mods (`UPG_W_*`, `upgrade_is_weapon`) are
-  upgrades taken once each that reshape the gun and all combine (`gun_profile` in `weapons.c`); no
-  weapon switching, no weapon levels. Weapon rooms (`RW_WEAPON`) offer weapon mods (`weapon_roll`),
-  upgrade rooms never do (`upgrade_roll` excludes them).
-- **Weapon and upgrade rooms always offer a choice of 3 items** (take one, the other two vanish).
-  A weapon room tops up with other upgrades when fewer than 3 weapon mods can still be gained.
+- **There are no weapons in the game, only upgrades.** The upgrades that reshape the shots
+  (`UPG_W_*`, `upgrade_is_weapon`; "weapon mods" is only an internal code name) all combine
+  (`gun_profile` in `weapons.c`) and are offered like any other upgrade (`upgrade_roll`,
+  `upgrade_fresh`). No weapon rooms, no weapon switching / levels, and the player never sees the
+  word "weapon" (no gun name in the HUD, the TAB menu or the character select).
+- **Every upgrade is taken at most once, and an upgrade owned never shows up again** (no stacks):
+  `upgrade_capped` is true once owned, so `upgrade_roll` / `upgrade_fresh` never offer
+  it; an offer still on the floor (or the slot machine's prize) is swapped for a fresh one as soon as
+  the same upgrade is taken elsewhere (`pickups_refresh_owned`). Once every upgrade is owned, rooms
+  fall back to stat trades. No upgrade is reserved to a character: all of them, the sword included,
+  can be found by everyone (character / upgrade unlocks may come later).
+- **Upgrade rooms always offer a choice of 3 items** (take one, the other two vanish).
 - **Every upgrade found can be turned off and back on, one by one** (TAB menu, `src/upgrade_menu.c`,
   `upgrade_toggle`; only purely one-time ones like SKELETON KEY cannot, `upgrade_toggleable`). Turned
   off = no effect at all (`Player.upg_off`, `has()` returns 0, stats left out); turning a heart
@@ -87,9 +93,7 @@ invariants / a CTest entry in `CMakeLists.txt`.
   `STATS` (`stats.c`), `CHARACTERS` (`characters.c`), sound definitions (`audio.c`).
 - Characters (Normal / Shotgunner / Knight) only change the starting state (`character_apply`) and the
   ship's look (`draw_ship`); `G.character` survives restarts; `CharDef.start_upgrade` is the weapon mod
-  owned from the start. The sword (`UPG_W_SWORD`) is Knight-only: `upgrade_capped` respects
-  `upgrade_available`, so `weapon_roll` never offers it to others (headless checks nobody else owns or
-  is offered it). When adding a character: table
+  owned from the start (the Knight's sword can also be found by the others). When adding a character: table
   entry, ship drawing, bot support if it plays differently, and a `sim_<name>` CTest (`--char NAME`).
 - Upgrade effects live in `upgrades.c` as `upg_*` hooks called from bullets / enemies / player /
   room code; add new upgrades there (table entry + hook). **Stats are derived**: the Player stat fields
@@ -100,7 +104,7 @@ invariants / a CTest entry in `CMakeLists.txt`.
   caps live in `stats_clamp` (headless checks the stats stay in sync). `--all-upgrades` tests them all at once.
 - Hooks can run inside an entity loop (e.g. `upg_on_lethal_hit` runs inside the enemy bullet loop):
   never clear or compact an array from there, mark entities dead (`life = -1`) instead.
-- Upgrade hooks read stacks through `has()` (upgrades.c) / `upg_has()` elsewhere, never `upg_count[]`
+- Upgrade hooks read ownership through `has()` (upgrades.c) / `upg_has()` elsewhere, never `upg_count[]`
   directly, so CHAOS's temporary upgrades work. When adding an active item: `ACTIVES` entry, effect in
   `use_active`, icon, option name (`--active NAME`), bot usage, a scripted check in `debug_rooms_run`
   and a `sim_active_<name>` CTest. CHAOS may only lend upgrades listed in `CHAOS_POOL` (hook-only, so
@@ -114,7 +118,7 @@ invariants / a CTest entry in `CMakeLists.txt`.
   `sim_weapon_<name>` CTest. `gun_profile` clamps combos (cadence, shots per volley, reach): keep any
   mix playable. Reuse `explode_at` / `chain_lightning` for area effects.
 - Upgrade descriptions with a random effect must show the exact chance: build them in `upgrade_desc_at`
-  (respects stacks and `proc()`, i.e. LOADED DICE). A `|` splits a description over two lines (`draw_desc`).
+  (respects `proc()`, i.e. LOADED DICE). A `|` splits a description over two lines (`draw_desc`).
 - Shields (`Player.shield`, half-hearts, max `MAX_SHIELD`) absorb damage before hearts.
 - Game code only queues sounds (`sfx_play*`); never call SDL audio directly.
 - In-game text is English and ASCII only (SDL's debug font has no accents). The user writes in French.
