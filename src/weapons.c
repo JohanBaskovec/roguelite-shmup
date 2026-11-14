@@ -82,7 +82,7 @@ static void fire_volley(void) {
         float spd = (w->speed + frand(0.0f, w->speed_var)) * p->shot_speed_mult;
         PBullet *b = pbullet_spawn(pos, v2_scale(v2_angle(a), spd), w->radius, dmg, col);
         if (!b) break;
-        b->life = w->life;
+        b->life = w->life * p->range_mult;
         b->pierce = w->pierce + p->pierce;
         b->bounces = w->bounce + p->bounce;
         b->homing = w->homing + p->homing;
@@ -122,7 +122,7 @@ static void update_drones(void) {
         PBullet *b = pbullet_spawn(dp, v2_scale(dir, 1300.0f * p->shot_speed_mult), 4.0f, 4.5f * p->dmg_mult,
                                    col_hex(0xb6ffb0, 1));
         if (!b) return;
-        b->life = 1.0f;
+        b->life = 1.0f * p->range_mult;
         b->pierce = p->pierce;
         b->bounces = p->bounce / 2;
         b->homing = p->homing;

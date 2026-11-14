@@ -12,7 +12,7 @@ void pickup_spawn(PickupType type, int sub, V2 pos, V2 vel) {
     p->t = 0.0f;
 }
 
-static bool is_pedestal(PickupType t) { return t == PK_WEAPON || t == PK_UPGRADE; }
+static bool is_pedestal(PickupType t) { return t == PK_WEAPON || t == PK_UPGRADE || t == PK_STAT; }
 
 PickupType reward_icon(RewardType r) {
     switch (r) {
@@ -103,6 +103,10 @@ static bool collect(const Pickup *k) {
         upgrade_apply(k->sub);
         fx_shake(0.3f);
         break;
+    case PK_STAT:
+        stat_offer_take(k->sub);
+        fx_shake(0.3f);
+        break;
     }
     if (is_pedestal(k->type)) {
         sfx_play(SFX_ITEM);
@@ -116,6 +120,7 @@ void pickups_update(void) {
     const Player *pl = &G.pl;
     /* Once the room is cleared, resources fly to the player: no backtracking chores. */
     bool vacuum = G.room.cleared && G.room.clear_t > 0.6f;
+    bool stat_taken = false;
     for (int i = 0; i < G.npk; i++) {
         Pickup *k = &G.pk[i];
         k->t += DT;
@@ -124,7 +129,10 @@ void pickups_update(void) {
         bool taken = false;
 
         if (is_pedestal(k->type)) {
-            if (k->t > 0.5f && dist < 40.0f) taken = collect(k);
+            if (k->t > 0.5f && dist < 40.0f) {
+                taken = collect(k);
+                if (taken && k->type == PK_STAT) stat_taken = true;
+            }
         } else {
             bool wants = !(k->type == PK_HEART && pl->hp >= pl->max_hp);
             float radius = vacuum ? 1e9f : pl->magnet;
@@ -145,6 +153,17 @@ void pickups_update(void) {
         }
 
         if (taken) {
+            G.pk[i] = G.pk[--G.npk];
+            i--;
+        }
+    }
+
+    /* Stat trades are a one-of-N choice: the other offers vanish. */
+    if (stat_taken) {
+        for (int i = 0; i < G.npk; i++) {
+            if (G.pk[i].type != PK_STAT) continue;
+            fx_particle(G.pk[i].pos, v2(0, 0), 0.4f, 120.0f, col_hex(0x4dffd2, 1), 0.0f, PT_RING);
+            fx_burst(G.pk[i].pos, 20, 80.0f, 300.0f, 0.4f, 2.5f, col_hex(0x4dffd2, 1));
             G.pk[i] = G.pk[--G.npk];
             i--;
         }
@@ -201,6 +220,15 @@ void draw_pickup_icon(PickupType type, int sub, V2 p, float s, float t) {
         draw_ngon(p, s, 4, t * 2.0f + PI_F * 0.25f, c);
         draw_circle(p, s * 0.4f, COL_WHITE);
     } break;
+    case PK_STAT: {
+        /* Green arrow up, red arrow down: a trade. */
+        SDL_FColor g = col_hex(0x5dff8a, 1), r = col_hex(0xff4d6a, 1);
+        float b = sinf(t * 4.0f) * s * 0.08f;
+        draw_tri(v2(p.x - s * 0.5f, p.y - s * 0.95f - b), v2(p.x - s * 0.05f, p.y - s * 0.1f - b), v2(p.x - s * 0.95f, p.y - s * 0.1f - b), g);
+        draw_rect(p.x - s * 0.68f, p.y - s * 0.12f - b, s * 0.36f, s * 0.8f, g);
+        draw_tri(v2(p.x + s * 0.5f, p.y + s * 0.95f + b), v2(p.x + s * 0.95f, p.y + s * 0.1f + b), v2(p.x + s * 0.05f, p.y + s * 0.1f + b), r);
+        draw_rect(p.x + s * 0.32f, p.y - s * 0.68f + b, s * 0.36f, s * 0.8f, r);
+    } break;
     }
 }
 
@@ -212,6 +240,7 @@ static SDL_FColor pickup_glow_color(const Pickup *k) {
     case PK_HEART: return col_hex(0xff3355, 1);
     case PK_WEAPON: return col_hex(WEAPONS[k->sub].color, 1);
     case PK_UPGRADE: return col_hex(UPGRADES[k->sub].color, 1);
+    case PK_STAT: return col_hex(0x4dffd2, 1);
     }
     return COL_WHITE;
 }
@@ -248,6 +277,11 @@ void pickups_draw(void) {
     for (int i = 0; i < G.npk; i++) {
         const Pickup *k = &G.pk[i];
         if (!is_pedestal(k->type)) continue;
+        if (k->type == PK_STAT) {
+            draw_text_centered(k->pos.x, k->pos.y + 56.0f, 2.0f, col_hex(0x5dff8a, 1), "%s", STATS[stat_offer_up(k->sub)].up_text);
+            draw_text_centered(k->pos.x, k->pos.y + 82.0f, 2.0f, col_hex(0xff4d6a, 1), "%s", STATS[stat_offer_down(k->sub)].down_text);
+            continue;
+        }
         const char *name = k->type == PK_WEAPON ? WEAPONS[k->sub].name : UPGRADES[k->sub].name;
         draw_text_centered(k->pos.x, k->pos.y + 56.0f, 2.0f, pickup_glow_color(k), "%s", name);
         if (k->type == PK_WEAPON && G.pl.wlevel[k->sub] > 0)

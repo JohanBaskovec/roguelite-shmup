@@ -27,9 +27,10 @@ Preset `debug` disponible aussi (`build/debug`).
 
 ## Boucle de jeu
 
-- On démarre dans la *Launch Bay*, puis chaque salle est une arène pleine d'ennemis (2 à 5 vagues).
+- **Toutes les salles démarrent pleines d'ennemis** (y compris la *Launch Bay*, avec une vague légère). Ce qui rend une salle spéciale n'apparaît qu'une fois tous les ennemis morts.
 - Une fois la salle nettoyée : 3 portes (gauche / haut / droite). Chaque porte affiche la récompense de la salle suivante. Une porte peut être verrouillée (coûte 1 clef) et contient toujours une arme ou une amélioration.
 - Ressources : pièces, clefs, bombes. Les ressources au sol sont aspirées automatiquement à la fin de la salle.
+- **Salles Stats** (porte turquoise, ~20 % des portes après un combat) : une fois les ennemis tués, 4 échanges apparaissent, on en prend un (ou aucun). Chaque échange augmente une stat et en baisse une autre. Stats : dégâts, cadence, portée, PV max, vitesse de déplacement, recharge du dash, vitesse des projectiles, taille de la hitbox, chance (drops). Valeurs et bornes dans `src/stats.c`.
 - 5 armes (Blaster, Scatter, Needler, Seeker, Bouncer) avec 5 niveaux chacune, 11 améliorations passives qui s'appliquent à toutes les armes (tir multiple, perçant, rebond, homing, drones...).
 
 ## Architecture (`src/`)
@@ -48,10 +49,11 @@ Preset `debug` disponible aussi (`build/debug`).
 | `fx.c` | Particules, screen shake, popups, bannières |
 | `bot.c` | Autopilote (visée, esquive, navigation, choix de porte) pour les tests |
 | `headless.c` | Simulation sans fenêtre + vérification d'invariants |
+| `stats.c` | Stats échangeables des salles Stats (gains, pertes, bornes) |
 | `audio.c/h` | Synthèse procédurale des sons + mixeur (voix, panoramique, limitation de fréquence) |
 | `hud.c` | HUD et écrans (titre, pause, game over) |
 
-Les types de salles `ROOM_TREASURE`, `ROOM_SHOP` et `ROOM_BOSS` sont déjà prévus dans `RoomType` (`game.h`) : il suffit de les générer dans `gen_doors()` (`room.c`) et de leur donner un comportement dans `room_enter()`.
+Les types de salles `ROOM_TREASURE`, `ROOM_SHOP` et `ROOM_BOSS` sont déjà prévus (sur le modèle de `ROOM_STATS`) dans `RoomType` (`game.h`) : il suffit de les générer dans `gen_doors()` (`room.c`) et de leur donner un comportement dans `room_enter()`.
 
 ## Tests (sans fenêtre)
 
@@ -77,6 +79,7 @@ neon_breach --headless --depth 15 --god --fail-shot f.bmp   # démarre en salle 
 neon_breach --shot out.bmp --depth 4 --frames 600       # capture offscreen après 600 frames
 neon_breach --dump-sfx /tmp/sfx                         # exporte chaque son en WAV
 neon_breach --seed 42 --depth 8                         # jouer : run reproductible, démarrage en salle 8
+neon_breach --stats                                     # démarrer directement dans une salle Stats
 neon_breach --bot --god                                 # regarder l'autopilote jouer (ouvre une fenêtre)
 ```
 

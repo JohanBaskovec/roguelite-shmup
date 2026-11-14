@@ -262,7 +262,7 @@ static void update_enemy(Enemy *e) {
         if (into < 0.0f) e->vel = v2_sub(e->vel, v2_scale(n, into));
     }
 
-    float cr = e->radius + PLAYER_HIT_R + 4.0f;
+    float cr = e->radius + pl->hit_radius + 4.0f;
     if (v2_dist2(e->pos, pl->pos) < cr * cr) player_hurt(1);
 }
 
@@ -295,13 +295,14 @@ static void on_death(Enemy *e) {
     else if (e->type == EN_SWARM) sfx_play_ex(SFX_EXPLODE_SMALL, 0.7f, 1.5f, (e->pos.x - ARENA_CX) / (ARENA_X1 - ARENA_CX) * 0.7f);
     else sfx_play_at(SFX_EXPLODE_SMALL, e->pos);
 
-    int coins = e->type == EN_TANK ? irand(3, 5) : (chance(e->type == EN_SWARM ? 0.12f : 0.32f) ? 1 : 0);
+    float luck = luck_drop_factor();
+    int coins = e->type == EN_TANK ? irand(3, 5) : (chance((e->type == EN_SWARM ? 0.12f : 0.32f) * luck) ? 1 : 0);
     for (int i = 0; i < coins; i++)
         pickup_spawn(PK_COIN, 1, e->pos, v2_scale(v2_angle(frand(0.0f, TAU_F)), frand(120.0f, 300.0f)));
     V2 v = v2_scale(v2_angle(frand(0.0f, TAU_F)), 150.0f);
-    if (chance(0.025f)) pickup_spawn(PK_HEART, 0, e->pos, v);
-    else if (chance(0.03f)) pickup_spawn(PK_BOMB, 0, e->pos, v);
-    else if (chance(0.02f)) pickup_spawn(PK_KEY, 0, e->pos, v);
+    if (chance(0.025f * luck)) pickup_spawn(PK_HEART, 0, e->pos, v);
+    else if (chance(0.03f * luck)) pickup_spawn(PK_BOMB, 0, e->pos, v);
+    else if (chance(0.02f * luck)) pickup_spawn(PK_KEY, 0, e->pos, v);
 }
 
 void enemies_update(void) {

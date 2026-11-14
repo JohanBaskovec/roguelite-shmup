@@ -14,6 +14,7 @@ typedef struct {
     int runs;          /* consecutive runs, seeds seed .. seed + runs - 1 */
     int max_ticks;     /* per run (120 ticks = 1 s of game time) */
     int depth;         /* start in a combat room of this depth (0 = normal start) */
+    bool stats_room;   /* start in a Stats room instead */
     bool god;
     int expect_rooms;  /* fail if a run clears fewer rooms than this */
     const char *fail_shot; /* if set, render the failing frame offscreen into this BMP */

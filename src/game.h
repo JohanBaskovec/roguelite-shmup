@@ -131,18 +131,18 @@ typedef struct {
 
 /* ---- Pickups ------------------------------------------------------------- */
 
-typedef enum { PK_COIN, PK_KEY, PK_BOMB, PK_HEART, PK_WEAPON, PK_UPGRADE } PickupType;
+typedef enum { PK_COIN, PK_KEY, PK_BOMB, PK_HEART, PK_WEAPON, PK_UPGRADE, PK_STAT } PickupType;
 
 typedef struct {
     PickupType type;
-    int sub;        /* coin value, WeaponId or UpgradeId */
+    int sub;        /* coin value, WeaponId, UpgradeId or encoded stat offer */
     V2 pos, vel;
     float t;
 } Pickup;
 
 /* ---- Rooms --------------------------------------------------------------- */
 
-typedef enum { ROOM_START, ROOM_COMBAT, ROOM_TREASURE, ROOM_SHOP, ROOM_BOSS } RoomType;
+typedef enum { ROOM_START, ROOM_COMBAT, ROOM_STATS, ROOM_TREASURE, ROOM_SHOP, ROOM_BOSS } RoomType;
 typedef enum { RW_NONE, RW_COINS, RW_KEY, RW_BOMBS, RW_HEART, RW_WEAPON, RW_UPGRADE, RW_COUNT } RewardType;
 typedef enum { SIDE_LEFT, SIDE_TOP, SIDE_RIGHT, SIDE_BOTTOM } Side;
 
@@ -191,6 +191,9 @@ typedef struct {
     int drones, drone_idx;
     float drone_cd;
     float magnet;
+    float range_mult;           /* bullet lifetime multiplier */
+    float hit_radius;           /* bullet hitbox radius */
+    int luck;                   /* drop chance modifier */
     int upg_count[UPG_COUNT];
 } Player;
 
@@ -245,6 +248,33 @@ extern Game G;
 static inline float frand(float lo, float hi) { return rng_range(&G.rng, lo, hi); }
 static inline int irand(int lo, int hi) { return rng_int(&G.rng, lo, hi); }
 static inline bool chance(float p) { return rng_chance(&G.rng, p); }
+
+/* ---- Stats (trades offered in Stats rooms) ------------------------------ */
+
+typedef enum {
+    ST_DAMAGE, ST_FIRE_RATE, ST_RANGE, ST_MAX_HP, ST_MOVE_SPEED, ST_DASH,
+    ST_SHOT_SPEED, ST_HITBOX, ST_LUCK, ST_COUNT
+} StatId;
+
+typedef struct {
+    const char *name;
+    const char *up_text;
+    const char *down_text;
+} StatDef;
+
+extern const StatDef STATS[ST_COUNT];
+
+#define STATS_ROOM_OFFERS 4
+static inline int stat_offer_encode(int up, int down) { return up * ST_COUNT + down; }
+static inline int stat_offer_up(int offer) { return offer / ST_COUNT; }
+static inline int stat_offer_down(int offer) { return offer % ST_COUNT; }
+
+/* stats.c */
+bool stat_can_change(int s, bool up);
+void stat_apply(int s, bool up);
+int stats_roll_offers(int *out, int max);
+void stat_offer_take(int offer);
+float luck_drop_factor(void);
 
 /* game.c */
 void game_init(uint64_t seed);

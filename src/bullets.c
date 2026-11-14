@@ -140,7 +140,7 @@ static void update_enemy_bullets(void) {
         }
 
         if (!dead && G.state == GS_PLAYING && pl->invuln <= 0.0f && pl->dash_t <= 0.0f) {
-            float rr = b->radius * 0.75f + PLAYER_HIT_R;
+            float rr = b->radius * 0.75f + pl->hit_radius;
             if (v2_dist2(b->pos, pl->pos) < rr * rr) {
                 player_hurt(1);
                 dead = true;

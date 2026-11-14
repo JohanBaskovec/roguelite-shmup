@@ -38,13 +38,23 @@ void bot_input(void) {
     in->fire = true;
 
     V2 goal;
-    if (G.room.cleared) {
+    /* Stats room: take one of the trades (varies with depth), then leave. */
+    const Pickup *offer = NULL;
+    int noffers = 0;
+    for (int i = 0; i < G.npk; i++) noffers += G.pk[i].type == PK_STAT;
+    for (int i = 0, k = 0; i < G.npk && noffers > 0; i++)
+        if (G.pk[i].type == PK_STAT && k++ == G.room.depth % noffers) offer = &G.pk[i];
+
+    if (offer) {
+        goal = offer->pos;
+    } else if (G.room.cleared) {
         /* Pick the most valuable door it can open. */
         int pick = 0, best_score = -1;
         for (int i = 0; i < G.room.ndoors; i++) {
             const Door *d = &G.room.doors[i];
             if (d->locked && pl->keys == 0) continue;
-            int score = d->reward == RW_UPGRADE || d->reward == RW_WEAPON ? 5
+            int score = d->type == ROOM_STATS ? 4
+                      : d->reward == RW_UPGRADE || d->reward == RW_WEAPON ? 5
                       : d->reward == RW_HEART && pl->hp <= pl->max_hp / 2 ? 6
                       : d->reward == RW_KEY ? 3 : d->reward == RW_BOMBS ? 2 : 1;
             if (score > best_score) {

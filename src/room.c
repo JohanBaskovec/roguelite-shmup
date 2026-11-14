@@ -228,6 +228,9 @@ static bool rect_ok(SDL_FRect r) {
     };
     for (int i = 0; i < ARRAY_LEN(keep_out); i++)
         if (rect_overlaps(r, keep_out[i])) return false;
+    /* Rooms whose reward is a row of pedestals keep that row free. */
+    const SDL_FRect pedestal_row = {ARENA_X0 + 150, ARENA_CY - 150, ARENA_X1 - ARENA_X0 - 300, 300};
+    if (G.room.type == ROOM_STATS && rect_overlaps(r, pedestal_row)) return false;
     for (int i = 0; i < G.room.nobs; i++) {
         SDL_FRect o = G.room.obs[i];
         SDL_FRect grown = {o.x - 60, o.y - 60, o.w + 120, o.h + 120};
@@ -296,6 +299,8 @@ static void gen_doors(void) {
     Room *r = &G.room;
     static const Side sides[MAX_DOORS] = {SIDE_LEFT, SIDE_TOP, SIDE_RIGHT};
     int locked = chance(0.5f) ? irand(0, MAX_DOORS - 1) : -1;
+    /* Occasionally one door leads to a Stats room (never two in a row). */
+    int stats_door = r->type == ROOM_COMBAT && chance(0.2f) ? irand(0, MAX_DOORS - 1) : -1;
     r->ndoors = MAX_DOORS;
     for (int i = 0; i < MAX_DOORS; i++) {
         Door *d = &r->doors[i];
@@ -304,6 +309,11 @@ static void gen_doors(void) {
         d->pos = door_position(sides[i]);
         d->type = ROOM_COMBAT; /* later: treasure rooms, shops, bosses... */
         d->locked = (i == locked);
+        if (!d->locked && stats_door == i) {
+            d->type = ROOM_STATS;
+            d->reward = RW_NONE;
+            continue;
+        }
         if (d->locked) {
             /* Locked doors always hide something good. */
             d->reward = chance(0.5f) ? RW_WEAPON : RW_UPGRADE;
@@ -313,7 +323,7 @@ static void gen_doors(void) {
             d->reward = roll_reward();
             bool dup = false;
             for (int j = 0; j < i; j++)
-                if (r->doors[j].reward == d->reward) dup = true;
+                if (r->doors[j].type == ROOM_COMBAT && r->doors[j].reward == d->reward) dup = true;
             if (!dup) break;
         }
     }
@@ -336,15 +346,13 @@ void room_enter(RoomType type, RewardType reward, int depth) {
     G.pl.dash_t = 0.0f;
     G.pl.invuln = fmaxf(G.pl.invuln, 0.6f);
 
-    if (type == ROOM_START) {
-        r->cleared = true;
-        r->clear_t = 10.0f;
-    } else {
-        gen_obstacles();
-        int extra = depth / 3;
-        r->nwaves = 2 + (extra > 3 ? 3 : extra);
-        r->wave_t = 0.35f;
-    }
+    /* Every room, of every type, starts full of enemies. What makes a room
+     * special is what appears once it is cleared (see room_clear). */
+    if (type == ROOM_STATS) r->hue = 165.0f;
+    if (type != ROOM_START) gen_obstacles(); /* keep the launch bay open for the tutorial */
+    int extra = depth / 3;
+    r->nwaves = type == ROOM_START ? 1 : 2 + (extra > 3 ? 3 : extra);
+    r->wave_t = type == ROOM_START ? 1.2f : 0.35f;
     gen_doors();
 }
 
@@ -363,8 +371,8 @@ static V2 find_spawn_point(float rad) {
 
 static void spawn_wave(void) {
     Room *r = &G.room;
-    int depth = r->depth;
-    float budget = 6.0f + (float)depth * 2.4f + (float)r->wave * 2.0f;
+    int depth = r->depth > 1 ? r->depth : 1;
+    float budget = r->type == ROOM_START ? 5.0f : 6.0f + (float)depth * 2.4f + (float)r->wave * 2.0f;
     int queued = 0;
     while (budget >= 1.0f && queued < 26) {
         EnemyType cand[EN_COUNT];
@@ -392,6 +400,17 @@ static void spawn_wave(void) {
     r->since_wave = 0.0f;
 }
 
+/* Stats room reward: a row of trades, take one and the others vanish. */
+static void spawn_stat_offers(void) {
+    int offers[STATS_ROOM_OFFERS];
+    int n = stats_roll_offers(offers, STATS_ROOM_OFFERS);
+    for (int i = 0; i < n; i++) {
+        V2 p = v2(ARENA_CX + ((float)i - (float)(n - 1) * 0.5f) * 410.0f, ARENA_CY - 20.0f);
+        pickup_spawn(PK_STAT, offers[i], p, v2(0, 0));
+        fx_particle(p, v2(0, 0), 0.5f, 160.0f, col_hex(0x4dffd2, 1), 0.0f, PT_RING);
+    }
+}
+
 static void room_clear(void) {
     Room *r = &G.room;
     r->cleared = true;
@@ -399,7 +418,8 @@ static void room_clear(void) {
     G.rooms_cleared++;
     sfx_play(SFX_ROOM_CLEAR);
     ebullets_clear(true);
-    if (r->reward != RW_NONE) reward_drop(r->reward, v2(ARENA_CX, ARENA_CY));
+    if (r->type == ROOM_STATS) spawn_stat_offers();
+    else if (r->reward != RW_NONE) reward_drop(r->reward, v2(ARENA_CX, ARENA_CY));
     fx_banner("ROOM CLEARED", "choose your next door", col_hex(0x66f0ff, 1), 1.4f);
     fx_shake(0.25f);
 }
@@ -498,6 +518,14 @@ void room_draw_floor(void) {
     draw_quad_grad(v2(ARENA_X0, ARENA_Y0), v2(ARENA_X0 + s, ARENA_Y0), v2(ARENA_X0 + s, ARENA_Y1), v2(ARENA_X0, ARENA_Y1), dark, clear, clear, dark);
     draw_quad_grad(v2(ARENA_X1 - s, ARENA_Y0), v2(ARENA_X1, ARENA_Y0), v2(ARENA_X1, ARENA_Y1), v2(ARENA_X1 - s, ARENA_Y1), clear, dark, dark, clear);
 
+    if (r->type == ROOM_STATS) {
+        bool offers = false;
+        for (int i = 0; i < G.npk; i++) offers |= G.pk[i].type == PK_STAT;
+        if (offers) {
+            draw_text_centered(ARENA_CX, ARENA_CY - 190.0f, 3.0f, col_hex(0x4dffd2, 0.8f), "CHOOSE ONE TRADE");
+            draw_text_centered(ARENA_CX, ARENA_CY - 150.0f, 2.0f, col_a(COL_WHITE, 0.4f), "every gain has a price");
+        }
+    }
     if (r->type == ROOM_START) {
         SDL_FColor c = col_a(COL_WHITE, 0.35f);
         float y = ARENA_CY - 70.0f;
@@ -529,7 +557,7 @@ static void draw_door(const Door *d, bool cleared, bool entry) {
         gy = p.y - DOOR_HALF; gh = DOOR_HALF * 2;
         gx = side == SIDE_LEFT ? p.x - WALL_T : p.x; gw = WALL_T;
     }
-    SDL_FColor rc = entry ? col_hex(0x445566, 1) : reward_color(d->reward);
+    SDL_FColor rc = entry ? col_hex(0x445566, 1) : d->type == ROOM_STATS ? col_hex(0x4dffd2, 1) : reward_color(d->reward);
     bool open = cleared && !d->locked && !entry;
     float pulse = 0.5f + 0.5f * sinf(G.time * 6.0f);
 
@@ -589,8 +617,10 @@ static void draw_door(const Door *d, bool cleared, bool entry) {
     draw_blend_alpha();
     draw_ngon(ip, 24.0f * sc, 6, PI_F / 6.0f, col_hex(0x0a0c14, 0.85f));
     draw_ngon_outline(ip, 24.0f * sc, 6, PI_F / 6.0f, 2.0f, col_a(rc, 0.8f));
-    draw_pickup_icon(reward_icon(d->reward), -1, ip, 11.0f * sc, G.time);
-    if (pop >= 1.0f) draw_text_centered(ip.x, ip.y + 34.0f, 1.5f, col_a(rc, 0.9f), "%s", reward_name(d->reward));
+    bool stats = d->type == ROOM_STATS;
+    draw_pickup_icon(stats ? PK_STAT : reward_icon(d->reward), -1, ip, 11.0f * sc, G.time);
+    if (pop >= 1.0f)
+        draw_text_centered(ip.x, ip.y + 34.0f, 1.5f, col_a(rc, 0.9f), "%s", stats ? "STATS" : reward_name(d->reward));
 }
 
 void room_draw_walls(void) {

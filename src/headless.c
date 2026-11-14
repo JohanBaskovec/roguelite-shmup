@@ -33,6 +33,14 @@ static const char *check_invariants(float room_time) {
     if (p->hp < 0 || p->hp > p->max_hp) return "player hp out of range";
     if (p->coins < 0 || p->keys < 0 || p->bombs < 0) return "negative resource count";
     if (p->weapon < 0 || p->weapon >= WPN_COUNT || p->wlevel[p->weapon] <= 0) return "player holds a weapon it does not own";
+    if (p->max_hp < 2 || p->max_hp > 24 || (p->max_hp & 1)) return "max hp out of range";
+    if (!(p->dmg_mult >= 0.3f * 0.99f) || !(p->rate_mult >= 0.3f * 0.99f) || !(p->range_mult >= 0.35f * 0.99f) ||
+        !(p->shot_speed_mult >= 0.4f * 0.99f))
+        return "weapon stat multiplier below its floor";
+    if (!(p->speed >= 330.0f * 0.99f) || !(p->dash_cooldown >= 0.15f * 0.99f) || !(p->dash_cooldown <= 2.0f * 1.01f))
+        return "movement stat out of range";
+    if (!(p->hit_radius >= 2.0f * 0.99f) || !(p->hit_radius <= 9.0f * 1.01f) || p->luck < -3 || p->luck > 5)
+        return "hitbox / luck out of range";
     for (int i = 0; i < G.nen; i++) {
         const Enemy *e = &G.en[i];
         if (!finite_v2(e->pos) || !isfinite(e->hp)) return "enemy state is not finite";
@@ -47,6 +55,12 @@ static const char *check_invariants(float room_time) {
         if (!finite_v2(G.pb[i].pos)) return "player bullet position is not finite";
     for (int i = 0; i < G.npk; i++)
         if (!finite_v2(G.pk[i].pos) || !in_arena(G.pk[i].pos, 0.0f)) return "pickup outside the arena";
+    /* Rule: every room starts with enemies; room rewards only appear once it is cleared. */
+    if (G.room.nwaves < 1) return "room without enemy waves";
+    if (!G.room.cleared)
+        for (int i = 0; i < G.npk; i++)
+            if (G.pk[i].type == PK_STAT || G.pk[i].type == PK_WEAPON || G.pk[i].type == PK_UPGRADE)
+                return "room reward present before the room was cleared";
     float stall = fminf(room_time, G.time - G.last_enemy_damage_t);
     if (G.room.type == ROOM_COMBAT && !G.room.cleared &&
         (room_time > MAX_ROOM_SECONDS || (G.nen > 0 && stall > MAX_STALL_SECONDS))) {
@@ -105,18 +119,25 @@ int headless_run(const HeadlessOptions *o) {
         game_init(seed);
         G.god = o->god;
         game_new_run();
-        if (o->depth > 0) room_enter(ROOM_COMBAT, RW_UPGRADE, o->depth);
+        if (o->stats_room) room_enter(ROOM_STATS, RW_NONE, o->depth > 0 ? o->depth : 1);
+        else if (o->depth > 0) room_enter(ROOM_COMBAT, RW_UPGRADE, o->depth);
 
         int depth = G.room.depth;
+        int stats_rooms = G.room.type == ROOM_STATS;
         float room_time = 0.0f;
-        const char *err = NULL;
+        const char *err = G.room.cleared ? "first room starts already cleared (every room must start with enemies)" : NULL;
         int tick = 0;
-        for (; tick < o->max_ticks && G.state != GS_GAMEOVER; tick++) {
+        for (; !err && tick < o->max_ticks && G.state != GS_GAMEOVER; tick++) {
             bot_input();
             game_update();
             clear_edges();
             if (G.room.depth != depth) {
                 depth = G.room.depth;
+                if (G.room.cleared) {
+                    err = "entered a room that was already cleared (every room must start with enemies)";
+                    break;
+                }
+                stats_rooms += G.room.type == ROOM_STATS;
                 room_time = 0.0f;
             }
             room_time += DT;
@@ -129,6 +150,12 @@ int headless_run(const HeadlessOptions *o) {
                (unsigned long long)seed, G.rooms_cleared, G.room.depth, G.kills, (double)G.run_time, G.pl.hp, G.pl.max_hp);
         for (int w = 0; w < WPN_COUNT; w++)
             if (G.pl.wlevel[w]) printf("%.3s%d ", WEAPONS[w].name, G.pl.wlevel[w]);
+        const Player *p = &G.pl;
+        printf("stats_rooms=%d", stats_rooms);
+        if (stats_rooms)
+            printf(" [dmg x%.2f rate x%.2f range x%.2f speed x%.2f dash %.2fs hitbox %.1f luck %+d]", (double)p->dmg_mult,
+                   (double)p->rate_mult, (double)p->range_mult, (double)(p->speed / 540.0f), (double)p->dash_cooldown,
+                   (double)p->hit_radius, p->luck);
         printf(" -> %s\n", outcome);
         if (err) {
             printf("  invariant violated at tick %d: %s\n", tick, err);

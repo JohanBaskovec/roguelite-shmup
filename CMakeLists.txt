@@ -19,6 +19,7 @@ include(cmake/Dependencies.cmake)
 add_executable(neon_breach
     src/main.c
     src/audio.c
+    src/stats.c
     src/bot.c
     src/headless.c
     src/game.c
@@ -68,10 +69,16 @@ if(SHMUP_BUILD_TESTS)
     # Late-game rooms (dense waves, every enemy type).
     add_test(NAME sim_deep_rooms
              COMMAND neon_breach --headless --god --depth 15 --seed 7 --runs 3 --ticks 36000 --fail-shot ${_out}/fail_sim_deep.bmp)
+    # Stats rooms: the bot takes a trade on every run, then keeps playing.
+    add_test(NAME sim_stats_rooms
+             COMMAND neon_breach --headless --god --stats --seed 50 --runs 12 --ticks 36000 --expect-rooms 2
+                     --fail-shot ${_out}/fail_sim_stats.bmp)
+    add_test(NAME render_stats_room
+             COMMAND neon_breach --shot ${_out}/render_stats.bmp --stats --seed 4 --frames 20)
     add_test(NAME render_offscreen
              COMMAND neon_breach --shot ${_out}/render.bmp --depth 4 --seed 4 --frames 30)
     add_test(NAME sfx_synthesis COMMAND neon_breach --dump-sfx ${_out}/sfx)
 
     set_tests_properties(sim_god_seed1 sim_god_seed2 sim_god_seed3 sim_mortal_runs sim_deep_rooms
-                         render_offscreen sfx_synthesis PROPERTIES TIMEOUT 600)
+                         sim_stats_rooms render_stats_room render_offscreen sfx_synthesis PROPERTIES TIMEOUT 600)
 endif()

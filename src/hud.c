@@ -55,14 +55,19 @@ void hud_draw(void) {
 
     if (r->type == ROOM_START) {
         draw_text_centered(SCREEN_W * 0.5f, 16.0f, 3.0f, COL_WHITE, "LAUNCH BAY");
+    } else if (r->type == ROOM_STATS) {
+        draw_text_centered(SCREEN_W * 0.5f, 16.0f, 3.0f, col_hex(0x4dffd2, 1), "ROOM %d - STATS", r->depth);
     } else {
         draw_text_centered(SCREEN_W * 0.5f, 16.0f, 3.0f, COL_WHITE, "ROOM %d", r->depth);
     }
     if (!r->cleared) {
         draw_text_centered(SCREEN_W * 0.5f, 52.0f, 2.0f, col_hex(0xff5f7e, 1), "WAVE %d / %d", r->wave, r->nwaves);
     } else {
+        bool offers = false;
+        for (int i = 0; i < G.npk; i++) offers |= G.pk[i].type == PK_STAT;
         float a = 0.55f + 0.45f * sinf(G.time * 5.0f);
-        draw_text_centered(SCREEN_W * 0.5f, 52.0f, 2.0f, col_hex(0x66f0ff, a), "CHOOSE A DOOR");
+        if (offers) draw_text_centered(SCREEN_W * 0.5f, 52.0f, 2.0f, col_hex(0x4dffd2, a), "TAKE ONE TRADE - OR SKIP IT");
+        else draw_text_centered(SCREEN_W * 0.5f, 52.0f, 2.0f, col_hex(0x66f0ff, a), "CHOOSE A DOOR");
     }
 
     draw_weapon_slots();
@@ -102,9 +107,11 @@ static void format_time(char *buf, size_t n, float t) {
 static void draw_stats(float y) {
     const Player *p = &G.pl;
     SDL_FColor c = col_a(COL_WHITE, 0.75f);
-    draw_text_centered(SCREEN_W * 0.5f, y, 2.0f, c, "DAMAGE x%.2f   FIRE RATE x%.2f   SHOT SPEED x%.2f",
-                       (double)p->dmg_mult, (double)p->rate_mult, (double)p->shot_speed_mult);
-    draw_text_centered(SCREEN_W * 0.5f, y + 30.0f, 2.0f, c, "PROJECTILES +%d   PIERCE +%d   BOUNCE +%d   DRONES %d",
+    draw_text_centered(SCREEN_W * 0.5f, y, 2.0f, c, "DAMAGE x%.2f   FIRE RATE x%.2f   RANGE x%.2f   SHOT SPEED x%.2f",
+                       (double)p->dmg_mult, (double)p->rate_mult, (double)p->range_mult, (double)p->shot_speed_mult);
+    draw_text_centered(SCREEN_W * 0.5f, y + 30.0f, 2.0f, c, "MOVE SPEED x%.2f   DASH %.2fs   HITBOX %.1fpx   LUCK %+d",
+                       (double)(p->speed / 540.0f), (double)p->dash_cooldown, (double)p->hit_radius, p->luck);
+    draw_text_centered(SCREEN_W * 0.5f, y + 60.0f, 2.0f, c, "PROJECTILES +%d   PIERCE +%d   BOUNCE +%d   DRONES %d",
                        p->extra_proj, p->pierce, p->bounce, p->drones);
     char line[256];
     int len = 0;
@@ -114,7 +121,7 @@ static void draw_stats(float y) {
         len += SDL_snprintf(line + len, sizeof line - (size_t)len, "%s%s x%d", len ? "  " : "", UPGRADES[u].name, p->upg_count[u]);
         if (len >= (int)sizeof line - 1) break;
     }
-    if (len) draw_text_centered(SCREEN_W * 0.5f, y + 70.0f, 1.5f, col_hex(0xb57cff, 0.9f), "%s", line);
+    if (len) draw_text_centered(SCREEN_W * 0.5f, y + 100.0f, 1.5f, col_hex(0xb57cff, 0.9f), "%s", line);
 }
 
 void overlay_draw(void) {

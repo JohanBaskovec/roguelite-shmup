@@ -18,6 +18,9 @@ void player_init(void) {
     p->dmg_mult = p->rate_mult = p->shot_speed_mult = 1.0f;
     p->magnet = 140.0f;
     p->dash_cooldown = 0.6f;
+    p->range_mult = 1.0f;
+    p->hit_radius = PLAYER_HIT_R;
+    p->luck = 0;
 }
 
 static void player_bomb(void) {
@@ -166,8 +169,8 @@ void player_draw(void) {
     }
 
     /* The real hitbox, always visible: classic bullet-hell readability. */
-    draw_circle(p->pos, PLAYER_HIT_R + 2.0f, col_hex(0xff3355, 1));
-    draw_circle(p->pos, PLAYER_HIT_R, COL_WHITE);
+    draw_circle(p->pos, p->hit_radius + 2.0f, col_hex(0xff3355, 1));
+    draw_circle(p->pos, p->hit_radius, COL_WHITE);
 
     if (p->dash_cd > 0.0f) {
         float k = 1.0f - p->dash_cd / p->dash_cooldown;
