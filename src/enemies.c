@@ -399,7 +399,9 @@ static void on_death(Enemy *e) {
 }
 
 void enemies_update(void) {
-    for (int i = 0; i < G.nsp; i++) {
+    /* TIME STOP: nothing moves, shoots or even spawns; deaths are still resolved. */
+    bool frozen = active_time_stop_on() && G.state == GS_PLAYING;
+    for (int i = 0; i < G.nsp && !frozen; i++) {
         Spawn *s = &G.sp[i];
         s->t -= DT;
         if (s->t <= 0.0f) {
@@ -408,8 +410,18 @@ void enemies_update(void) {
             i--;
         }
     }
-    for (int i = 0; i < G.nen; i++)
+    for (int i = 0; i < G.nen && !frozen; i++)
         if (G.en[i].hp > 0.0f) update_enemy(&G.en[i]);
+    if (frozen) /* knockback and pulls still slide them a little */
+        for (int i = 0; i < G.nen; i++) {
+            Enemy *en = &G.en[i];
+            en->pos = v2_add(en->pos, v2_scale(en->vel, DT));
+            en->vel = v2_scale(en->vel, fmaxf(0.0f, 1.0f - 8.0f * DT));
+            room_collide_circle(&en->pos, en->radius, NULL);
+            en->pos.x = clampf(en->pos.x, ARENA_X0 + en->radius, ARENA_X1 - en->radius);
+            en->pos.y = clampf(en->pos.y, ARENA_Y0 + en->radius, ARENA_Y1 - en->radius);
+            en->flash -= DT;
+        }
     separate_enemies();
     for (int i = 0; i < G.nen; i++) {
         if (G.en[i].hp > 0.0f) continue;

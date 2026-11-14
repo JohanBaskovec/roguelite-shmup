@@ -26,7 +26,11 @@ enum {
 /* ---- Weapons & upgrades -------------------------------------------------- */
 
 /* WPN_SWORD is the Knight's melee weapon: never offered to the other characters (weapon_available). */
-typedef enum { WPN_BLASTER, WPN_SCATTER, WPN_NEEDLER, WPN_SEEKER, WPN_BOUNCER, WPN_SWORD, WPN_COUNT } WeaponId;
+typedef enum {
+    WPN_BLASTER, WPN_SCATTER, WPN_NEEDLER, WPN_SEEKER, WPN_BOUNCER,
+    WPN_RAILGUN, WPN_FLAMER, WPN_ROCKET, WPN_CHAKRAM, WPN_CLUSTER, WPN_ARC, WPN_VULCAN, WPN_WAVE,
+    WPN_SWORD, WPN_COUNT
+} WeaponId;
 
 typedef struct {
     const char *name;
@@ -67,6 +71,11 @@ typedef enum {
     /* big slow shots that reflect enemy bullets; bonuses while hurt; luck; weapon rooms */
     UPG_DEFLECTOR, UPG_WOUNDED_FURY, UPG_SCAR_TISSUE, UPG_LAST_STAND, UPG_BLOOD_SCENT, UPG_LOADED_DICE,
     UPG_SIGNATURE,
+    /* conditional damage, kill triggers, timed strikes, stat trades, utility */
+    UPG_SCOPE, UPG_POINT_BLANK, UPG_BULLY, UPG_GIANT_SLAYER, UPG_MOMENTUM, UPG_SMART_BOUNCE,
+    UPG_CHAIN_REACTION, UPG_GROWTH, UPG_TURRET_MODE, UPG_RUN_GUN, UPG_FROSTBITE, UPG_PYROMANIAC,
+    UPG_TOXIC_CLOUD, UPG_OVERKILL, UPG_MISSILE_POD, UPG_ORBITAL, UPG_SPIKED_HULL, UPG_ECHO,
+    UPG_MAGNUM, UPG_SPRAY, UPG_HEAVY_CALIBER, UPG_EMERGENCY, UPG_RAMPAGE, UPG_BLACK_HOLE, UPG_XRAY,
     /* workshop exclusives (UpgradeDef.tier = max hearts paid), never offered anywhere else */
     UPG_X_BLOOD_ROUNDS, UPG_X_OVERDRIVE, UPG_X_HELLFIRE, UPG_X_STORM, UPG_X_DEMON, UPG_X_GOD_CANNON,
     UPG_COUNT
@@ -74,7 +83,11 @@ typedef enum {
 
 /* Active items: one slot, used with SPACE / SHIFT / right click, then recharges. None at the start:
  * they come from active rooms (RW_ACTIVE, choice of 3). */
-typedef enum { ACT_NONE, ACT_DASH, ACT_SHIELD, ACT_BOOM, ACT_STRENGTH, ACT_CHAOS, ACT_COUNT } ActiveId;
+typedef enum {
+    ACT_NONE, ACT_DASH, ACT_SHIELD, ACT_BOOM, ACT_STRENGTH, ACT_CHAOS,
+    ACT_REVERSAL, ACT_TURRET, ACT_BLINK, ACT_NOVA, ACT_TIME_STOP, ACT_BLADES,
+    ACT_COUNT
+} ActiveId;
 
 /* Numbers per level (duration, power, recharge) live in actives.c: active_duration / active_desc... */
 typedef struct {
@@ -112,7 +125,14 @@ typedef struct {
     SDL_FColor col;
 } PBullet;
 
-enum { PB_FRAGMENT = 1, PB_CRIT = 2, PB_RETURNED = 4, PB_MINE = 8, PB_CHARGED = 16, PB_REFLECTED = 32 };
+enum {
+    PB_FRAGMENT = 1, PB_CRIT = 2, PB_RETURNED = 4, PB_MINE = 8, PB_CHARGED = 16, PB_REFLECTED = 32,
+    PB_EXPLOSIVE = 64,  /* explodes when it dies (hit, wall, end of range): rockets, missiles */
+    PB_RETURNS = 128,   /* flies back to the ship halfway (chakram); a wall turns it around too */
+    PB_CLUSTER = 256,   /* bursts into fragments when it dies */
+    PB_FLIP = 512,      /* wave gun: weaves the other way */
+    PB_VORTEX = 1024,   /* BLACK HOLE: a still vortex that pulls and grinds enemies */
+};
 
 typedef struct {
     V2 pos, vel;
@@ -270,6 +290,13 @@ typedef struct {
     float act_cd, act_cd_max;   /* recharge left / total of the last use */
     float act_t;                /* effect time left (shield, strength, chaos) */
     bool chaos[UPG_COUNT];      /* CHAOS: temporary upgrades (only ones not owned), removed when it ends */
+    V2 turret_pos;              /* TURRET active: where it stands (alive while act_t > 0) */
+    float turret_cd, blade_a;   /* TURRET fire timer, BLADE STORM rotation */
+    float spin;                 /* VULCAN: 0..1, spins up while firing */
+    float momentum, momentum_t; /* MOMENTUM: damage bonus, time since the last hit */
+    int growth;                 /* GROWTH: rooms cleared while owning it */
+    float missile_cd, orbital_cd, echo_t, echo_aim, echo_dmg;
+    bool emergency_used;        /* EMERGENCY SHIELD: spent for this room */
     float speed;
     int coins, keys, bombs;
     int weapon;
@@ -360,6 +387,7 @@ typedef struct {
     int rooms_cleared, kills;
     int items_bought; /* shop purchases this run */
     int active_uses;  /* active items used this run */
+    int bot_weapon;   /* dev (--weapon): the bot always switches back to this weapon (-1 = none) */
     int machine_uses, augments; /* workshop: supply press / slot machine uses, augments taken */
     int room_counter; /* source of Room.id */
     Room parent;      /* room the current secret room was found in, restored on exit */
@@ -440,6 +468,12 @@ void upg_on_kill(const Enemy *e);
 bool upg_on_lethal_hit(void);         /* SECOND WIND: true = survived */
 void upg_on_hurt(void);
 void upg_on_active(void);            /* NOVA TRIGGER: any active item used */
+bool upg_block_hit(void);             /* EMERGENCY SHIELD: true = this hit is ignored */
+void upg_on_bounce(PBullet *b);       /* SMART BOUNCE */
+/* Area damage with its fx (explosions: payload, rockets, boom...). */
+void explode_at(V2 pos, float radius, float dmg, const Enemy *skip, uint32_t color);
+/* Lightning from an enemy to the nearest ones not hit yet. */
+void chain_lightning(Enemy *from, float dmg, int jumps, float range);
 int upg_has(int u);                   /* stacks owned + 1 while CHAOS lends it */
 void upg_update(void);
 void upg_on_room_enter(void);
@@ -501,6 +535,7 @@ void actives_draw(void);              /* shield bubble, strength / chaos auras *
 void active_give(int a);
 bool active_strength_on(void);        /* STRENGTH: x4 shots */
 bool active_shield_on(void);          /* SHIELD: invincible */
+bool active_time_stop_on(void);       /* TIME STOP: enemies and their bullets frozen */
 float active_cooldown(int a, int level); /* with the RECHARGE stat */
 float active_duration(int a, int level); /* effect time (dash: invulnerable dash time; 0 = instant) */
 int active_chaos_count(int level);       /* CHAOS: upgrades lent */
@@ -524,6 +559,10 @@ void weapons_update(void);
 void drones_draw(void);
 void sword_draw(void);
 void weapon_give(int w);
+void weapon_on_hit(PBullet *b, Enemy *e, float dmg); /* flamer burn, arc chains */
+void weapon_bullet_death(PBullet *b);  /* explosive / cluster shots */
+const char *weapon_option_name(int w); /* lowercase name for --weapon */
+int weapon_slot(int k);                 /* WeaponId of the k-th owned weapon (HUD order), or -1 */
 int weapon_roll(void);
 /* The sword only exists for the Knight. */
 bool weapon_available(int w);

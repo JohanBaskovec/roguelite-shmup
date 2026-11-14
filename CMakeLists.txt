@@ -133,6 +133,52 @@ if(SHMUP_BUILD_TESTS)
              COMMAND neon_breach --shot ${_out}/render_active_room.bmp --active-room --active dash --cleared --no-bot --depth 2 --seed 5 --frames 60)
     add_test(NAME render_chaos
              COMMAND neon_breach --shot ${_out}/render_chaos.bmp --active chaos --depth 6 --seed 3 --frames 500)
+    add_test(NAME sim_weapon_railgun
+             COMMAND neon_breach --headless --god --weapon railgun --seed 200 --runs 2 --ticks 24000 --expect-rooms 3
+                     --fail-shot ${_out}/fail_sim_weapon_railgun.bmp)
+    add_test(NAME sim_weapon_flamer
+             COMMAND neon_breach --headless --god --weapon flamer --seed 200 --runs 2 --ticks 24000 --expect-rooms 3
+                     --fail-shot ${_out}/fail_sim_weapon_flamer.bmp)
+    add_test(NAME sim_weapon_rockets
+             COMMAND neon_breach --headless --god --weapon rockets --seed 200 --runs 2 --ticks 24000 --expect-rooms 3
+                     --fail-shot ${_out}/fail_sim_weapon_rockets.bmp)
+    add_test(NAME sim_weapon_chakram
+             COMMAND neon_breach --headless --god --weapon chakram --seed 200 --runs 2 --ticks 24000 --expect-rooms 3
+                     --fail-shot ${_out}/fail_sim_weapon_chakram.bmp)
+    add_test(NAME sim_weapon_cluster
+             COMMAND neon_breach --headless --god --weapon cluster --seed 200 --runs 2 --ticks 24000 --expect-rooms 3
+                     --fail-shot ${_out}/fail_sim_weapon_cluster.bmp)
+    add_test(NAME sim_weapon_arc
+             COMMAND neon_breach --headless --god --weapon arc --seed 200 --runs 2 --ticks 24000 --expect-rooms 3
+                     --fail-shot ${_out}/fail_sim_weapon_arc.bmp)
+    add_test(NAME sim_weapon_vulcan
+             COMMAND neon_breach --headless --god --weapon vulcan --seed 200 --runs 2 --ticks 24000 --expect-rooms 3
+                     --fail-shot ${_out}/fail_sim_weapon_vulcan.bmp)
+    add_test(NAME sim_weapon_wave
+             COMMAND neon_breach --headless --god --weapon wave --seed 200 --runs 2 --ticks 24000 --expect-rooms 3
+                     --fail-shot ${_out}/fail_sim_weapon_wave.bmp)
+    add_test(NAME sim_active_reversal
+             COMMAND neon_breach --headless --god --active reversal --seed 200 --runs 2 --ticks 24000 --expect-rooms 3
+                     --fail-shot ${_out}/fail_sim_active_reversal.bmp)
+    add_test(NAME sim_active_turret
+             COMMAND neon_breach --headless --god --active turret --seed 200 --runs 2 --ticks 24000 --expect-rooms 3
+                     --fail-shot ${_out}/fail_sim_active_turret.bmp)
+    add_test(NAME sim_active_blink
+             COMMAND neon_breach --headless --god --active blink --seed 200 --runs 2 --ticks 24000 --expect-rooms 3
+                     --fail-shot ${_out}/fail_sim_active_blink.bmp)
+    add_test(NAME sim_active_nova
+             COMMAND neon_breach --headless --god --active nova --seed 200 --runs 2 --ticks 24000 --expect-rooms 3
+                     --fail-shot ${_out}/fail_sim_active_nova.bmp)
+    add_test(NAME sim_active_timestop
+             COMMAND neon_breach --headless --god --active timestop --seed 200 --runs 2 --ticks 24000 --expect-rooms 3
+                     --fail-shot ${_out}/fail_sim_active_timestop.bmp)
+    add_test(NAME sim_active_blades
+             COMMAND neon_breach --headless --god --active blades --seed 200 --runs 2 --ticks 24000 --expect-rooms 3
+                     --fail-shot ${_out}/fail_sim_active_blades.bmp)
+    add_test(NAME render_rockets
+             COMMAND neon_breach --shot ${_out}/render_rockets.bmp --weapon rockets --active blades --depth 6 --seed 11 --frames 420)
+    add_test(NAME render_chakram
+             COMMAND neon_breach --shot ${_out}/render_chakram.bmp --weapon chakram --active turret --depth 6 --seed 12 --frames 420)
     add_test(NAME sim_debug_teleports
              COMMAND neon_breach --headless --debug-rooms --seed 1 --coins 40 --ticks 12000
                      --fail-shot ${_out}/fail_debug_teleports.bmp)
@@ -156,5 +202,9 @@ if(SHMUP_BUILD_TESTS)
                          sim_workshop render_workshop render_deep_enemies
                          sim_active_shield sim_active_boom sim_active_strength sim_active_chaos sim_active_rooms
                          render_active_room render_chaos
+                         sim_weapon_railgun sim_weapon_flamer sim_weapon_rockets sim_weapon_chakram sim_weapon_cluster
+                         sim_weapon_arc sim_weapon_vulcan sim_weapon_wave sim_active_reversal sim_active_turret
+                         sim_active_blink sim_active_nova sim_active_timestop sim_active_blades render_rockets
+                         render_chakram
                          sim_debug_teleports render_debug_menu render_stats_room render_stats_overlay render_offscreen sfx_synthesis PROPERTIES TIMEOUT 600)
 endif()

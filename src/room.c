@@ -760,7 +760,7 @@ void room_draw_floor(void) {
         V2 c = room_secret_spot(r->secret_corner);
         if (r->secret_flash_t > 0.0f) /* barely there: a small square for a few frames */
             draw_rect(c.x - 9.0f, c.y - 9.0f, 18.0f, 18.0f, col_a(COL_WHITE, 0.32f * r->secret_flash_t / 0.09f));
-        if (G.reveal_secrets && !r->secret_open) { /* debug menu: SHOW SECRET CORNER */
+        if ((G.reveal_secrets || upg_has(UPG_XRAY)) && !r->secret_open) { /* debug menu: SHOW SECRET CORNER, X-RAY VISOR */
             float pulse = 0.5f + 0.5f * sinf(G.time * 6.0f);
             SDL_FColor sc = col_hex(COLOR_SECRET, 1);
             draw_ring(c, SECRET_BOMB_RADIUS, 2.0f, col_a(sc, 0.25f)); /* where a bomb opens it */
@@ -786,8 +786,8 @@ void room_draw_floor(void) {
         float y = ARENA_CY - 70.0f;
         draw_text_centered(ARENA_CX, y, 2.0f, c, "WASD / ZQSD / ARROWS - MOVE");
         draw_text_centered(ARENA_CX, y + 30, 2.0f, c, "MOUSE - AIM & SHOOT");
-        draw_text_centered(ARENA_CX, y + 60, 2.0f, c, "SPACE / SHIFT / RIGHT CLICK - DASH");
-        draw_text_centered(ARENA_CX, y + 90, 2.0f, c, "E - BOMB    WHEEL / 1-5 - SWITCH WEAPON");
+        draw_text_centered(ARENA_CX, y + 60, 2.0f, c, "SPACE / SHIFT / RIGHT CLICK - ACTIVE ITEM");
+        draw_text_centered(ARENA_CX, y + 90, 2.0f, c, "E - BOMB    WHEEL / 1-9 - SWITCH WEAPON");
         draw_text_centered(ARENA_CX, y + 140, 2.0f, col_a(col_hex(0xffe066, 1), 0.5f), "LOCKED DOORS COST A KEY BUT HIDE BETTER LOOT");
     }
 }

@@ -28,6 +28,7 @@ typedef struct {
     bool no_bot;           /* --no-bot: screenshots without the autopilot (the ship stays put) */
     int character;         /* --char NAME: normal / shotgunner / knight */
     int active;            /* --active NAME: start with this active item */
+    int weapon;            /* --weapon NAME: start with this weapon too (-1 = none) */
     bool active_room;      /* --active-room: start in an active room (choice of 3 active items) */
     bool char_select;      /* --char-select: open the character select screen at startup */
     bool show_secret;      /* --show-secret: mark secret corners (debug menu: SHOW SECRET CORNER) */
@@ -49,6 +50,7 @@ static void parse_args(int argc, char **argv, Options *o) {
     o->frames = 300;
     o->ticks = 120 * 600;
     o->runs = 1;
+    o->weapon = -1;
     for (int i = 1; i < argc; i++) {
         const char *a = argv[i];
         bool more = i + 1 < argc;
@@ -90,6 +92,15 @@ static void parse_args(int argc, char **argv, Options *o) {
             }
         }
         else if (!strcmp(a, "--active-room")) o->active_room = true;
+        else if (!strcmp(a, "--weapon") && more) {
+            const char *name = argv[++i];
+            for (int w = 0; w < WPN_COUNT; w++)
+                if (!strcmp(name, weapon_option_name(w))) o->weapon = w;
+            if (o->weapon < 0) {
+                fprintf(stderr, "unknown weapon '%s'\n", name);
+                exit(2);
+            }
+        }
         else if (!strcmp(a, "--all-upgrades")) o->all_upgrades = true;
         else if (!strcmp(a, "--hp") && more) o->hp = atoi(argv[++i]);
         else if (!strcmp(a, "--coins") && more) o->coins = atoi(argv[++i]);
@@ -149,8 +160,11 @@ static void handle_event(const SDL_Event *e, SDL_Window *win, bool bot) {
             SDL_SetWindowFullscreen(win, (SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN) == 0);
             break;
         default:
-            if (e->key.scancode >= SDL_SCANCODE_1 && e->key.scancode < SDL_SCANCODE_1 + WPN_COUNT)
-                in->weapon_select = (int)(e->key.scancode - SDL_SCANCODE_1);
+            if (e->key.scancode >= SDL_SCANCODE_1 && e->key.scancode <= SDL_SCANCODE_9) {
+                int k = (int)(e->key.scancode - SDL_SCANCODE_1);
+                /* In a run, N = the Nth weapon owned (HUD order); on menus, the raw number. */
+                in->weapon_select = G.state == GS_PLAYING || G.state == GS_PAUSED ? weapon_slot(k) : k;
+            }
             break;
         }
         /* Menu letters follow the keyboard layout. */
@@ -199,7 +213,7 @@ int main(int argc, char **argv) {
             .runs = opt.runs, .max_ticks = opt.ticks, .depth = opt.depth, .stats_room = opt.stats_room,
             .shop_room = opt.shop_room, .coins = opt.coins, .debug_rooms = opt.debug_rooms, .secret = opt.secret,
             .all_upgrades = opt.all_upgrades, .hp = opt.hp, .character = opt.character, .workshop_room = opt.workshop_room,
-            .active = opt.active, .active_room = opt.active_room, .god = opt.god, .expect_rooms = opt.expect_rooms, .fail_shot = opt.fail_shot,
+            .active = opt.active, .active_room = opt.active_room, .weapon = opt.weapon, .god = opt.god, .expect_rooms = opt.expect_rooms, .fail_shot = opt.fail_shot,
         };
         return headless_run(&h);
     }
@@ -237,11 +251,12 @@ int main(int argc, char **argv) {
     G.reveal_secrets = opt.show_secret;
     G.show_stats = opt.show_stats;
     G.character = opt.character;
-    if (opt.stats_room || opt.shop_room || opt.workshop_room || opt.active_room || opt.active || opt.cleared || opt.depth > 0 ||
+    if (opt.stats_room || opt.shop_room || opt.workshop_room || opt.active_room || opt.active || opt.weapon >= 0 || opt.cleared || opt.depth > 0 ||
         opt.coins > 0 || opt.debug_menu || opt.all_upgrades) {
         game_new_run();
         G.pl.coins += opt.coins;
         if (opt.active) active_give(opt.active);
+        if (opt.weapon >= 0 && weapon_available(opt.weapon)) weapon_give(opt.weapon);
         if (opt.all_upgrades)
             for (int u = 0; u < UPG_COUNT; u++)
                 if (!upgrade_capped(u)) upgrade_apply(u);

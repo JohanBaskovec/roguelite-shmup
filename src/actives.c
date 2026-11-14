@@ -17,6 +17,12 @@ const ActiveDef ACTIVES[ACT_COUNT] = {
     [ACT_BOOM] = {"BOOM", 0xff8a3d, 6.0f},
     [ACT_STRENGTH] = {"STRENGTH", 0xff4d4d, 18.0f},
     [ACT_CHAOS] = {"CHAOS", 0xd77dff, 40.0f},
+    [ACT_REVERSAL] = {"REVERSAL", 0x7dffef, 20.0f},
+    [ACT_TURRET] = {"TURRET", 0x9dff6a, 18.0f},
+    [ACT_BLINK] = {"BLINK", 0xc08aff, 3.5f},
+    [ACT_NOVA] = {"NOVA", 0xfff07a, 5.0f},
+    [ACT_TIME_STOP] = {"TIME STOP", 0x8ab8ff, 22.0f},
+    [ACT_BLADES] = {"BLADE STORM", 0xe0e8ff, 14.0f},
 };
 
 /* ---- Numbers per level ------------------------------------------------------- */
@@ -29,6 +35,10 @@ float active_duration(int a, int level) {
     case ACT_SHIELD: return 2.5f + 0.5f * (float)lv(level);
     case ACT_STRENGTH: return 4.0f + 1.0f * (float)lv(level);
     case ACT_CHAOS: return 8.0f + 1.5f * (float)lv(level);
+    case ACT_TURRET: return 8.0f + 1.5f * (float)lv(level);
+    case ACT_BLINK: return 0.4f; /* invulnerable after the jump */
+    case ACT_TIME_STOP: return 2.5f + 0.5f * (float)lv(level);
+    case ACT_BLADES: return 5.0f + 1.0f * (float)lv(level);
     default: return 0.0f;
     }
 }
@@ -37,6 +47,14 @@ int active_chaos_count(int level) { return 20 + 2 * lv(level); }
 static float shield_radius(int level) { return 34.0f + 5.0f * (float)lv(level); }
 static float boom_radius(int level) { return 70.0f * (1.0f + 0.15f * (float)lv(level)); }
 static float boom_power(int level) { return 1.0f + 0.25f * (float)lv(level); } /* damage multiplier */
+static float power(int level) { return 1.0f + 0.25f * (float)lv(level); }      /* generic damage scaling */
+static float turret_rate(int level) { return 0.12f * powf(0.9f, (float)lv(level)); }
+static float blink_range(int level) { return 520.0f + 60.0f * (float)lv(level); }
+static int nova_count(int level) { return 24 + 4 * lv(level); }
+static int blade_count(int level) { return 3 + lv(level) / 2; }
+#define BLADE_ORBIT 88.0f
+
+static V2 blade_pos(int k, int n) { return v2_add(G.pl.pos, v2_scale(v2_angle(G.pl.blade_a + TAU_F * (float)k / (float)n), BLADE_ORBIT)); }
 
 const char *active_desc(int a, int level) {
     static char bufs[4][96];
@@ -52,12 +70,24 @@ const char *active_desc(int a, int level) {
     case ACT_CHAOS:
         SDL_snprintf(b, 96, "%d random new upgrades|for %.1f s", active_chaos_count(level), (double)active_duration(a, level));
         break;
+    case ACT_REVERSAL: SDL_snprintf(b, 96, "Every enemy bullet becomes|one of yours (x%.2f damage)", (double)power(level)); break;
+    case ACT_TURRET:
+        SDL_snprintf(b, 96, "Drops a turret that shoots|for %.1f s (%.0f shots/s)", (double)active_duration(a, level), (double)(1.0f / turret_rate(level)));
+        break;
+    case ACT_BLINK: SDL_snprintf(b, 96, "Teleport to the cursor (%.0f px)|with a blast at both ends", (double)blink_range(level)); break;
+    case ACT_NOVA: SDL_snprintf(b, 96, "A ring of %d piercing shots", nova_count(level)); break;
+    case ACT_TIME_STOP: SDL_snprintf(b, 96, "Enemies and their bullets|freeze for %.1f s", (double)active_duration(a, level)); break;
+    case ACT_BLADES:
+        SDL_snprintf(b, 96, "%d blades circle you for %.0f s|cutting bullets and enemies", blade_count(level), (double)active_duration(a, level));
+        break;
     default: b[0] = 0; break;
     }
     return b;
 }
 
-static const char *const OPTION_NAMES[ACT_COUNT] = {"none", "dash", "shield", "boom", "strength", "chaos"};
+static const char *const OPTION_NAMES[ACT_COUNT] = {
+    "none", "dash", "shield", "boom", "strength", "chaos", "reversal", "turret", "blink", "nova", "timestop", "blades",
+};
 
 const char *active_option_name(int a) { return a >= 0 && a < ACT_COUNT ? OPTION_NAMES[a] : "?"; }
 
@@ -68,6 +98,9 @@ static const int CHAOS_POOL[] = {
     UPG_BOOMERANG, UPG_PHASE, UPG_TAIL_GUN, UPG_FLANK, UPG_CAPACITOR, UPG_REACTIVE, UPG_ORB, UPG_TESLA,
     UPG_LEECH, UPG_ADRENALINE, UPG_BLOODLUST, UPG_RAM, UPG_DASH_NOVA, UPG_CHRONO, UPG_VOLATILE, UPG_MINES,
     UPG_WOUNDED_FURY, UPG_SCAR_TISSUE, UPG_LAST_STAND, UPG_BLOOD_SCENT, UPG_LOADED_DICE,
+    UPG_SCOPE, UPG_POINT_BLANK, UPG_BULLY, UPG_GIANT_SLAYER, UPG_MOMENTUM, UPG_CHAIN_REACTION, UPG_TURRET_MODE,
+    UPG_RUN_GUN, UPG_FROSTBITE, UPG_PYROMANIAC, UPG_TOXIC_CLOUD, UPG_OVERKILL, UPG_MISSILE_POD, UPG_ORBITAL,
+    UPG_SPIKED_HULL, UPG_ECHO, UPG_EMERGENCY, UPG_RAMPAGE, UPG_BLACK_HOLE,
 };
 
 /* -12% per level, and the RECHARGE stat. */
@@ -80,6 +113,7 @@ float active_cooldown(int a, int level) {
 
 bool active_strength_on(void) { return G.pl.active == ACT_STRENGTH && G.pl.act_t > 0.0f; }
 bool active_shield_on(void) { return G.pl.active == ACT_SHIELD && G.pl.act_t > 0.0f; }
+bool active_time_stop_on(void) { return G.pl.active == ACT_TIME_STOP && G.pl.act_t > 0.0f; }
 
 void active_end_chaos(void) {
     Player *p = &G.pl;
@@ -185,6 +219,71 @@ static void use_chaos(void) {
     fx_burst(p->pos, 60, 200.0f, 800.0f, 0.6f, 3.0f, col_hex(ACTIVES[ACT_CHAOS].color, 1));
 }
 
+/* Every enemy bullet turns around as one of ours (marked dead, removed by its own loop). */
+static void use_reversal(void) {
+    Player *p = &G.pl;
+    float dmg = 10.0f * p->dmg_mult * power(p->act_level);
+    for (int i = 0; i < G.neb; i++) {
+        EBullet *e = &G.eb[i];
+        if (e->life <= 0.0f) continue;
+        e->life = -1.0f;
+        Enemy *t = enemy_nearest(e->pos, 2000.0f);
+        V2 dir = t ? v2_norm(v2_sub(t->pos, e->pos)) : v2_norm(v2_sub(e->pos, p->pos));
+        PBullet *b = pbullet_spawn(e->pos, v2_scale(dir, 900.0f), fmaxf(e->radius, 5.0f), dmg, col_hex(ACTIVES[ACT_REVERSAL].color, 1));
+        if (!b) break;
+        b->life = 1.5f;
+        b->knockback = 40.0f;
+        b->flags = PB_REFLECTED;
+        fx_particle(e->pos, v2(0, 0), 0.2f, 14.0f, col_hex(ACTIVES[ACT_REVERSAL].color, 0.8f), 0.0f, PT_GLOW);
+    }
+    sfx_play(SFX_DEFLECT);
+    fx_particle(p->pos, v2(0, 0), 0.5f, 900.0f, col_hex(ACTIVES[ACT_REVERSAL].color, 0.6f), 0.0f, PT_RING);
+}
+
+static void blast(V2 at, float radius, float dmg, uint32_t color) {
+    explode_at(at, radius, dmg, NULL, color);
+    sfx_play_at(SFX_EXPLODE_SMALL, at);
+}
+
+static void use_blink(void) {
+    Player *p = &G.pl;
+    V2 to = v2_sub(G.in.mouse, p->pos);
+    float d = v2_len(to), range = blink_range(p->act_level);
+    if (d > range) to = v2_scale(to, range / d);
+    V2 from = p->pos, dest = v2_add(p->pos, to);
+    dest.x = clampf(dest.x, ARENA_X0 + PLAYER_BODY_R + 2.0f, ARENA_X1 - PLAYER_BODY_R - 2.0f);
+    dest.y = clampf(dest.y, ARENA_Y0 + PLAYER_BODY_R + 2.0f, ARENA_Y1 - PLAYER_BODY_R - 2.0f);
+    room_collide_circle(&dest, PLAYER_BODY_R, NULL); /* never inside an obstacle */
+    dest.x = clampf(dest.x, ARENA_X0 + PLAYER_BODY_R, ARENA_X1 - PLAYER_BODY_R);
+    dest.y = clampf(dest.y, ARENA_Y0 + PLAYER_BODY_R, ARENA_Y1 - PLAYER_BODY_R);
+    p->pos = dest;
+    p->vel = v2(0, 0);
+    p->invuln = fmaxf(p->invuln, active_duration(ACT_BLINK, p->act_level));
+    float dmg = 40.0f * p->dmg_mult * power(p->act_level);
+    blast(from, 120.0f, dmg, ACTIVES[ACT_BLINK].color);
+    blast(dest, 120.0f, dmg, ACTIVES[ACT_BLINK].color);
+    for (int k = 0; k <= 12; k++)
+        fx_particle(v2_lerp(from, dest, (float)k / 12.0f), v2(0, 0), 0.25f, 14.0f, col_hex(ACTIVES[ACT_BLINK].color, 0.6f), 0.0f, PT_GLOW);
+    sfx_play(SFX_TELEPORT);
+}
+
+static void use_nova(void) {
+    Player *p = &G.pl;
+    int n = nova_count(p->act_level);
+    float off = frand(0.0f, TAU_F), dmg = 14.0f * p->dmg_mult;
+    for (int k = 0; k < n; k++) {
+        PBullet *b = pbullet_spawn(p->pos, v2_scale(v2_angle(off + TAU_F * (float)k / (float)n), 1100.0f), 8.0f, dmg,
+                                   col_hex(ACTIVES[ACT_NOVA].color, 1));
+        if (!b) break;
+        b->life = 0.8f * p->range_mult;
+        b->pierce = 3;
+        b->knockback = 120.0f;
+        upg_on_bullet_spawn(b);
+    }
+    sfx_play_ex(SFX_SHOT_RAIL, 1.0f, 0.7f, 0.0f);
+    fx_particle(p->pos, v2(0, 0), 0.35f, 200.0f, col_hex(ACTIVES[ACT_NOVA].color, 0.8f), 0.0f, PT_RING);
+}
+
 static void use_active(void) {
     Player *p = &G.pl;
     int a = p->active;
@@ -204,6 +303,23 @@ static void use_active(void) {
     case ACT_CHAOS:
         sfx_play(SFX_CHAOS);
         use_chaos();
+        break;
+    case ACT_REVERSAL: use_reversal(); break;
+    case ACT_TURRET:
+        p->turret_pos = p->pos;
+        p->turret_cd = 0.0f;
+        sfx_play(SFX_POWER_UP);
+        fx_particle(p->pos, v2(0, 0), 0.3f, 90.0f, c, 0.0f, PT_RING);
+        break;
+    case ACT_BLINK: use_blink(); break;
+    case ACT_NOVA: use_nova(); break;
+    case ACT_TIME_STOP:
+        sfx_play(SFX_TIME_STOP);
+        fx_particle(p->pos, v2(0, 0), 0.6f, 2400.0f, col_a(c, 0.5f), 0.0f, PT_RING);
+        break;
+    case ACT_BLADES:
+        sfx_play(SFX_SWORD);
+        fx_particle(p->pos, v2(0, 0), 0.3f, 2.0f * BLADE_ORBIT, c, 0.0f, PT_RING);
         break;
     default: return;
     }
@@ -241,6 +357,44 @@ void actives_update(void) {
             use_active();
         }
     }
+    /* TURRET: shoots the nearest enemy while it lasts. */
+    if (p->active == ACT_TURRET && p->act_t > 0.0f) {
+        p->turret_cd -= DT;
+        while (p->turret_cd <= 0.0f) {
+            p->turret_cd += turret_rate(p->act_level);
+            Enemy *t = enemy_nearest(p->turret_pos, 1200.0f);
+            if (!t) break;
+            V2 dir = v2_norm(v2_sub(t->pos, p->turret_pos));
+            PBullet *b = pbullet_spawn(v2_add(p->turret_pos, v2_scale(dir, 20.0f)), v2_scale(dir, 1500.0f), 4.5f, 8.0f * p->dmg_mult,
+                                       col_hex(ACTIVES[ACT_TURRET].color, 1));
+            if (!b) break;
+            b->life = 0.9f;
+            b->knockback = 30.0f;
+            sfx_play_ex(SFX_DRONE_SHOT, 0.6f, 0.8f, 0.0f);
+        }
+    }
+    /* BLADE STORM: orbiting blades cut bullets and grind enemies. */
+    if (p->active == ACT_BLADES && p->act_t > 0.0f) {
+        p->blade_a += DT * 7.0f;
+        int n = blade_count(p->act_level);
+        float dps = 220.0f * p->dmg_mult * power(p->act_level);
+        for (int k = 0; k < n; k++) {
+            V2 bp = blade_pos(k, n);
+            for (int i = 0; i < G.neb; i++) {
+                EBullet *b = &G.eb[i];
+                float r = 20.0f + b->radius;
+                if (b->life > 0.0f && v2_dist2(b->pos, bp) < r * r) {
+                    b->life = -1.0f;
+                    fx_particle(b->pos, v2(0, 0), 0.12f, 12.0f, col_hex(ACTIVES[ACT_BLADES].color, 0.8f), 0.0f, PT_GLOW);
+                }
+            }
+            for (int i = 0; i < G.nen; i++) {
+                Enemy *e = &G.en[i];
+                float r = e->radius + 18.0f;
+                if (e->hp > 0.0f && v2_dist2(e->pos, bp) < r * r) enemy_damage(e, dps * DT, v2(0, 0));
+            }
+        }
+    }
     /* SHIELD: the bubble eats the bullets that touch it (marked dead, removed by their loop). */
     if (active_shield_on()) {
         for (int i = 0; i < G.neb; i++) {
@@ -276,6 +430,29 @@ void actives_draw(void) {
             V2 d = v2_angle(G.time * 4.0f + (float)i * PI_F * 0.5f);
             draw_circle(v2_add(p->pos, v2_scale(d, 30.0f)), 3.5f, col_a(c, 0.9f * fade));
         }
+        break;
+    case ACT_TURRET: {
+        V2 t = p->turret_pos;
+        Enemy *e = enemy_nearest(t, 1200.0f);
+        float aim = e ? v2_heading(v2_sub(e->pos, t)) : G.time;
+        draw_glow(t, 40.0f, col_a(c, 0.25f * fade));
+        draw_blend_alpha();
+        draw_ngon(t, 16.0f, 6, 0.0f, col_hex(0x1d3a12, 1));
+        draw_ngon_outline(t, 16.0f, 6, 0.0f, 2.5f, col_a(c, fade));
+        draw_line(t, v2_add(t, v2_scale(v2_angle(aim), 24.0f)), 6.0f, col_a(c, fade));
+        draw_blend_add();
+    } break;
+    case ACT_BLADES: {
+        int n = blade_count(p->act_level);
+        for (int k = 0; k < n; k++) {
+            V2 bp = blade_pos(k, n), d = v2_angle(p->blade_a + TAU_F * (float)k / (float)n + PI_F * 0.5f);
+            draw_glow(bp, 26.0f, col_a(c, 0.3f * fade));
+            draw_line(v2_sub(bp, v2_scale(d, 18.0f)), v2_add(bp, v2_scale(d, 18.0f)), 5.0f, col_a(COL_WHITE, 0.9f * fade));
+        }
+        draw_ring(p->pos, BLADE_ORBIT, 1.5f, col_a(c, 0.15f * fade));
+    } break;
+    case ACT_TIME_STOP:
+        draw_ring(p->pos, 60.0f + 8.0f * sinf(G.time * 3.0f), 2.0f, col_a(c, 0.5f * fade));
         break;
     case ACT_CHAOS:
         for (int i = 0; i < 6; i++) {
@@ -327,6 +504,41 @@ void draw_active_icon(int a, V2 p, float s, float t) {
         for (int k = 0; k < 5; k++)
             draw_circle(v2(p.x + px[k] * s, p.y + py[k] * s), s * 0.16f, col_hsv(fmodf(t * 0.6f + (float)k * 0.2f, 1.0f), 0.6f, 1.0f, 1.0f));
     } break;
+    case ACT_REVERSAL: /* two arrows chasing each other */
+        draw_arc(p, s * 0.8f, s * 0.2f, t * 2.0f, t * 2.0f + 2.4f, c);
+        draw_arc(p, s * 0.8f, s * 0.2f, t * 2.0f + PI_F, t * 2.0f + PI_F + 2.4f, c);
+        draw_circle(v2_add(p, v2_scale(v2_angle(t * 2.0f + 2.4f), s * 0.8f)), s * 0.25f, COL_WHITE);
+        draw_circle(v2_add(p, v2_scale(v2_angle(t * 2.0f + PI_F + 2.4f), s * 0.8f)), s * 0.25f, COL_WHITE);
+        break;
+    case ACT_TURRET:
+        draw_ngon(v2(p.x, p.y + s * 0.2f), s * 0.7f, 6, 0.0f, c);
+        draw_line(v2(p.x, p.y + s * 0.2f), v2_add(v2(p.x, p.y + s * 0.2f), v2_scale(v2_angle(-PI_F * 0.5f + 0.5f * sinf(t * 2.0f)), s * 1.1f)), s * 0.3f, COL_WHITE);
+        break;
+    case ACT_BLINK:
+        draw_ring(v2(p.x - s * 0.5f, p.y + s * 0.4f), s * 0.35f, s * 0.12f, col_a(c, 0.6f));
+        draw_line(v2(p.x - s * 0.35f, p.y + s * 0.25f), v2(p.x + s * 0.35f, p.y - s * 0.35f), s * 0.15f, col_a(c, 0.6f));
+        draw_circle(v2(p.x + s * 0.5f, p.y - s * 0.5f), s * 0.42f, c);
+        break;
+    case ACT_NOVA:
+        for (int k = 0; k < 10; k++) {
+            V2 d = v2_angle(t + (float)k * TAU_F / 10.0f);
+            draw_circle(v2_add(p, v2_scale(d, s * 0.85f)), s * 0.16f, c);
+        }
+        draw_circle(p, s * 0.35f, COL_WHITE);
+        break;
+    case ACT_TIME_STOP: /* a clock with frozen hands */
+        draw_ring(p, s * 0.9f, s * 0.16f, c);
+        draw_line(p, v2(p.x, p.y - s * 0.6f), s * 0.16f, COL_WHITE);
+        draw_line(p, v2(p.x + s * 0.45f, p.y), s * 0.16f, COL_WHITE);
+        break;
+    case ACT_BLADES:
+        for (int k = 0; k < 3; k++) {
+            V2 d = v2_angle(t * 4.0f + (float)k * TAU_F / 3.0f);
+            V2 bp = v2_add(p, v2_scale(d, s * 0.6f));
+            draw_line(v2_sub(bp, v2_scale(v2_perp(d), s * 0.4f)), v2_add(bp, v2_scale(v2_perp(d), s * 0.4f)), s * 0.2f, c);
+        }
+        draw_circle(p, s * 0.2f, COL_WHITE);
+        break;
     default:
         draw_tri(v2(p.x + s * 0.25f, p.y - s * 1.0f), v2(p.x - s * 0.55f, p.y + s * 0.15f), v2(p.x + s * 0.05f, p.y + s * 0.1f), c);
         draw_tri(v2(p.x - s * 0.25f, p.y + s * 1.0f), v2(p.x + s * 0.55f, p.y - s * 0.15f), v2(p.x - s * 0.05f, p.y - s * 0.1f), c);

@@ -51,7 +51,7 @@ the `--debug-rooms` test too.
 
 ```sh
 cmake --preset release && cmake --build --preset release -j
-ctest --preset release            # ~15 s
+ctest --preset release            # ~25 s
 cmake --preset asan && cmake --build --preset asan -j && ctest --preset asan   # ASan + UBSan
 ```
 
@@ -88,7 +88,15 @@ invariants / a CTest entry in `CMakeLists.txt`.
   never clear or compact an array from there, mark entities dead (`life = -1`) instead.
 - Upgrade hooks read stacks through `has()` (upgrades.c) / `upg_has()` elsewhere, never `upg_count[]`
   directly, so CHAOS's temporary upgrades work. When adding an active item: `ACTIVES` entry, effect in
-  `use_active`, icon, bot usage, and a scripted check in `debug_rooms_run`.
+  `use_active`, icon, option name (`--active NAME`), bot usage, a scripted check in `debug_rooms_run`
+  and a `sim_active_<name>` CTest. CHAOS may only lend upgrades listed in `CHAOS_POOL` (hook-only, so
+  removal is exact). TIME STOP (`active_time_stop_on()`) freezes enemies and enemy bullets: new enemy
+  or enemy-bullet behaviour must respect it.
+- Weapons: `WEAPONS` table entry, option name (`--weapon NAME`), per-weapon movement in `bullets.c`,
+  on-hit / on-death effects in `weapon_on_hit` / `weapon_bullet_death` (called for every bullet death,
+  so `PB_*` flags like explosive / cluster also work for upgrades), drawing, and a `sim_weapon_<name>`
+  CTest (the bot keeps `G.bot_weapon`). Number keys pick the Nth *owned* weapon (`weapon_slot`);
+  `Input.weapon_select` stays a `WeaponId`. Reuse `explode_at` / `chain_lightning` for area effects.
 - Upgrade descriptions with a random effect must show the exact chance: build them in `upgrade_desc_at`
   (respects stacks and `proc()`, i.e. LOADED DICE). A `|` splits a description over two lines (`draw_desc`).
 - Shields (`Player.shield`, half-hearts, max `MAX_SHIELD`) absorb damage before hearts.

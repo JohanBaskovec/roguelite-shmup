@@ -31,7 +31,10 @@ void bot_input(void) {
     /* Sword (Knight): melee - walk up to the nearest enemy, the blade ignores cover. The
      * bot sticks to the sword even after picking up a gun, so simulations exercise it. */
     if (pl->wlevel[WPN_SWORD] > 0 && pl->weapon != WPN_SWORD) in->weapon_select = WPN_SWORD;
+    /* --weapon: same idea, the simulations keep using the weapon under test. */
+    else if (G.bot_weapon >= 0 && pl->wlevel[G.bot_weapon] > 0 && pl->weapon != G.bot_weapon) in->weapon_select = G.bot_weapon;
     const bool melee = pl->weapon == WPN_SWORD;
+    const bool short_range = pl->weapon == WPN_FLAMER; /* closes in, but not to contact */
     bool overlapped = false;
     for (int i = 0; i < G.nen; i++) {
         Enemy *e = &G.en[i];
@@ -88,7 +91,7 @@ void bot_input(void) {
     }
     /* Secret room: once it has seen the corner flash, bomb it after the fight, then go in. */
     const Room *r = &G.room;
-    bool secret_known = r->secret_corner >= 0 && r->secret_flashes > 0 && !r->secret_used;
+    bool secret_known = r->secret_corner >= 0 && (r->secret_flashes > 0 || upg_has(UPG_XRAY)) && !r->secret_used;
 
     /* Workshop machines: the supply press while healthy, a few slot machine plays while
      * it has coins. A use needs a fresh step: walk on, step off below, repeat. */
@@ -133,6 +136,10 @@ void bot_input(void) {
             }
         }
         goal = G.room.clear_t < 1.2f ? v2(ARENA_CX, ARENA_CY) : door_position(G.room.doors[pick].side);
+    } else if (short_range && nearest) {
+        V2 to = v2_sub(nearest->pos, pl->pos);
+        float d = v2_len(to);
+        goal = d > 1.0f ? v2_sub(nearest->pos, v2_scale(to, (nearest->radius + 170.0f) / d)) : pl->pos;
     } else if (melee && nearest) {
         /* Stand just inside the blade's reach, outside contact range. */
         V2 to = v2_sub(nearest->pos, pl->pos);
@@ -202,6 +209,18 @@ void bot_input(void) {
             break;
         case ACT_STRENGTH: in->active_pressed = alive >= 3 && (t || melee); break;
         case ACT_CHAOS: in->active_pressed = alive >= 5; break;
+        case ACT_REVERSAL: in->active_pressed = G.neb >= 40 || threats >= 5; break;
+        case ACT_TURRET: in->active_pressed = alive >= 3; break;
+        case ACT_BLINK:
+            if (imminent || overlapped) {
+                /* jump away from the danger, not onto the enemy being aimed at */
+                in->mouse = v2_add(pl->pos, v2_scale(v2_len2(avoid) > 0.0f ? v2_norm(avoid) : v2_norm(v2_sub(v2(ARENA_CX, ARENA_CY), pl->pos)), 320.0f));
+                in->active_pressed = true;
+            }
+            break;
+        case ACT_NOVA: in->active_pressed = alive >= 3 && nearest && best_any < 380.0f * 380.0f; break;
+        case ACT_TIME_STOP: in->active_pressed = threats >= 5 || (imminent && alive >= 3); break;
+        case ACT_BLADES: in->active_pressed = threats >= 3 || (alive >= 2 && nearest && best_any < 240.0f * 240.0f); break;
         default: break;
         }
     }

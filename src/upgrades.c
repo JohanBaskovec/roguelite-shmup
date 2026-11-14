@@ -74,6 +74,31 @@ const UpgradeDef UPGRADES[UPG_COUNT] = {
     [UPG_BLOOD_SCENT] = {"BLOOD SCENT", "Shots home in on enemies|while not at full health", 0xff6060, 1},
     [UPG_LOADED_DICE] = {"LOADED DICE", "Doubles the chance of every|upgrade effect", 0xe6ff66, 1},
     [UPG_SIGNATURE] = {"SIGNATURE WEAPON", "Weapon rooms always offer|your highest-level weapon", 0x66f0ff, 1},
+    [UPG_SCOPE] = {"SNIPER SCOPE", "Shots gain up to +60% damage|the longer they fly", 0xd8f6ff, 2},
+    [UPG_POINT_BLANK] = {"POINT BLANK", "+50% damage to enemies|close to you", 0xff9a5a, 2},
+    [UPG_BULLY] = {"BULLY", "+40% damage to enemies|under half health", 0xff6a8a, 2},
+    [UPG_GIANT_SLAYER] = {"GIANT SLAYER", "+60% damage to big enemies|(200+ health)", 0xc0a0ff, 2},
+    [UPG_MOMENTUM] = {"MOMENTUM", "Each hit: +1% damage (max +40%)|lost after 1 s without a hit", 0xffd36b, 1},
+    [UPG_SMART_BOUNCE] = {"SMART BOUNCE", "+1 bounce; every bounce aims|at the nearest enemy", 0xfff08a, 1},
+    [UPG_CHAIN_REACTION] = {"CHAIN REACTION", "Every kill fires 6 shots|outward", 0xff7ad9, 2},
+    [UPG_GROWTH] = {"GROWTH", "+3% damage per room cleared|from now on (max +60%)", 0x7dff8a, 1},
+    [UPG_TURRET_MODE] = {"TURRET MODE", "+40% fire rate while|standing still", 0x8ab8ff, 1},
+    [UPG_RUN_GUN] = {"RUN AND GUN", "+20% damage while moving", 0x8affd8, 1},
+    [UPG_FROSTBITE] = {"FROSTBITE", "Chilled enemies take +35%|damage; hits may chill", 0xa8f0ff, 1},
+    [UPG_PYROMANIAC] = {"PYROMANIAC", "Burning enemies explode on|death; hits may ignite", 0xff6a2a, 1},
+    [UPG_TOXIC_CLOUD] = {"TOXIC CLOUD", "Poisoned enemies spread it on|death; hits may poison", 0x9aff3a, 1},
+    [UPG_OVERKILL] = {"OVERKILL", "Excess damage on a kill|spills into the nearest enemy", 0xff4a6a, 1},
+    [UPG_MISSILE_POD] = {"MISSILE POD", "Fires a homing missile|every 1.5 s", 0xffb04d, 3},
+    [UPG_ORBITAL] = {"ORBITAL STRIKE", "A strike from orbit hits|an enemy every 3 s", 0x9fe8ff, 3},
+    [UPG_SPIKED_HULL] = {"SPIKED HULL", "Enemies touching your hull|take heavy damage", 0xd0d0e0, 2},
+    [UPG_ECHO] = {"ECHO", "Every volley is echoed|0.12 s later (50% damage)", 0xb0a0ff, 1},
+    [UPG_MAGNUM] = {"MAGNUM ROUNDS", "+2 pierce, +15% damage,|-15% fire rate", 0xffc080, 2},
+    [UPG_SPRAY] = {"SPRAY AND PRAY", "+45% fire rate,|+60% spread", 0xff8ad0, 2},
+    [UPG_HEAVY_CALIBER] = {"HEAVY CALIBER", "+40% damage, bigger shots,|-20% shot speed", 0xc08a5a, 2},
+    [UPG_EMERGENCY] = {"EMERGENCY SHIELD", "Once per room, the first|hit is blocked", 0x66d9ff, 1},
+    [UPG_RAMPAGE] = {"RAMPAGE", "+3% fire rate per kill in the|room (max +45%)", 0xff5a3a, 1},
+    [UPG_BLACK_HOLE] = {"BLACK HOLE", "Kills may open a vortex|that pulls enemies in", 0x8a5aff, 2},
+    [UPG_XRAY] = {"X-RAY VISOR", "Secret corners are|always visible", 0xb0ffb0, 1},
 
     /* Workshop exclusives: tier = heart containers paid at the augment machine. */
     [UPG_X_BLOOD_ROUNDS] = {"BLOOD ROUNDS", "+30% damage; every hit makes|enemies bleed (40%/s, 3 s)", 0xff2050, 1, 1},
@@ -104,6 +129,9 @@ static float payload_chance(int n) { return proc(fminf(0.2f + 0.15f * (float)(n 
 static float shrapnel_chance(int n) { return proc(fminf(0.25f * (float)n, 0.75f)); }
 static float crit_chance(int n) { return proc(clampf(0.08f * (float)n + 0.02f * (float)G.pl.luck, 0.02f, 0.6f)); }
 #define STORM_CHANCE 0.35f
+#define FROSTBITE_CHANCE 0.3f
+#define IGNITE_CHANCE 0.15f /* PYROMANIAC, TOXIC CLOUD (poison) */
+static float black_hole_chance(int n) { return proc(0.08f * (float)n); }
 
 static int pct(float p) { return (int)roundf(p * 100.0f); }
 
@@ -122,6 +150,12 @@ const char *upgrade_desc_at(int u, int n) {
         SDL_snprintf(b, 96, "+30%% fire rate; hits: %d%% chance|of lightning through 3 enemies", pct(proc(STORM_CHANCE)));
         break;
     case UPG_LEECH: SDL_snprintf(b, 96, "Heal 1/2 heart every %d kills", n >= 2 ? 25 : 40); break;
+    case UPG_FROSTBITE: SDL_snprintf(b, 96, "Chilled enemies take +35%%|damage; hits: %d%% to chill", pct(proc(FROSTBITE_CHANCE))); break;
+    case UPG_PYROMANIAC: SDL_snprintf(b, 96, "Burning enemies explode on|death; hits: %d%% to ignite", pct(proc(IGNITE_CHANCE))); break;
+    case UPG_TOXIC_CLOUD: SDL_snprintf(b, 96, "Poisoned enemies spread it on|death; hits: %d%% to poison", pct(proc(IGNITE_CHANCE))); break;
+    case UPG_BLACK_HOLE: SDL_snprintf(b, 96, "Kills: %d%% chance to open a|vortex that pulls enemies in", pct(black_hole_chance(n))); break;
+    case UPG_MISSILE_POD: SDL_snprintf(b, 96, "Fires a homing missile|every %.2g s", (double)(1.5f / (float)n)); break;
+    case UPG_ORBITAL: SDL_snprintf(b, 96, "A strike from orbit hits|an enemy every %.2g s", (double)(3.0f / (float)n)); break;
     case UPG_CAPACITOR: SDL_snprintf(b, 96, "Every %dth volley: a mega shot", n >= 2 ? 6 : 10); break;
     default: return UPGRADES[u].desc;
     }
@@ -223,6 +257,14 @@ void upgrade_apply(int u) {
     case UPG_SKELETON_KEY: p->keys += 3; break;
     case UPG_SECOND_WIND: p->revives++; break;
     case UPG_BARRIER: player_add_shield(2); break;
+    case UPG_SMART_BOUNCE: p->bounce += 1; break;
+    case UPG_MAGNUM: p->pierce += 2; p->dmg_mult *= 1.15f; p->rate_mult = fmaxf(0.3f, p->rate_mult * 0.85f); break;
+    case UPG_SPRAY: p->rate_mult *= 1.45f; p->spread_mult = fminf(SPREAD_MAX, p->spread_mult * 1.6f); break;
+    case UPG_HEAVY_CALIBER:
+        p->dmg_mult *= 1.4f;
+        p->bullet_size *= 1.25f;
+        p->shot_speed_mult = fmaxf(0.4f, p->shot_speed_mult * 0.8f);
+        break;
     case UPG_X_BLOOD_ROUNDS: p->dmg_mult *= 1.3f; break;
     case UPG_X_OVERDRIVE:
         p->rate_mult *= 1.3f;
@@ -258,6 +300,8 @@ float upg_volley_damage_mult(void) {
     if (n) m *= 1.0f + fminf(0.02f * (float)(G.pl.room_kills * n), 0.4f * (float)n);
     if (hurt()) m *= 1.0f + 0.3f * (float)has(UPG_WOUNDED_FURY);
     if (has(UPG_LAST_STAND)) m *= 1.0f + 0.1f * missing_hearts();
+    if (has(UPG_RUN_GUN) && v2_len2(G.pl.vel) > 80.0f * 80.0f) m *= 1.2f;
+    if (has(UPG_GROWTH)) m *= 1.0f + fminf(0.03f * (float)G.pl.growth, 0.6f);
     return m;
 }
 
@@ -265,6 +309,8 @@ static bool adrenaline_on(void) { return has(UPG_ADRENALINE) && G.pl.hp <= 2; }
 float upg_fire_rate_mult(void) {
     float m = adrenaline_on() ? 1.4f : 1.0f;
     if (hurt()) m *= 1.0f + 0.25f * (float)has(UPG_SCAR_TISSUE);
+    if (has(UPG_TURRET_MODE) && v2_len2(G.pl.vel) < 60.0f * 60.0f) m *= 1.4f;
+    if (has(UPG_RAMPAGE)) m *= 1.0f + fminf(0.03f * (float)G.pl.room_kills, 0.45f);
     if (has(UPG_DEFLECTOR)) m /= 3.0f;
     return m;
 }
@@ -310,6 +356,12 @@ static PBullet *extra_shot(V2 pos, float angle, float speed, float radius, float
 void upg_on_volley(V2 muzzle, float aim, float dmg, SDL_FColor col) {
     Player *p = &G.pl;
     p->volleys++;
+    (void)col;
+    if (has(UPG_ECHO) && p->echo_t <= 0.0f) {
+        p->echo_t = 0.12f;
+        p->echo_aim = aim;
+        p->echo_dmg = dmg * 0.5f;
+    }
     int n = has(UPG_TAIL_GUN);
     for (int i = 0; i < n; i++)
         extra_shot(p->pos, aim + PI_F + ((float)i - (float)(n - 1) * 0.5f) * 0.22f, 1100.0f, 4.0f, dmg * 0.8f, 0.7f, col);
@@ -333,7 +385,18 @@ void upg_on_volley(V2 muzzle, float aim, float dmg, SDL_FColor col) {
 
 void upg_bullet_update(PBullet *b) {
     /* RETURN VECTOR: halfway through its life a shot turns around and homes back. */
-    if (!has(UPG_BOOMERANG) || (b->flags & (PB_MINE | PB_FRAGMENT))) return;
+    if (b->flags & PB_VORTEX) { /* BLACK HOLE: pulls enemies in and grinds them */
+        for (int i = 0; i < G.nen; i++) {
+            Enemy *e = &G.en[i];
+            V2 d = v2_sub(b->pos, e->pos);
+            float dist = v2_len(d);
+            if (e->hp <= 0.0f || dist > 260.0f || dist < 1.0f) continue;
+            e->vel = v2_add(e->vel, v2_scale(d, 900.0f * DT / dist));
+            if (dist < 70.0f + e->radius) enemy_damage(e, b->damage * DT, v2(0, 0));
+        }
+        return;
+    }
+    if ((!has(UPG_BOOMERANG) && !(b->flags & PB_RETURNS)) || (b->flags & (PB_MINE | PB_FRAGMENT))) return;
     const Player *p = &G.pl;
     if (!(b->flags & PB_RETURNED)) {
         if (b->age < b->life) return;
@@ -353,7 +416,15 @@ void upg_bullet_update(PBullet *b) {
 /* ---- Hits ----------------------------------------------------------------- */
 
 float upg_hit_damage(const PBullet *b, const Enemy *e) {
+    const Player *p = &G.pl;
     float dmg = b->damage;
+    int n;
+    if ((n = has(UPG_SCOPE)) > 0) dmg *= 1.0f + 0.6f * (float)n * fminf(b->age / 0.6f, 1.0f);
+    if ((n = has(UPG_POINT_BLANK)) > 0 && v2_dist2(e->pos, p->pos) < 220.0f * 220.0f) dmg *= 1.0f + 0.5f * (float)n;
+    if ((n = has(UPG_BULLY)) > 0 && e->hp < e->max_hp * 0.5f) dmg *= 1.0f + 0.4f * (float)n;
+    if ((n = has(UPG_GIANT_SLAYER)) > 0 && e->max_hp >= 200.0f) dmg *= 1.0f + 0.6f * (float)n;
+    if (has(UPG_FROSTBITE) && e->slow_t > 0.0f) dmg *= 1.35f;
+    if (has(UPG_MOMENTUM)) dmg *= 1.0f + p->momentum;
     /* GUILLOTINE: a hit that leaves an enemy under 15% finishes it. */
     if (has(UPG_GUILLOTINE) && e->hp - dmg < e->max_hp * 0.15f) {
         fx_particle(e->pos, v2(0, 0), 0.3f, e->radius * 3.0f, col_hex(0xff4466, 1), 0.0f, PT_RING);
@@ -362,7 +433,7 @@ float upg_hit_damage(const PBullet *b, const Enemy *e) {
     return dmg;
 }
 
-static void area_damage(V2 pos, float radius, float dmg, const Enemy *skip, uint32_t color) {
+void explode_at(V2 pos, float radius, float dmg, const Enemy *skip, uint32_t color) {
     for (int i = 0; i < G.nen; i++) {
         Enemy *o = &G.en[i];
         if (o == skip || o->hp <= 0.0f) continue;
@@ -385,9 +456,57 @@ static void lightning(V2 a, V2 b) {
     }
 }
 
+void chain_lightning(Enemy *from, float dmg, int jumps, float range) {
+    enum { MAX_JUMPS = 8 };
+    Enemy *hit[MAX_JUMPS + 1] = {from};
+    int nhit = 1;
+    if (jumps > MAX_JUMPS) jumps = MAX_JUMPS;
+    for (int j = 0; j < jumps; j++) {
+        Enemy *best = NULL;
+        float best_d2 = range * range;
+        for (int i = 0; i < G.nen; i++) {
+            Enemy *o = &G.en[i];
+            bool seen = false;
+            for (int k = 0; k < nhit; k++) seen |= hit[k] == o;
+            float d2 = v2_dist2(o->pos, from->pos);
+            if (o->hp > 0.0f && !seen && d2 < best_d2) {
+                best_d2 = d2;
+                best = o;
+            }
+        }
+        if (!best) break;
+        enemy_damage(best, dmg, v2(0, 0));
+        lightning(from->pos, best->pos);
+        hit[nhit++] = best;
+        from = best;
+    }
+}
+
 void upg_after_hit(PBullet *b, Enemy *e, float dmg) {
-    const Player *p = &G.pl;
+    Player *p = &G.pl;
     int n;
+    if (has(UPG_MOMENTUM)) {
+        p->momentum = fminf(p->momentum + 0.01f, 0.4f);
+        p->momentum_t = 0.0f;
+    }
+    if (has(UPG_FROSTBITE) && chance(proc(FROSTBITE_CHANCE))) e->slow_t = fmaxf(e->slow_t, 1.5f);
+    if (has(UPG_PYROMANIAC) && chance(proc(IGNITE_CHANCE))) {
+        e->burn_dps = fmaxf(e->burn_t > 0.0f ? e->burn_dps : 0.0f, dmg * 1.2f);
+        e->burn_t = fmaxf(e->burn_t, 2.0f);
+    }
+    if (has(UPG_TOXIC_CLOUD) && chance(proc(IGNITE_CHANCE))) {
+        e->poison_dps = fmaxf(e->poison_t > 0.0f ? e->poison_dps : 0.0f, dmg * 0.5f);
+        e->poison_t = fmaxf(e->poison_t, 3.0f);
+    }
+    /* OVERKILL: what the killing blow had left over goes to the closest enemy. */
+    if (has(UPG_OVERKILL) && e->hp < 0.0f && !(b->flags & PB_FRAGMENT)) {
+        Enemy *o = enemy_nearest(e->pos, 400.0f);
+        if (o == e) o = NULL;
+        if (o && o->hp > 0.0f) {
+            enemy_damage(o, -e->hp, v2(0, 0));
+            lightning(e->pos, o->pos);
+        }
+    }
     if (has(UPG_FROST)) e->slow_t = 1.5f;
     if ((n = has(UPG_VENOM)) > 0) {
         float dps = dmg * 0.35f * (float)n;
@@ -408,32 +527,12 @@ void upg_after_hit(PBullet *b, Enemy *e, float dmg) {
         e->poison_t = 3.0f;
     }
     if (b->flags & PB_MINE) {
-        area_damage(b->pos, 110.0f, dmg * 0.8f, e, 0xffaa33);
+        explode_at(b->pos, 110.0f, dmg * 0.8f, e, 0xffaa33);
         sfx_play_at(SFX_EXPLODE_SMALL, b->pos);
     }
     if (b->flags & PB_FRAGMENT) return; /* no chain reactions from fragments */
 
-    if (has(UPG_X_STORM) && chance(proc(STORM_CHANCE))) {
-        /* Jumps to the nearest enemy not hit yet, three times. */
-        Enemy *from = e, *hit[3] = {e, NULL, NULL};
-        for (int j = 0; j < 3; j++) {
-            Enemy *best = NULL;
-            float best_d2 = 360.0f * 360.0f;
-            for (int i = 0; i < G.nen; i++) {
-                Enemy *o = &G.en[i];
-                float d2 = v2_dist2(o->pos, from->pos);
-                if (o->hp > 0.0f && o != hit[0] && o != hit[1] && o != hit[2] && d2 < best_d2) {
-                    best_d2 = d2;
-                    best = o;
-                }
-            }
-            if (!best) break;
-            enemy_damage(best, dmg * 0.6f, v2(0, 0));
-            lightning(from->pos, best->pos);
-            if (j < 2) hit[j + 1] = best;
-            from = best;
-        }
-    }
+    if (has(UPG_X_STORM) && chance(proc(STORM_CHANCE))) chain_lightning(e, dmg * 0.6f, 3, 360.0f);
     if ((n = has(UPG_ARC)) > 0 && chance(arc_chance(n))) {
         Enemy *best = NULL;
         float best_d2 = 280.0f * 280.0f;
@@ -451,7 +550,7 @@ void upg_after_hit(PBullet *b, Enemy *e, float dmg) {
         }
     }
     if ((n = has(UPG_PAYLOAD)) > 0 && chance(payload_chance(n)))
-        area_damage(b->pos, 80.0f, dmg * 0.5f, e, 0xffa64d);
+        explode_at(b->pos, 80.0f, dmg * 0.5f, e, 0xffa64d);
     if ((n = has(UPG_SHRAPNEL)) > 0 && chance(shrapnel_chance(n))) {
         float base = v2_heading(b->vel);
         for (int k = 0; k < 3; k++) {
@@ -479,12 +578,43 @@ void upg_on_kill(const Enemy *e) {
             fx_popup(v2_add(p->pos, v2(0, -36)), col_hex(0xff3a6e, 1), "+HP");
         }
     }
-    if ((n = has(UPG_VOLATILE)) > 0) area_damage(e->pos, 90.0f + e->radius, 18.0f * (float)n * aura_scale(), e, 0xff5a1f);
-    if (has(UPG_X_DEMON)) area_damage(e->pos, 120.0f + e->radius, 30.0f * aura_scale(), e, 0xb0103a);
+    if ((n = has(UPG_VOLATILE)) > 0) explode_at(e->pos, 90.0f + e->radius, 18.0f * (float)n * aura_scale(), e, 0xff5a1f);
+    if (has(UPG_X_DEMON)) explode_at(e->pos, 120.0f + e->radius, 30.0f * aura_scale(), e, 0xb0103a);
+    if ((n = has(UPG_CHAIN_REACTION)) > 0) {
+        float off = frand(0.0f, TAU_F);
+        for (int k = 0; k < 6; k++) {
+            PBullet *b = pbullet_spawn(e->pos, v2_scale(v2_angle(off + TAU_F * (float)k / 6.0f), 1000.0f), 4.0f,
+                                       7.0f * (float)n * aura_scale(), col_hex(0xff7ad9, 1));
+            if (!b) break;
+            b->life = 0.45f * p->range_mult;
+            b->last_hit = e->uid;
+            b->knockback = 20.0f;
+            b->flags = PB_FRAGMENT;
+        }
+    }
+    if (has(UPG_PYROMANIAC) && e->burn_t > 0.0f) explode_at(e->pos, 100.0f + e->radius, 25.0f * aura_scale(), e, 0xff6a2a);
+    if (has(UPG_TOXIC_CLOUD) && e->poison_t > 0.0f) {
+        for (int i = 0; i < G.nen; i++) {
+            Enemy *o = &G.en[i];
+            if (o == e || o->hp <= 0.0f || v2_dist2(o->pos, e->pos) > 160.0f * 160.0f) continue;
+            o->poison_dps = fmaxf(o->poison_t > 0.0f ? o->poison_dps : 0.0f, e->poison_dps);
+            o->poison_t = fmaxf(o->poison_t, 3.0f);
+        }
+        fx_particle(e->pos, v2(0, 0), 0.5f, 320.0f, col_hex(0x9aff3a, 0.35f), 0.0f, PT_GLOW);
+    }
+    if ((n = has(UPG_BLACK_HOLE)) > 0 && chance(black_hole_chance(n))) {
+        PBullet *b = pbullet_spawn(e->pos, v2(0, 0), 20.0f, 60.0f * aura_scale(), col_hex(0x8a5aff, 1));
+        if (b) {
+            b->life = 1.6f;
+            b->flags = PB_VORTEX;
+            b->pierce = 999;
+            sfx_play_at(SFX_TIME_STOP, e->pos);
+        }
+    }
 }
 
 void upg_reflect(PBullet *b) {
-    if (!has(UPG_DEFLECTOR) || (b->flags & (PB_REFLECTED | PB_MINE | PB_FRAGMENT))) return;
+    if (!has(UPG_DEFLECTOR) || (b->flags & (PB_REFLECTED | PB_MINE | PB_FRAGMENT | PB_VORTEX))) return;
     int turned = 0;
     for (int i = 0; i < G.neb; i++) {
         EBullet *e = &G.eb[i];
@@ -591,6 +721,65 @@ void upg_update(void) {
                              p->dash_t > 0.0f ? v2_scale(p->dash_dir, 60.0f) : v2_scale(v2_norm(v2_sub(e->pos, p->pos)), 60.0f));
         }
     }
+    /* MOMENTUM fades after a second without hitting anything. */
+    p->momentum_t += DT;
+    if (p->momentum_t > 1.0f) p->momentum = fmaxf(0.0f, p->momentum - 0.4f * DT);
+    /* ECHO: the last volley again, weaker, a beat later. */
+    if (p->echo_t > 0.0f) {
+        p->echo_t -= DT;
+        if (p->echo_t <= 0.0f && has(UPG_ECHO) && p->weapon != WPN_SWORD) {
+            const WeaponDef *w = &WEAPONS[p->weapon];
+            int count = w->count + w->count_per_level * (p->wlevel[p->weapon] - 1);
+            count = count < 1 ? 1 : count > 4 ? 4 : count;
+            for (int k = 0; k < count; k++)
+                extra_shot(p->pos, p->echo_aim + ((float)k - (float)(count - 1) * 0.5f) * 0.08f, w->speed > 0.0f ? w->speed : 1200.0f,
+                           4.0f, p->echo_dmg, fmaxf(w->life, 0.4f), col_hex(0xb0a0ff, 1));
+        }
+    }
+    bool fighting = G.nen > 0 && !G.room.cleared;
+    /* MISSILE POD: a homing missile at the nearest enemy. */
+    if ((n = has(UPG_MISSILE_POD)) > 0 && fighting) {
+        p->missile_cd -= DT;
+        Enemy *t = enemy_nearest(p->pos, 1400.0f);
+        if (p->missile_cd <= 0.0f && t) {
+            p->missile_cd = 1.5f / (float)n;
+            V2 dir = v2_norm(v2_sub(t->pos, p->pos));
+            PBullet *b = pbullet_spawn(p->pos, v2_scale(v2_rotate(dir, frand(-0.6f, 0.6f)), 650.0f), 6.0f, 22.0f * aura_scale(),
+                                       col_hex(0xffb04d, 1));
+            if (b) {
+                b->life = 2.5f;
+                b->homing = 6.0f;
+                b->knockback = 60.0f;
+                b->flags = PB_EXPLOSIVE;
+                sfx_play_ex(SFX_SHOT_ROCKET, 0.6f, 1.3f, 0.0f);
+            }
+        }
+    }
+    /* ORBITAL STRIKE: a beam from above on a random enemy. */
+    if ((n = has(UPG_ORBITAL)) > 0 && fighting) {
+        p->orbital_cd -= DT;
+        if (p->orbital_cd <= 0.0f) {
+            p->orbital_cd = 3.0f / (float)n;
+            int alive[MAX_ENEMIES], na = 0;
+            for (int i = 0; i < G.nen; i++)
+                if (G.en[i].hp > 0.0f) alive[na++] = i;
+            if (na > 0) {
+                V2 at = G.en[alive[irand(0, na - 1)]].pos;
+                for (int k = 0; k < 10; k++)
+                    fx_particle(v2(at.x + frand(-6, 6), at.y - (float)k * 60.0f), v2(0, 0), 0.25f, 18.0f, col_hex(0x9fe8ff, 0.7f), 0.0f, PT_GLOW);
+                explode_at(at, 95.0f, 70.0f * aura_scale(), NULL, 0x9fe8ff);
+                sfx_play_at(SFX_EXPLODE_SMALL, at);
+            }
+        }
+    }
+    /* SPIKED HULL: contact hurts them, a lot. */
+    if ((n = has(UPG_SPIKED_HULL)) > 0) {
+        for (int i = 0; i < G.nen; i++) {
+            Enemy *e = &G.en[i];
+            float r = e->radius + PLAYER_BODY_R + 8.0f;
+            if (e->hp > 0.0f && v2_dist2(e->pos, p->pos) < r * r) enemy_damage(e, 180.0f * (float)n * aura_scale() * DT, v2(0, 0));
+        }
+    }
     /* MINE LAYER: a mine behind the ship every so often while moving and fighting. */
     if ((n = has(UPG_MINES)) > 0 && G.nen > 0 && v2_len2(p->vel) > 100.0f * 100.0f) {
         p->mine_cd -= DT;
@@ -606,14 +795,34 @@ void upg_update(void) {
     }
 }
 
+bool upg_block_hit(void) {
+    Player *p = &G.pl;
+    if (!has(UPG_EMERGENCY) || p->emergency_used) return false;
+    p->emergency_used = true;
+    p->invuln = 1.0f;
+    sfx_play(SFX_SHIELD);
+    fx_particle(p->pos, v2(0, 0), 0.4f, 160.0f, col_hex(0x66d9ff, 1), 0.0f, PT_RING);
+    fx_popup(v2_add(p->pos, v2(0, -40)), col_hex(0x66d9ff, 1), "BLOCKED");
+    return true;
+}
+
+void upg_on_bounce(PBullet *b) {
+    if (!has(UPG_SMART_BOUNCE)) return;
+    Enemy *t = enemy_nearest(b->pos, 1200.0f);
+    if (t) b->vel = v2_scale(v2_norm(v2_sub(t->pos, b->pos)), v2_len(b->vel));
+}
+
 void upg_on_room_enter(void) {
     Player *p = &G.pl;
     p->room_kills = 0;
+    p->emergency_used = false;
+    p->momentum = 0.0f;
     int n = has(UPG_BARRIER);
     if (n && !G.room.cleared && p->shield < 2 * n) player_add_shield(2 * n - p->shield);
 }
 
 void upg_on_room_clear(void) {
+    if (has(UPG_GROWTH)) G.pl.growth++;
     if (has(UPG_PIGGY_BANK)) {
         G.pl.coins += 3;
         fx_popup(v2_add(G.pl.pos, v2(0, -36)), col_hex(0xffd23f, 1), "+3 COINS");
@@ -639,5 +848,12 @@ void upg_draw(void) {
         }
     }
     if (p->shield > 0) draw_ring(p->pos, 24.0f + 1.5f * sinf(G.time * 5.0f), 2.0f, col_hex(0x66d9ff, 0.55f));
+    if (has(UPG_EMERGENCY) && !p->emergency_used) /* the spare block, ready */
+        draw_ngon_outline(p->pos, 28.0f, 6, G.time, 1.5f, col_hex(0x66d9ff, 0.35f));
+    if (has(UPG_SPIKED_HULL))
+        for (int k = 0; k < 8; k++) {
+            V2 d = v2_angle(G.time * 2.0f + TAU_F * (float)k / 8.0f);
+            draw_line(v2_add(p->pos, v2_scale(d, 19.0f)), v2_add(p->pos, v2_scale(d, 27.0f)), 2.0f, col_hex(0xd0d0e0, 0.6f));
+        }
     draw_blend_alpha();
 }

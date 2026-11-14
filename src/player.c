@@ -51,6 +51,7 @@ void player_hurt(int dmg) {
     Player *p = &G.pl;
     if (G.state != GS_PLAYING || G.transitioning) return;
     if (p->invuln > 0.0f || p->dash_t > 0.0f || active_shield_on()) return;
+    if (upg_block_hit()) return; /* EMERGENCY SHIELD */
     if (G.god) dmg = 0;
     /* Shields (temporary hearts) soak damage before the hull. */
     bool shielded = p->shield > 0;

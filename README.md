@@ -20,7 +20,7 @@ Preset `debug` disponible aussi (`build/debug`).
 | Viser & tirer | Souris (clic gauche maintenu) |
 | Objet activable (dash, bouclier...) | Espace / Shift / clic droit |
 | Bombe (efface toutes les balles) | E |
-| Changer d'arme | Molette / 1-6 |
+| Changer d'arme | Molette / 1-9 (N-ième arme possédée) |
 | Pause | Échap (R = restart, Q = quitter) |
 | Couper le son | M |
 | Changer de vaisseau (pause / game over) | C |
@@ -38,7 +38,7 @@ Après l'écran titre, on choisit son vaisseau (A / D, 1-3 ou souris, puis clic 
 | **Shotgunner** | rond | 3 | dégâts x2, hitbox plus grosse (7 px au lieu de 4) | Scatter |
 | **Knight** | carré | 3 + 3 armures | lent (vitesse x0.8) ; l'armure = 3 cœurs temporaires (boucliers) | Épée |
 
-**L'épée** (Knight uniquement, jamais proposée aux autres) : chaque coup balaie un arc de cercle devant le vaisseau, alternativement dans un sens puis dans l'autre. Tout ce que la lame traverse est touché : les ennemis (une fois par coup, gros recul) et les **balles ennemies, détruites**. Les niveaux allongent la lame, élargissent l'arc et accélèrent les coups. Les améliorations s'appliquent : dégâts, cadence (comptée en racine carrée, minimum 0,16 s entre deux coups), portée et taille des balles (longueur de la lame, plafonnée à 170 px), projectiles en plus (arc plus large), effets à l'impact (gel, poison, feu, éclair, explosion, fragments, guillotine), tirs supplémentaires (Tail Gun, Flank, Capacitor). Le Knight peut aussi ramasser des armes à feu et changer d'arme (touche 6 pour l'épée).
+**L'épée** (Knight uniquement, jamais proposée aux autres) : chaque coup balaie un arc de cercle devant le vaisseau, alternativement dans un sens puis dans l'autre. Tout ce que la lame traverse est touché : les ennemis (une fois par coup, gros recul) et les **balles ennemies, détruites**. Les niveaux allongent la lame, élargissent l'arc et accélèrent les coups. Les améliorations s'appliquent : dégâts, cadence (comptée en racine carrée, minimum 0,16 s entre deux coups), portée et taille des balles (longueur de la lame, plafonnée à 170 px), projectiles en plus (arc plus large), effets à l'impact (gel, poison, feu, éclair, explosion, fragments, guillotine), tirs supplémentaires (Tail Gun, Flank, Capacitor). Le Knight peut aussi ramasser des armes à feu et changer d'arme (molette ou touches 1-9).
 
 ## Boucle de jeu
 
@@ -51,7 +51,14 @@ Après l'écran titre, on choisit son vaisseau (A / D, 1-3 ou souris, puis clic 
   - **Boom** : toutes tes balles en vol explosent d'un coup, et continuent leur route ; rayon +15 % et dégâts +25 % par niveau (recharge 6 s ; avec l'épée ou sans balles, c'est le vaisseau qui explose).
   - **Strength** : tirs quadruplés pendant 4 s (+1 s par niveau) (chaque salve tirée 4 fois en éventail ; dégâts x4 pour l'épée) (recharge 18 s).
   - **Chaos** : 20 améliorations aléatoires que l'on n'a pas encore (+2 par niveau), pendant 8 s (+1,5 s par niveau), retirées ensuite (seulement des améliorations à effet, pas d'économie ni de stats, pour un retrait exact) (recharge 40 s).
+  - **Reversal** : toutes les balles ennemies à l'écran sont retournées en tirs du joueur, visant l'ennemi le plus proche ; dégâts +25 % par niveau (recharge 20 s).
+  - **Turret** : pose une tourelle qui mitraille l'ennemi le plus proche pendant 8 s (+1,5 s par niveau, cadence +10 % par niveau) (recharge 18 s).
+  - **Blink** : téléportation dans la direction visée (520 px, +60 par niveau, bornée à l'arène), avec une explosion au départ et à l'arrivée, 0,4 s d'invulnérabilité (recharge 3,5 s).
+  - **Nova** : anneau de 24 tirs autour du vaisseau (+4 par niveau) (recharge 5 s).
+  - **Time Stop** : fige les ennemis et leurs balles pendant 2,5 s (+0,5 s par niveau) ; les balles figées blessent toujours si on les touche (recharge 22 s).
+  - **Blade Storm** : 3 lames (+1 tous les 2 niveaux) tournent autour du vaisseau pendant 5 s (+1 s par niveau), tranchent les ennemis et détruisent les balles (recharge 14 s).
   - Ram Plating marche pendant le dash ou le bouclier ; Nova Trigger et Ram Plating ne sont proposés qu'avec un objet qui les déclenche.
+  - En combat, le HUD affiche le nom de l'objet, son niveau (pastilles) et sa barre de recharge.
 - **Fin de salle** : dès que le dernier ennemi meurt, le vaisseau est replacé en bas de l'arène, devant la porte d'entrée, pour ne pas ramasser un objet par accident.
 - **Stats du vaisseau** (F2, cachées par défaut) : panneau semi-transparent en haut à gauche de l'arène, avec dégâts, cadence, portée, vitesse des tirs, dispersion (spread), vitesse, recharge, hitbox, chance, projectiles, perçage, rebonds, drones. Valeurs effectives (bonus situationnels de Bloodlust / Adrenaline inclus), en vert au-dessus de la base et en rouge en dessous ; une stat qui vient de changer clignote.
 - Ressources : pièces, clefs, bombes (+ cœurs). **Les ennemis ne lâchent jamais rien** : les ressources sont uniquement des récompenses de salle, aspirées automatiquement une fois la salle nettoyée.
@@ -62,16 +69,26 @@ Après l'écran titre, on choisit son vaisseau (A / D, 1-3 ou souris, puis clic 
   - **Supply Press** (en bas à gauche) : 1/2 cœur de dégâts (bouclier d'abord) contre des pièces (45 %, 5-8), une bombe (30 %) ou une clef (25 %). 3 à 5 utilisations, refusée s'il ne reste qu'un demi-cœur.
   - **Augments** (au centre) : bonus **exclusifs** au workshop, très puissants (stats + effet), payés en **PV max** : 1 cœur (Blood Rounds, Overdrive Core), 2 cœurs (Hellfire Engine, Storm Core) ou 3 cœurs (Demon Heart, God Cannon). Un emplacement par palier abordable (il faut garder au moins 1 cœur max), on en prend un seul.
   - **Slot Machine** (en bas à droite) : affiche le nom et l'effet du lot (arme ou amélioration) ; chaque mise coûte 5 pièces, `30 % + 3 % x chance` de gagner (entre 15 et 50 %). Le lot gagné tombe devant la machine.
-- 5 armes à feu (Blaster, Scatter, Needler, Seeker, Bouncer) + l'épée du Knight, avec 5 niveaux chacune. Le Scatter (shotgun) tire 12 plombs au niveau 1 (+4 par niveau).
-- **59 améliorations passives** (+ 6 exclusives du workshop) qui s'appliquent à toutes les armes (table `UPGRADES` et effets dans `src/upgrades.c`) :
-  - *Tir* : Overclock, Heavy Rounds, Split Shot, Piercer, Rubber Core, Smart Rounds, Accelerator, Big Iron, Wide Lens, Focus Lens, Long Barrel, Hair Trigger.
-  - *Effets sur les balles* : Cryo Rounds (ralentit), Venom Tips (poison), Thermite (brûlure), Arc Emitter (éclair en chaîne), Payload (explosion), Shrapnel (fragments), Lucky Strike (coups x3), Guillotine (exécute sous 15 % PV), Return Vector (boomerang), Phase Rounds (traverse les obstacles), Impact Driver (recul).
-  - *Tirs supplémentaires* : Tail Gun (arrière), Flank Cannons (côtés), Capacitor (méga tir toutes les 10 salves), Wing Drone, Nova Trigger (anneau de tirs à chaque utilisation de l'objet activable), Mine Layer.
+- 13 armes à feu + l'épée du Knight, avec 5 niveaux chacune. Le HUD (en haut à droite) n'affiche que les armes possédées ; les touches 1-9 choisissent la 1re, 2e... arme possédée.
+  - Blaster, Scatter (shotgun : 12 plombs au niveau 1, +4 par niveau), Needler, Seeker, Bouncer.
+  - **Railgun** : tir lent, très rapide et perçant, gros dégâts.
+  - **Flamer** : jet de flammes à courte portée qui ralentissent et grossissent, et enflamment (brûlure).
+  - **Rockets** : roquettes qui accélèrent et explosent à l'impact (rayon selon la taille des tirs).
+  - **Chakram** : disque perçant qui revient vers le vaisseau.
+  - **Cluster** : obus qui éclatent en 6 fragments à leur mort.
+  - **Arc Caster** : chaque touche lance un éclair en chaîne (plus de rebonds avec les niveaux).
+  - **Vulcan** : minigun qui monte en cadence (jusqu'à x4 en 1 s de tir continu) et ralentit quand on arrête.
+  - **Wave Gun** : deux tirs en sinusoïdes miroir.
+- **84 améliorations passives** (+ 6 exclusives du workshop) qui s'appliquent à toutes les armes (table `UPGRADES` et effets dans `src/upgrades.c`) :
+  - *Tir* : Overclock, Heavy Rounds, Split Shot, Piercer, Rubber Core, Smart Rounds, Accelerator, Big Iron, Wide Lens, Focus Lens, Long Barrel, Hair Trigger, Magnum Rounds (+2 perçage, +15 % dégâts, -15 % cadence), Spray and Pray (+45 % cadence, +60 % dispersion), Heavy Caliber (+40 % dégâts, gros tirs, -20 % vitesse des tirs), Smart Bounce (+1 rebond, chaque rebond vise l'ennemi le plus proche).
+  - *Dégâts conditionnels* : Sniper Scope (jusqu'à +60 % selon la distance parcourue), Point Blank (+50 % de près), Bully (+40 % sous la moitié des PV), Giant Slayer (+60 % contre les gros ennemis), Momentum (+1 % par touche, max +40 %, perdu après 1 s sans toucher), Growth (+3 % par salle nettoyée, max +60 %), Turret Mode (+40 % cadence immobile), Run and Gun (+20 % dégâts en mouvement), Rampage (+3 % cadence par kill dans la salle, max +45 %), Overkill (les dégâts en trop passent à l'ennemi le plus proche).
+  - *Effets sur les balles* : Cryo Rounds (ralentit), Venom Tips (poison), Thermite (brûlure), Arc Emitter (éclair en chaîne), Payload (explosion), Shrapnel (fragments), Lucky Strike (coups x3), Guillotine (exécute sous 15 % PV), Return Vector (boomerang), Phase Rounds (traverse les obstacles), Impact Driver (recul), Frostbite (gèle parfois, +35 % dégâts sur les ennemis gelés), Pyromaniac (enflamme parfois, les ennemis en feu explosent en mourant), Toxic Cloud (empoisonne parfois, le poison se propage à la mort), Chain Reaction (6 tirs à chaque kill), Black Hole (un kill ouvre parfois un vortex qui aspire les ennemis).
+  - *Tirs supplémentaires* : Tail Gun (arrière), Flank Cannons (côtés), Capacitor (méga tir toutes les 10 salves), Wing Drone, Nova Trigger (anneau de tirs à chaque utilisation de l'objet activable), Mine Layer, Missile Pod (missile à tête chercheuse toutes les 1,5 s), Orbital Strike (frappe orbitale sur un ennemi toutes les 3 s), Echo (chaque salve répétée 0,12 s plus tard à 50 %).
   - *Stats* : Thrusters, Hull Plating, Glass Cannon, Titan Hull, Featherweight, Four-Leaf Chip, Micro Hull, Magnet.
   - *Économie* : Piggy Bank, Bomb Belt, Skeleton Key, Coupon (shop -30 %).
-  - *Défense / déclencheurs* : Reactive Armor, Second Wind (survit à un coup mortel), Barrier Cell (bouclier rechargé à chaque salle), Guardian Orb, Tesla Field, Leech Core, Adrenaline, Bloodlust, Ram Plating, Chrono Field, Volatile Targets.
+  - *Défense / déclencheurs* : Reactive Armor, Second Wind (survit à un coup mortel), Barrier Cell (bouclier rechargé à chaque salle), Guardian Orb, Tesla Field, Leech Core, Adrenaline, Bloodlust, Ram Plating, Chrono Field, Volatile Targets, Emergency Shield (le premier coup de chaque salle est bloqué), Spiked Hull (gros dégâts aux ennemis qui touchent la coque).
   - *Blessé* (actives quand il manque au moins un demi-cœur rouge) : Wounded Fury (+30 % dégâts), Scar Tissue (+25 % cadence), Last Stand (+10 % dégâts et +5 % vitesse par cœur manquant), Blood Scent (tirs à tête chercheuse).
-  - *Spéciales* : Deflector Shells (tirs énormes et très lents, cadence / 3, mais ils renvoient les balles ennemies touchées comme des tirs du joueur), Loaded Dice (double la probabilité de déclenchement de tous les effets), Signature Weapon (les salles d'arme proposent toujours l'arme de plus haut niveau).
+  - *Spéciales* : Deflector Shells (tirs énormes et très lents, cadence / 3, mais ils renvoient les balles ennemies touchées comme des tirs du joueur), Loaded Dice (double la probabilité de déclenchement de tous les effets), Signature Weapon (les salles d'arme proposent toujours l'arme de plus haut niveau), X-Ray Visor (les coins secrets sont toujours visibles).
   - Les descriptions des effets aléatoires affichent la **probabilité exacte** (en tenant compte du nombre d'exemplaires et de Loaded Dice), calculée par `upgrade_desc()`. Un `|` dans une description la coupe sur deux lignes.
 - **Les ennemis gardent toujours les mêmes attributs** (PV, vitesse, cadence, patterns) quelle que soit la profondeur. La difficulté vient du nombre : budget de vague `5 + 1.8 x profondeur^1.2 + 1.5 x vague` (plafond `30 + 2.5 x profondeur` ennemis par vague), `2 + min(profondeur / 3, 5)` vagues par salle, et de nouveaux ennemis plus durs débloqués au fil des salles : burster (salle 3), spinner (4), sniper (5), tank (7), **warden** (9 : croix tournante de 4 flux + éventail visé), **hunter** (11 : traque, s'annonce par une ligne, fonce puis tire un anneau), **hive** (13 : pond des essaims et tire des anneaux).
 
@@ -84,9 +101,9 @@ Après l'écran titre, on choisit son vaisseau (A / D, 1-3 ou souris, puis clic 
 | `draw.c/h` | Renderer de formes batché (`SDL_RenderGeometry`) + texte |
 | `room.c` | Génération des salles, obstacles, vagues, portes, collisions |
 | `player.c` | Vaisseau, déplacement, bombe, dégâts |
-| `weapons.c` | Définitions des armes, tir, drones |
-| `upgrades.c` | Table des 65 améliorations (dont 6 exclusives du workshop) et leurs effets (hooks appelés par les balles, ennemis, joueur, salles) |
-| `actives.c` | Objets activables (dash, shield, boom, strength, chaos), icônes, choix des salles Active |
+| `weapons.c` | Définitions des armes, tir, effets propres aux armes (`weapon_on_hit`, `weapon_bullet_death`), drones |
+| `upgrades.c` | Table des 90 améliorations (dont 6 exclusives du workshop) et leurs effets (hooks appelés par les balles, ennemis, joueur, salles) |
+| `actives.c` | Objets activables (11), niveaux, tourelle et lames, icônes, choix des salles Active |
 | `workshop.c` | Machines du workshop (Supply Press, Slot Machine) et emplacements des augments |
 | `enemies.c` | 10 types d'ennemis et leurs patterns de balles |
 | `bullets.c` | Balles joueur / ennemies, collisions |
@@ -105,7 +122,7 @@ Les types de salles `ROOM_TREASURE` et `ROOM_BOSS` sont déjà prévus (sur le m
 ## Tests (sans fenêtre)
 
 ```sh
-ctest --preset release      # ~15 s
+ctest --preset release      # ~25 s
 ctest --preset asan         # même suite sous AddressSanitizer + UBSan (cmake --preset asan && cmake --build --preset asan)
 ```
 
@@ -135,7 +152,10 @@ neon_breach --shop --coins 50                           # démarrer dans un shop
 neon_breach --debug-menu                                # ouvrir le menu de debug au démarrage
 neon_breach --workshop --coins 30                       # démarrer dans un workshop
 neon_breach --shot w.bmp --workshop --cleared --no-bot  # capture du workshop déjà nettoyé, sans autopilote
-neon_breach --active shield                             # démarrer avec un objet activable (dash / shield / boom / strength / chaos)
+neon_breach --active shield                             # démarrer avec un objet activable (dash / shield / boom / strength / chaos /
+                                                        #   reversal / turret / blink / nova / timestop / blades)
+neon_breach --weapon rockets                            # démarrer avec une arme (railgun / flamer / rockets / chakram / cluster /
+                                                        #   arc / vulcan / wave ...) ; en headless le bot la garde
 neon_breach --active-room --cleared --no-bot            # salle Active nettoyée (3 objets au choix)
 neon_breach --secret                                    # chaque salle cache une salle secrète
 neon_breach --show-secret                               # affiche le coin secret (comme dans le menu F3)

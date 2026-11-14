@@ -9,28 +9,33 @@ static void resource(PickupType t, float x, float y, int value) {
     draw_text(x + 22.0f, y - 8.0f, 2.0f, COL_WHITE, "%d", value);
 }
 
+/* Owned weapons only, right-aligned; slots shrink when many are owned (14 exist). */
 static void draw_weapon_slots(void) {
     const Player *p = &G.pl;
-    const float w = 112.0f, gap = 8.0f;
     int nslots = 0;
-    for (int i = 0; i < WPN_COUNT; i++) nslots += weapon_available(i);
-    float x0 = SCREEN_W - 40.0f - (float)nslots * (w + gap) + gap;
+    for (int i = 0; i < WPN_COUNT; i++) nslots += p->wlevel[i] > 0;
+    const float gap = 6.0f, right = SCREEN_W - 40.0f, room = 640.0f;
+    float w = fminf(112.0f, (room + gap) / (float)nslots - gap);
+    float x0 = right - (float)nslots * (w + gap) + gap;
     for (int i = 0, slot = 0; i < WPN_COUNT; i++) {
-        if (!weapon_available(i)) continue; /* the sword slot only exists for the Knight */
-        float x = x0 + (float)slot++ * (w + gap), y = 14.0f;
-        bool owned = p->wlevel[i] > 0, cur = p->weapon == i;
+        if (p->wlevel[i] <= 0) continue;
+        float x = x0 + (float)slot * (w + gap), y = 14.0f;
+        slot++;
+        bool cur = p->weapon == i;
         SDL_FColor c = col_hex(WEAPONS[i].color, 1);
         draw_rect(x, y, w, 60.0f, cur ? col_a(col_mul(c, 0.25f), 1.0f) : col_hex(0x0b0e18, 1));
-        draw_rect_outline(x, y, w, 60.0f, cur ? 3.0f : 1.5f, owned ? col_a(c, cur ? 1.0f : 0.45f) : col_hex(0x2a3040, 1));
-        draw_text(x + 6.0f, y + 6.0f, 1.0f, col_a(COL_WHITE, 0.5f), "%d", i + 1);
-        if (!owned) {
-            draw_text_centered(x + w * 0.5f, y + 24.0f, 1.5f, col_hex(0x2a3040, 1), "---");
-            continue;
-        }
-        draw_text_centered(x + w * 0.5f, y + 18.0f, 1.5f, cur ? COL_WHITE : col_a(c, 0.8f), "%s", WEAPONS[i].name);
+        draw_rect_outline(x, y, w, 60.0f, cur ? 3.0f : 1.5f, col_a(c, cur ? 1.0f : 0.45f));
+        if (slot <= 9) draw_text(x + 5.0f, y + 5.0f, 1.0f, col_a(COL_WHITE, 0.5f), "%d", slot);
+        /* Full name when it fits, else the first letters. */
+        float ts = 1.5f;
+        char name[16];
+        int fit = (int)((w - 8.0f) / (8.0f * ts));
+        SDL_snprintf(name, sizeof name, "%.*s", fit > 0 ? fit : 1, WEAPONS[i].name);
+        draw_text_centered(x + w * 0.5f, y + 20.0f, ts, cur ? COL_WHITE : col_a(c, 0.8f), "%s", name);
+        float pip = fminf(14.0f, (w - 12.0f) / (float)MAX_WEAPON_LEVEL - 3.0f);
         for (int l = 0; l < MAX_WEAPON_LEVEL; l++) {
-            float px = x + w * 0.5f - (float)MAX_WEAPON_LEVEL * 9.0f + (float)l * 18.0f + 2.0f;
-            draw_rect(px, y + 42.0f, 14.0f, 6.0f, l < p->wlevel[i] ? c : col_hex(0x2a3040, 1));
+            float px = x + w * 0.5f - (float)MAX_WEAPON_LEVEL * (pip + 3.0f) * 0.5f + (float)l * (pip + 3.0f);
+            draw_rect(px, y + 42.0f, pip, 6.0f, l < p->wlevel[i] ? c : col_hex(0x2a3040, 1));
         }
     }
 }
@@ -50,10 +55,12 @@ static void draw_active_slot(void) {
         return;
     }
     draw_active_icon(p->active, v2(x + 30.0f, y + h * 0.5f), 14.0f, G.time);
-    draw_text(x + 58.0f, y + 8.0f, 2.0f, c, "%s", ACTIVES[p->active].name);
+    const char *name = ACTIVES[p->active].name;
+    float ns = draw_text_width(name, 2.0f) <= w - 70.0f ? 2.0f : 1.5f; /* BLADE STORM is long */
+    draw_text(x + 58.0f, y + (ns == 2.0f ? 8.0f : 11.0f), ns, c, "%s", name);
+    float bx = x + 58.0f, bw = w - 70.0f - 62.0f, by = y + 34.0f;
     for (int l = 0; l < MAX_ACTIVE_LEVEL; l++) /* level pips, like the weapon slots */
-        draw_rect(x + w - 12.0f - (float)(MAX_ACTIVE_LEVEL - l) * 13.0f, y + 12.0f, 10.0f, 6.0f, l < p->act_level ? c : col_hex(0x2a3040, 1));
-    float bx = x + 58.0f, bw = w - 70.0f, by = y + 34.0f;
+        draw_rect(bx + bw + 8.0f + (float)l * 11.0f, by + 1.0f, 8.0f, 6.0f, l < p->act_level ? c : col_hex(0x2a3040, 1));
     draw_rect(bx, by, bw, 8.0f, col_hex(0x1a2035, 1));
     float dur = active_duration(p->active, p->act_level);
     if (p->act_t > 0.0f && dur > 0.0f) {
@@ -293,7 +300,7 @@ void overlay_draw(void) {
             "MOUSE                  aim & shoot (hold)",
             "SPACE / SHIFT / RMB    active item (dash, shield...)",
             "E                      bomb - clears every bullet",
-            "WHEEL / 1-6            switch weapon",
+            "WHEEL / 1-9            switch weapon",
             "ESC  pause   M  mute   F2  stats   F11  fullscreen",
         };
         for (int i = 0; i < ARRAY_LEN(lines); i++)

@@ -82,6 +82,11 @@ static const SfxInfo INFO[SFX_COUNT] = {
     [SFX_SHIELD] = {0.60f, 0.20f, 1, 0.00f},
     [SFX_POWER_UP] = {0.60f, 0.20f, 1, 0.00f},
     [SFX_CHAOS] = {0.60f, 0.20f, 1, 0.00f},
+    [SFX_SHOT_RAIL] = {0.65f, 0.10f, 2, 0.04f},
+    [SFX_SHOT_FLAMER] = {0.35f, 0.06f, 2, 0.12f},
+    [SFX_SHOT_ROCKET] = {0.55f, 0.08f, 3, 0.08f},
+    [SFX_TELEPORT] = {0.60f, 0.10f, 1, 0.00f},
+    [SFX_TIME_STOP] = {0.70f, 0.30f, 1, 0.00f},
 };
 
 static Sample samples[SFX_COUNT];
@@ -263,6 +268,26 @@ static void generate_all(void) {
         {.wave = W_TRI, .f0 = D6, .dur = 0.07f, .delay = 0.15f, .vol = 0.3f},
         {.wave = W_TRI, .f0 = C6, .dur = 0.07f, .delay = 0.20f, .vol = 0.3f},
         {.wave = W_SINE, .f0 = G6, .dur = 0.5f, .delay = 0.25f, .decay = 2, .vib_hz = 9, .vib_depth = 0.04f, .vol = 0.3f});
+    /* Railgun: charged crack with a long ringing tail. Flamer: a breathy roar. Rocket: a hissing launch. */
+    SFX(SFX_SHOT_RAIL,
+        {.wave = W_SQUARE, .f0 = 2400, .f1 = 200, .dur = 0.12f, .decay = 2, .duty = 0.4f, .lp0 = 9000, .lp1 = 1500, .vol = 0.45f},
+        {.wave = W_NOISE, .f0 = WHITE, .dur = 0.05f, .lp0 = 10000, .vol = 0.4f},
+        {.wave = W_SINE, .f0 = 3200, .f1 = 2800, .dur = 0.4f, .delay = 0.02f, .decay = 3, .vol = 0.15f});
+    SFX(SFX_SHOT_FLAMER,
+        {.wave = W_NOISE, .f0 = WHITE, .dur = 0.12f, .attack = 0.02f, .decay = 2, .lp0 = 900, .lp1 = 2500, .vol = 0.5f},
+        {.wave = W_NOISE, .f0 = 300, .dur = 0.1f, .decay = 2, .vol = 0.3f});
+    SFX(SFX_SHOT_ROCKET,
+        {.wave = W_NOISE, .f0 = WHITE, .dur = 0.3f, .attack = 0.02f, .decay = 2, .lp0 = 3000, .lp1 = 800, .vol = 0.45f},
+        {.wave = W_SAW, .f0 = 160, .f1 = 90, .dur = 0.2f, .decay = 2, .lp0 = 1200, .vol = 0.3f});
+    /* Teleport: a downward-then-up zap. Time stop: a deep tape-stop groan with a bell on top. */
+    SFX(SFX_TELEPORT,
+        {.wave = W_SINE, .f0 = 1800, .f1 = 200, .dur = 0.08f, .vol = 0.35f},
+        {.wave = W_SINE, .f0 = 300, .f1 = 2400, .dur = 0.12f, .delay = 0.08f, .decay = 2, .vol = 0.35f},
+        {.wave = W_NOISE, .f0 = WHITE, .dur = 0.15f, .decay = 3, .lp0 = 6000, .vol = 0.15f});
+    SFX(SFX_TIME_STOP,
+        {.wave = W_SAW, .f0 = 400, .f1 = 40, .dur = 0.6f, .decay = 1.5f, .lp0 = 2000, .lp1 = 200, .vol = 0.45f},
+        {.wave = W_TRI, .f0 = C6, .dur = 0.8f, .delay = 0.1f, .decay = 2, .vib_hz = 5, .vib_depth = 0.02f, .vol = 0.25f},
+        {.wave = W_SINE, .f0 = G6, .dur = 0.6f, .delay = 0.2f, .decay = 3, .vol = 0.15f});
     SFX(SFX_DASH,
         {.wave = W_NOISE, .f0 = WHITE, .dur = 0.16f, .attack = 0.03f, .decay = 2, .lp0 = 800, .lp1 = 6000, .vol = 0.6f},
         {.wave = W_SINE, .f0 = 300, .f1 = 700, .dur = 0.12f, .vol = 0.15f});
@@ -440,6 +465,7 @@ static const char *const SFX_NAMES[] = {
     "coin", "key", "bomb_pickup", "heart", "item",
     "room_clear", "door_open", "unlock", "secret", "door_enter", "ui_start", "pause",
     "sword", "deflect", "shield", "power_up", "chaos",
+    "shot_rail", "shot_flamer", "shot_rocket", "teleport", "time_stop",
 };
 _Static_assert(sizeof SFX_NAMES / sizeof SFX_NAMES[0] == SFX_COUNT, "one WAV name per SfxId, in enum order");
 

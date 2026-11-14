@@ -588,6 +588,135 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         failures += !none_ok + !dash_ok + !shield_ok + !boom_ok + !strength_ok + !chaos_ok;
     }
 
+    /* Scripted: the newer active items, special weapons and a few upgrades, one effect each. */
+    {
+#define TICK() do { game_update(); clear_edges(); } while (0)
+#define FRESH() do { game_init(o->seed); G.god = true; game_new_run(); debug_teleport(ROOM_COMBAT, RW_COINS, 3, false); \
+                     G.state = GS_PLAYING; G.npk = 0; G.room.nobs = 0; G.pl.pos = v2(ARENA_CX - 300.0f, ARENA_CY); \
+                     G.in.mouse = v2(ARENA_CX + 600.0f, ARENA_CY); } while (0)
+#define DUMMY(x, y) do { Enemy d = {.type = EN_TANK, .uid = ++G.next_uid, .pos = v2(x, y), .radius = 30.0f, \
+                                    .hp = 5000.0f, .max_hp = 5000.0f}; G.en[G.nen++] = d; } while (0)
+        Player *pl = &G.pl;
+        Input *in = &G.in;
+        const char *names[32];
+        bool oks[32];
+        int nres = 0;
+
+        FRESH(); /* REVERSAL: every enemy bullet becomes ours */
+        active_give(ACT_REVERSAL);
+        for (int k = 0; k < 12; k++) ebullet_spawn(v2(ARENA_CX + (float)k * 20.0f, ARENA_CY - 200.0f), PI_F * 0.5f, 50.0f, 6.0f, COL_WHITE);
+        in->active_pressed = true;
+        TICK();
+        int turned = 0;
+        for (int i = 0; i < G.npb; i++) turned += (G.pb[i].flags & PB_REFLECTED) != 0;
+        names[nres] = "reversal", oks[nres++] = G.neb == 0 && turned == 12;
+
+        FRESH(); /* TURRET: shoots on its own */
+        active_give(ACT_TURRET);
+        DUMMY(ARENA_CX + 200.0f, ARENA_CY);
+        in->active_pressed = true;
+        for (int t = 0; t < 90; t++) TICK();
+        names[nres] = "turret", oks[nres++] = G.nen > 0 && G.en[0].hp < 5000.0f && pl->act_t > 0.0f;
+
+        FRESH(); /* BLINK: to the cursor */
+        active_give(ACT_BLINK);
+        V2 from = pl->pos;
+        in->mouse = v2(from.x + 400.0f, from.y);
+        in->active_pressed = true;
+        TICK();
+        names[nres] = "blink", oks[nres++] = fabsf(pl->pos.x - (from.x + 400.0f)) < 20.0f && pl->invuln > 0.0f;
+
+        FRESH(); /* NOVA: a full ring */
+        active_give(ACT_NOVA);
+        G.npb = 0;
+        in->active_pressed = true;
+        TICK();
+        names[nres] = "nova", oks[nres++] = G.npb == 24;
+
+        FRESH(); /* TIME STOP: enemy bullets frozen in place */
+        active_give(ACT_TIME_STOP);
+        EBullet *eb = ebullet_spawn(v2(ARENA_CX + 300.0f, ARENA_CY - 300.0f), 0.0f, 300.0f, 6.0f, COL_WHITE);
+        V2 eb0 = eb ? eb->pos : v2(0, 0);
+        in->active_pressed = true;
+        for (int t = 0; t < 60; t++) TICK();
+        names[nres] = "time stop", oks[nres++] = G.neb == 1 && v2_dist(G.eb[0].pos, eb0) < 4.0f;
+
+        FRESH(); /* BLADE STORM: cuts the bullets around the ship */
+        active_give(ACT_BLADES);
+        in->active_pressed = true;
+        TICK();
+        for (int k = 0; k < 16; k++) ebullet_spawn(v2_add(pl->pos, v2_scale(v2_angle(TAU_F * (float)k / 16.0f), 88.0f)), 0.0f, 0.1f, 6.0f, COL_WHITE);
+        for (int t = 0; t < 120; t++) TICK();
+        names[nres] = "blade storm", oks[nres++] = G.neb == 0;
+
+        FRESH(); /* ROCKETS: the explosion hurts an enemy next to the one hit */
+        weapon_give(WPN_ROCKET);
+        DUMMY(ARENA_CX + 200.0f, ARENA_CY);
+        DUMMY(ARENA_CX + 200.0f, ARENA_CY + 75.0f);
+        pl->fire_cd = 0.0f;
+        in->fire = true;
+        TICK();
+        in->fire = false;
+        for (int t = 0; t < 200; t++) TICK();
+        names[nres] = "rockets", oks[nres++] = G.nen == 2 && G.en[0].hp < 5000.0f && G.en[1].hp < 5000.0f;
+
+        FRESH(); /* CLUSTER: bursts into fragments */
+        weapon_give(WPN_CLUSTER);
+        pl->fire_cd = 0.0f;
+        in->fire = true;
+        TICK();
+        in->fire = false;
+        int frags = 0;
+        for (int t = 0; t < 120 && !frags; t++) {
+            TICK();
+            for (int i = 0; i < G.npb; i++) frags += (G.pb[i].flags & PB_FRAGMENT) != 0;
+        }
+        names[nres] = "cluster", oks[nres++] = frags == 6;
+
+        FRESH(); /* CHAKRAM: comes back to the ship */
+        weapon_give(WPN_CHAKRAM);
+        pl->fire_cd = 0.0f;
+        in->fire = true;
+        TICK();
+        in->fire = false;
+        bool returned = false;
+        for (int t = 0; t < 240 && G.npb > 0; t++) {
+            TICK();
+            for (int i = 0; i < G.npb; i++) returned |= (G.pb[i].flags & PB_RETURNED) != 0;
+        }
+        names[nres] = "chakram", oks[nres++] = returned && G.npb == 0;
+
+        FRESH(); /* EMERGENCY SHIELD: the first hit of the room is blocked */
+        G.god = false;
+        upgrade_apply(UPG_EMERGENCY);
+        int hp0 = pl->hp;
+        pl->invuln = 0.0f; /* the teleport's grace period */
+        player_hurt(1);
+        bool blocked = pl->hp == hp0;
+        pl->invuln = 0.0f;
+        player_hurt(1);
+        names[nres] = "emergency shield", oks[nres++] = blocked && pl->hp == hp0 - 1;
+
+        FRESH(); /* SPIKED HULL: contact damage */
+        upgrade_apply(UPG_SPIKED_HULL);
+        DUMMY(pl->pos.x + 30.0f, pl->pos.y);
+        for (int t = 0; t < 10; t++) TICK();
+        names[nres] = "spiked hull", oks[nres++] = G.nen > 0 && G.en[0].hp < 5000.0f;
+
+        FRESH(); /* number keys pick the Nth weapon owned */
+        weapon_give(WPN_WAVE);
+        weapon_give(WPN_RAILGUN);
+        names[nres] = "weapon slots", oks[nres++] = weapon_slot(0) == WPN_BLASTER && weapon_slot(1) == WPN_RAILGUN && weapon_slot(2) == WPN_WAVE && weapon_slot(3) == -1;
+#undef DUMMY
+#undef FRESH
+#undef TICK
+        printf("scripted new content:");
+        for (int i = 0; i < nres; i++) {
+            printf(" %s -> %s%s", names[i], oks[i] ? "OK" : "FAILED", i + 1 < nres ? "," : "\n");
+            failures += !oks[i];
+        }
+    }
+
     printf("debug teleports - %s\n", failures ? "FAILED" : "OK");
     return failures ? 1 : 0;
 }
@@ -614,6 +743,10 @@ int headless_run(const HeadlessOptions *o) {
                                     ? "run did not start with the character's stats / weapon"
                                 : G.pl.active != ACT_NONE ? "run started with an active item (they must be found)" : NULL;
         if (o->active) active_give(o->active);
+        if (o->weapon >= 0 && weapon_available(o->weapon)) {
+            weapon_give(o->weapon);
+            G.bot_weapon = o->weapon;
+        }
         G.pl.coins += o->coins;
         if (o->all_upgrades)
             for (int u = 0; u < UPG_COUNT; u++)

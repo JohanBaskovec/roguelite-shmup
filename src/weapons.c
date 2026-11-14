@@ -45,6 +45,70 @@ const WeaponDef WEAPONS[WPN_COUNT] = {
         .pierce = 1, .bounce = 4, .homing = 0.0f, .knockback = 80.0f,
         .color = 0xffe14d, .level_rate = 0.93f,
     },
+    [WPN_RAILGUN] = {
+        .name = "RAILGUN", .desc = "Slow, devastating rail that pierces all",
+        .cooldown = 0.6f, .count = 1, .count_per_level = 0,
+        .spread = 0.0f, .spread_per = 0.05f, .jitter = 0.0f, .parallel = 12.0f,
+        .damage = 70.0f, .speed = 4200.0f, .speed_var = 0.0f, .life = 0.6f, .radius = 6.0f,
+        .pierce = 999, .bounce = 0, .homing = 0.0f, .knockback = 160.0f,
+        .color = 0xe0f4ff, .level_rate = 0.86f,
+    },
+    [WPN_FLAMER] = {
+        .name = "FLAMER", .desc = "Short-range fire stream, burns",
+        .cooldown = 0.03f, .count = 2, .count_per_level = 1,
+        .spread = 0.3f, .spread_per = 0.03f, .jitter = 0.12f, .parallel = 0.0f,
+        .damage = 2.0f, .speed = 950.0f, .speed_var = 300.0f, .life = 0.42f, .radius = 7.0f,
+        .pierce = 2, .bounce = 0, .homing = 0.0f, .knockback = 6.0f,
+        .color = 0xff7a1a, .level_rate = 0.95f,
+    },
+    [WPN_ROCKET] = {
+        .name = "ROCKETS", .desc = "Accelerating rockets that explode",
+        .cooldown = 0.55f, .count = 1, .count_per_level = 1,
+        .spread = 0.0f, .spread_per = 0.18f, .jitter = 0.03f, .parallel = 10.0f,
+        .damage = 30.0f, .speed = 380.0f, .speed_var = 40.0f, .life = 1.6f, .radius = 7.0f,
+        .pierce = 0, .bounce = 0, .homing = 1.2f, .knockback = 80.0f,
+        .color = 0xffb04d, .level_rate = 0.93f,
+    },
+    [WPN_CHAKRAM] = {
+        .name = "CHAKRAM", .desc = "Spinning blades that fly back",
+        .cooldown = 0.32f, .count = 1, .count_per_level = 1,
+        .spread = 0.0f, .spread_per = 0.3f, .jitter = 0.02f, .parallel = 0.0f,
+        .damage = 18.0f, .speed = 1000.0f, .speed_var = 0.0f, .life = 0.45f, .radius = 11.0f,
+        .pierce = 999, .bounce = 0, .homing = 0.0f, .knockback = 60.0f,
+        .color = 0xa8ff5a, .level_rate = 0.93f,
+    },
+    [WPN_CLUSTER] = {
+        .name = "CLUSTER", .desc = "Shells burst into fragments",
+        .cooldown = 0.4f, .count = 1, .count_per_level = 1,
+        .spread = 0.0f, .spread_per = 0.16f, .jitter = 0.04f, .parallel = 0.0f,
+        .damage = 16.0f, .speed = 900.0f, .speed_var = 0.0f, .life = 0.55f, .radius = 7.0f,
+        .pierce = 0, .bounce = 0, .homing = 0.0f, .knockback = 50.0f,
+        .color = 0xff5fd2, .level_rate = 0.93f,
+    },
+    [WPN_ARC] = {
+        .name = "ARC CASTER", .desc = "Bolts chain to nearby enemies",
+        .cooldown = 0.18f, .count = 1, .count_per_level = 0,
+        .spread = 0.0f, .spread_per = 0.08f, .jitter = 0.03f, .parallel = 0.0f,
+        .damage = 11.0f, .speed = 1800.0f, .speed_var = 0.0f, .life = 0.5f, .radius = 4.0f,
+        .pierce = 0, .bounce = 0, .homing = 0.0f, .knockback = 20.0f,
+        .color = 0x9db8ff, .level_rate = 0.92f,
+    },
+    [WPN_VULCAN] = {
+        .name = "VULCAN", .desc = "Minigun: spins up while firing",
+        .cooldown = 0.12f, .count = 1, .count_per_level = 1,
+        .spread = 0.0f, .spread_per = 0.04f, .jitter = 0.09f, .parallel = 8.0f,
+        .damage = 5.5f, .speed = 1600.0f, .speed_var = 100.0f, .life = 0.9f, .radius = 4.0f,
+        .pierce = 0, .bounce = 0, .homing = 0.0f, .knockback = 20.0f,
+        .color = 0xffe08a, .level_rate = 0.94f,
+    },
+    [WPN_WAVE] = {
+        .name = "WAVE GUN", .desc = "Twin piercing shots that weave",
+        .cooldown = 0.16f, .count = 2, .count_per_level = 1,
+        .spread = 0.0f, .spread_per = 0.05f, .jitter = 0.0f, .parallel = 0.0f,
+        .damage = 8.0f, .speed = 1200.0f, .speed_var = 0.0f, .life = 0.85f, .radius = 7.0f,
+        .pierce = 1, .bounce = 0, .homing = 0.0f, .knockback = 30.0f,
+        .color = 0x5dffd8, .level_rate = 0.93f,
+    },
     /* Melee: no projectiles. damage = per hit, cooldown = between swings (see sword_swing). */
     [WPN_SWORD] = {
         .name = "SWORD", .desc = "Arc slash that cuts bullets",
@@ -54,6 +118,51 @@ const WeaponDef WEAPONS[WPN_COUNT] = {
 };
 
 bool weapon_available(int w) { return w != WPN_SWORD || G.character == CHAR_KNIGHT; }
+
+static const char *const OPTION_NAMES[WPN_COUNT] = {
+    "blaster", "scatter", "needler", "seeker", "bouncer", "railgun", "flamer", "rockets", "chakram",
+    "cluster", "arc", "vulcan", "wave", "sword",
+};
+const char *weapon_option_name(int w) { return w >= 0 && w < WPN_COUNT ? OPTION_NAMES[w] : "?"; }
+
+int weapon_slot(int k) {
+    for (int w = 0; w < WPN_COUNT; w++)
+        if (G.pl.wlevel[w] > 0 && k-- == 0) return w;
+    return -1;
+}
+
+/* ---- Special shots -------------------------------------------------------- */
+
+void weapon_on_hit(PBullet *b, Enemy *e, float dmg) {
+    if (b->weapon == WPN_FLAMER) {
+        e->burn_dps = fmaxf(e->burn_t > 0.0f ? e->burn_dps : 0.0f, dmg * 4.0f);
+        e->burn_t = fmaxf(e->burn_t, 1.5f);
+    } else if (b->weapon == WPN_ARC) {
+        int lvl = G.pl.wlevel[WPN_ARC] > 0 ? G.pl.wlevel[WPN_ARC] : 1;
+        chain_lightning(e, dmg * 0.7f, 2 + lvl / 2, 300.0f);
+    }
+}
+
+/* Called once when a shot dies, whatever killed it (enemy, wall, end of range). */
+void weapon_bullet_death(PBullet *b) {
+    if (b->flags & PB_EXPLOSIVE) {
+        explode_at(b->pos, 105.0f * sqrtf(G.pl.bullet_size), b->damage, NULL, 0xffb04d);
+        sfx_play_at(SFX_EXPLODE_SMALL, b->pos);
+    }
+    if (b->flags & PB_CLUSTER) {
+        float base = frand(0.0f, TAU_F);
+        for (int k = 0; k < 6; k++) {
+            PBullet *f = pbullet_spawn(b->pos, v2_scale(v2_angle(base + TAU_F * (float)k / 6.0f), 850.0f), 3.5f,
+                                       b->damage * 0.45f, b->col);
+            if (!f) break;
+            f->life = 0.25f * G.pl.range_mult;
+            f->last_hit = b->last_hit;
+            f->flags = PB_FRAGMENT;
+            f->knockback = 15.0f;
+        }
+        fx_particle(b->pos, v2(0, 0), 0.2f, 60.0f, col_a(b->col, 0.7f), 0.0f, PT_RING);
+    }
+}
 
 /* ---- Sword ---------------------------------------------------------------- */
 
@@ -185,7 +294,9 @@ static void fire_volley(void) {
     const WeaponDef *w = &WEAPONS[p->weapon];
     int lvl = p->wlevel[p->weapon];
     int n = w->count + w->count_per_level * (lvl - 1) + p->extra_proj;
-    p->fire_cd += weapon_cooldown(w, lvl);
+    float cd = weapon_cooldown(w, lvl);
+    if (p->weapon == WPN_VULCAN) cd /= 1.0f + 3.0f * p->spin; /* up to 4x faster once spun up */
+    p->fire_cd += cd;
 
     float spread = (w->spread + w->spread_per * (float)(n - 1)) * p->spread_mult;
     float dmg = w->damage * (1.0f + 0.15f * (float)(lvl - 1)) * p->dmg_mult * upg_volley_damage_mult();
@@ -210,16 +321,26 @@ static void fire_volley(void) {
         b->homing = w->homing + p->homing;
         b->knockback = w->knockback;
         b->weapon = p->weapon;
+        if (p->weapon == WPN_ROCKET) b->flags |= PB_EXPLOSIVE;
+        if (p->weapon == WPN_CHAKRAM) b->flags |= PB_RETURNS;
+        if (p->weapon == WPN_CLUSTER) b->flags |= PB_CLUSTER;
+        if (p->weapon == WPN_WAVE && (i & 1)) b->flags |= PB_FLIP;
         upg_on_bullet_spawn(b);
     }
     upg_on_volley(muzzle, p->aim_angle, dmg, col);
 
     fx_particle(muzzle, v2(0, 0), 0.05f, 18.0f + (float)(n * copies) * 2.0f, col_a(col, 0.8f), 0.0f, PT_GLOW);
-    static const SfxId shot_sfx[WPN_COUNT] = {
-        [WPN_BLASTER] = SFX_SHOT_BLASTER, [WPN_SCATTER] = SFX_SHOT_SCATTER, [WPN_NEEDLER] = SFX_SHOT_NEEDLER,
-        [WPN_SEEKER] = SFX_SHOT_SEEKER, [WPN_BOUNCER] = SFX_SHOT_BOUNCER, [WPN_SWORD] = SFX_SWORD,
+    static const struct { SfxId id; float pitch; } shot_sfx[WPN_COUNT] = {
+        [WPN_BLASTER] = {SFX_SHOT_BLASTER, 1.0f}, [WPN_SCATTER] = {SFX_SHOT_SCATTER, 1.0f},
+        [WPN_NEEDLER] = {SFX_SHOT_NEEDLER, 1.0f}, [WPN_SEEKER] = {SFX_SHOT_SEEKER, 1.0f},
+        [WPN_BOUNCER] = {SFX_SHOT_BOUNCER, 1.0f}, [WPN_RAILGUN] = {SFX_SHOT_RAIL, 1.0f},
+        [WPN_FLAMER] = {SFX_SHOT_FLAMER, 1.0f}, [WPN_ROCKET] = {SFX_SHOT_ROCKET, 1.0f},
+        [WPN_CHAKRAM] = {SFX_SWORD, 1.5f}, [WPN_CLUSTER] = {SFX_SHOT_BOUNCER, 0.75f},
+        [WPN_ARC] = {SFX_DEFLECT, 0.55f}, [WPN_VULCAN] = {SFX_SHOT_BLASTER, 0.8f},
+        [WPN_WAVE] = {SFX_SHOT_NEEDLER, 0.7f}, [WPN_SWORD] = {SFX_SWORD, 1.0f},
     };
-    sfx_play_at(shot_sfx[p->weapon], p->pos);
+    float pan = clampf((p->pos.x - ARENA_CX) / (ARENA_X1 - ARENA_CX), -1.0f, 1.0f) * 0.6f;
+    sfx_play_ex(shot_sfx[p->weapon].id, 1.0f, shot_sfx[p->weapon].pitch, pan);
     if (p->weapon == WPN_SCATTER) {
         p->vel = v2_sub(p->vel, v2_scale(fwd, 90.0f));
         fx_shake(0.04f);
@@ -260,6 +381,9 @@ static void update_drones(void) {
 void weapons_update(void) {
     Player *p = &G.pl;
     p->fire_cd -= DT;
+    /* VULCAN: spins up over ~1 s of firing, winds down when released. */
+    bool spinning = G.in.fire && p->weapon == WPN_VULCAN;
+    p->spin = clampf(p->spin + (spinning ? DT / 1.0f : -DT / 0.6f), 0.0f, 1.0f);
     if (G.in.fire) {
         while (p->fire_cd <= 0.0f) {
             if (p->weapon == WPN_SWORD) sword_swing();
