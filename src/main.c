@@ -18,6 +18,8 @@ typedef struct {
     bool stats_room;       /* --stats: start in a Stats room */
     bool shop_room;        /* --shop: start in a Shop */
     int coins;             /* --coins N: extra starting coins */
+    bool debug_rooms;      /* --debug-rooms (with --headless): test the debug menu teleports */
+    bool debug_menu;       /* --debug-menu: open the F3 debug menu at startup */
     const char *fail_shot;
     int frames;            /* --frames N (with --bot: quit after N frames) */
     bool frames_given;
@@ -45,6 +47,8 @@ static void parse_args(int argc, char **argv, Options *o) {
         else if (!strcmp(a, "--headless")) o->headless = true;
         else if (!strcmp(a, "--stats")) o->stats_room = true;
         else if (!strcmp(a, "--shop")) o->shop_room = true;
+        else if (!strcmp(a, "--debug-rooms")) o->debug_rooms = true;
+        else if (!strcmp(a, "--debug-menu")) o->debug_menu = true;
         else if (!strcmp(a, "--coins") && more) o->coins = atoi(argv[++i]);
         else if (!strcmp(a, "--fail-shot") && more) o->fail_shot = argv[++i];
         else if (!strcmp(a, "--ticks") && more) o->ticks = atoi(argv[++i]);
@@ -60,6 +64,7 @@ static void parse_args(int argc, char **argv, Options *o) {
 static void clear_edges(void) {
     Input *in = &G.in;
     in->dash_pressed = in->bomb_pressed = in->pause_pressed = in->restart_pressed = in->confirm_pressed = false;
+    in->debug_pressed = false;
     in->weapon_select = -1;
     in->weapon_cycle = 0;
 }
@@ -95,7 +100,7 @@ static void handle_event(const SDL_Event *e, SDL_Window *win, bool bot) {
         case SDL_SCANCODE_E: in->bomb_pressed = true; break;
         case SDL_SCANCODE_RETURN:
         case SDL_SCANCODE_KP_ENTER: in->confirm_pressed = true; break;
-        case SDL_SCANCODE_F3: G.show_debug = !G.show_debug; break;
+        case SDL_SCANCODE_F3: in->debug_pressed = true; break;
         case SDL_SCANCODE_F11:
             SDL_SetWindowFullscreen(win, (SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN) == 0);
             break;
@@ -147,7 +152,7 @@ int main(int argc, char **argv) {
         HeadlessOptions h = {
             .seed = opt.has_seed ? opt.seed : SDL_GetPerformanceCounter(),
             .runs = opt.runs, .max_ticks = opt.ticks, .depth = opt.depth, .stats_room = opt.stats_room,
-            .shop_room = opt.shop_room, .coins = opt.coins,
+            .shop_room = opt.shop_room, .coins = opt.coins, .debug_rooms = opt.debug_rooms,
             .god = opt.god, .expect_rooms = opt.expect_rooms, .fail_shot = opt.fail_shot,
         };
         return headless_run(&h);
@@ -182,7 +187,7 @@ int main(int argc, char **argv) {
     SDL_Log("Neon Breach - seed %llu (renderer: %s)", (unsigned long long)seed, SDL_GetRendererName(ren));
     game_init(seed);
     G.god = opt.god;
-    if (opt.stats_room || opt.shop_room || opt.depth > 0 || opt.coins > 0) {
+    if (opt.stats_room || opt.shop_room || opt.depth > 0 || opt.coins > 0 || opt.debug_menu) {
         game_new_run();
         G.pl.coins += opt.coins;
         int depth = opt.depth > 0 ? opt.depth : 1;
@@ -190,6 +195,8 @@ int main(int argc, char **argv) {
         else if (opt.shop_room) room_enter(ROOM_SHOP, RW_NONE, depth);
         else if (opt.depth > 0) room_enter(ROOM_COMBAT, RW_UPGRADE, depth);
     }
+
+    if (opt.debug_menu) debug_menu_open();
 
     const double freq = (double)SDL_GetPerformanceFrequency();
     Uint64 last = SDL_GetPerformanceCounter();

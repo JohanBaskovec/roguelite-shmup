@@ -23,12 +23,14 @@ Preset `debug` disponible aussi (`build/debug`).
 | Changer d'arme | Molette / 1-5 |
 | Pause | Échap (R = restart, Q = quitter) |
 | Couper le son | M |
-| Plein écran / debug FPS | F11 / F3 |
+| Plein écran | F11 |
+| Menu de debug | F3 |
 
 ## Boucle de jeu
 
 - **Toutes les salles démarrent pleines d'ennemis** (y compris la *Launch Bay*, avec une vague légère). Ce qui rend une salle spéciale n'apparaît qu'une fois tous les ennemis morts.
 - Une fois la salle nettoyée : 3 portes (gauche / haut / droite). Chaque porte affiche la récompense de la salle suivante. Une porte peut être verrouillée (coûte 1 clef) et contient toujours une arme ou une amélioration.
+- **Salles d'arme et d'amélioration : toujours 3 objets au choix** (avec leur description), on en prend un et les deux autres disparaissent. S'il reste moins de 3 armes à obtenir, une salle d'arme complète avec des améliorations.
 - Ressources : pièces, clefs, bombes (+ cœurs). **Les ennemis ne lâchent jamais rien** : les ressources sont uniquement des récompenses de salle, aspirées automatiquement une fois la salle nettoyée.
 - **Salles Stats** (porte turquoise, ~20 % des portes après un combat) : une fois les ennemis tués, 4 échanges apparaissent, on en prend un (ou aucun). Chaque échange augmente une stat et en baisse une autre. Stats : dégâts, cadence, portée, PV max, vitesse de déplacement, recharge du dash, vitesse des projectiles, taille de la hitbox, chance (quantité des récompenses de salle). Valeurs et bornes dans `src/stats.c`.
 - **Shops** (porte rose, à partir de la salle 2, jamais deux d'affilée) : une fois les ennemis tués, toujours 5 objets à vendre — au moins une arme, une amélioration et un échange de stats, plus 2 emplacements aléatoires. On achète en marchant dessus ; prix affiché en doré si on peut payer, en rouge sinon. Prix : `shop_price()` dans `src/pickups.c`.
@@ -53,6 +55,7 @@ Preset `debug` disponible aussi (`build/debug`).
 | `stats.c` | Stats échangeables des salles Stats (gains, pertes, bornes) |
 | `audio.c/h` | Synthèse procédurale des sons + mixeur (voix, panoramique, limitation de fréquence) |
 | `hud.c` | HUD et écrans (titre, pause, game over) |
+| `debug_menu.c` | Menu de debug F3 : téléportation dans chaque type de salle (avec / sans ennemis), cheats |
 
 Les types de salles `ROOM_TREASURE` et `ROOM_BOSS` sont déjà prévus (sur le modèle de `ROOM_STATS` / `ROOM_SHOP`) dans `RoomType` (`game.h`) : il suffit de les générer dans `gen_doors()` (`room.c`) et de leur donner un comportement dans `room_enter()`.
 
@@ -71,6 +74,10 @@ Aucun test n'ouvre de fenêtre :
 
 Les sorties des tests sont dans `build/<preset>/test-output/`.
 
+## Menu de debug (F3)
+
+Fige le jeu et permet de se téléporter dans chaque type de salle (Launch Bay, combat, Stats, Shop), **avec ses ennemis** ou **sans ennemis** (salle déjà nettoyée, récompense déjà sortie). On choisit aussi la profondeur de la salle et la récompense des salles de combat (aléatoire ou imposée). Bonus : god mode, overlay FPS, +50 pièces. Navigation flèches / WASD + Entrée, ou à la souris ; F3 ou Échap pour fermer.
+
 ## Options de dev
 
 ```sh
@@ -82,6 +89,8 @@ neon_breach --dump-sfx /tmp/sfx                         # exporte chaque son en 
 neon_breach --seed 42 --depth 8                         # jouer : run reproductible, démarrage en salle 8
 neon_breach --stats                                     # démarrer directement dans une salle Stats
 neon_breach --shop --coins 50                           # démarrer dans un shop avec 50 pièces
+neon_breach --debug-menu                                # ouvrir le menu de debug au démarrage
+neon_breach --headless --debug-rooms                    # teste les téléportations du menu de debug
 neon_breach --bot --god                                 # regarder l'autopilote jouer (ouvre une fenêtre)
 ```
 

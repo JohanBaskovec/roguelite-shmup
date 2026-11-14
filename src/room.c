@@ -90,10 +90,12 @@ static SDL_FRect obs_inflated(int i, float m) {
     return r;
 }
 
-static float dist_to_rect(V2 p, SDL_FRect r) {
+/* Largest inflation of r that still leaves p outside (inflated rectangles have square
+ * corners, so this is the per-axis distance, not the Euclidean one). */
+static float box_dist(V2 p, SDL_FRect r) {
     float dx = fmaxf(fmaxf(r.x - p.x, 0.0f), p.x - (r.x + r.w));
     float dy = fmaxf(fmaxf(r.y - p.y, 0.0f), p.y - (r.y + r.h));
-    return sqrtf(dx * dx + dy * dy);
+    return fmaxf(dx, dy);
 }
 
 /* Nearest obstacle crossed by the segment, or -1. When an endpoint already sits
@@ -104,7 +106,7 @@ static int nearest_blocker(V2 a, V2 b, float margin) {
     float best_t = 2.0f;
     for (int i = 0; i < G.room.nobs; i++) {
         SDL_FRect o = G.room.obs[i];
-        float m = fminf(margin, fmaxf(0.0f, fminf(dist_to_rect(a, o), dist_to_rect(b, o)) - 0.5f));
+        float m = fminf(margin, fmaxf(0.0f, fminf(box_dist(a, o), box_dist(b, o)) - 0.5f));
         float t = segment_entry(a, b, obs_inflated(i, m));
         if (t >= 0.0f && t < best_t) {
             best_t = t;
@@ -230,7 +232,8 @@ static bool rect_ok(SDL_FRect r) {
         if (rect_overlaps(r, keep_out[i])) return false;
     /* Rooms whose reward is a row of pedestals keep that row free. */
     const SDL_FRect pedestal_row = {ARENA_X0 + 150, ARENA_CY - 150, ARENA_X1 - ARENA_X0 - 300, 300};
-    if ((G.room.type == ROOM_STATS || G.room.type == ROOM_SHOP) && rect_overlaps(r, pedestal_row)) return false;
+    bool row = G.room.type == ROOM_STATS || G.room.type == ROOM_SHOP || G.room.reward == RW_WEAPON || G.room.reward == RW_UPGRADE;
+    if (row && rect_overlaps(r, pedestal_row)) return false;
     for (int i = 0; i < G.room.nobs; i++) {
         SDL_FRect o = G.room.obs[i];
         SDL_FRect grown = {o.x - 60, o.y - 60, o.w + 120, o.h + 120};
@@ -281,7 +284,7 @@ static void gen_obstacles(void) {
     }
 }
 
-static RewardType roll_reward(void) {
+RewardType room_roll_reward(void) {
     static const int weights[RW_COUNT] = {
         [RW_COINS] = 30, [RW_KEY] = 16, [RW_BOMBS] = 16, [RW_HEART] = 14, [RW_UPGRADE] = 14, [RW_WEAPON] = 10,
     };
@@ -328,7 +331,7 @@ static void gen_doors(void) {
             continue;
         }
         for (int tries = 0; tries < 12; tries++) {
-            d->reward = roll_reward();
+            d->reward = room_roll_reward();
             bool dup = false;
             for (int j = 0; j < i; j++)
                 if (r->doors[j].type == ROOM_COMBAT && r->doors[j].reward == d->reward) dup = true;
@@ -415,7 +418,7 @@ static void spawn_stat_offers(void) {
     int n = stats_roll_offers(offers, STATS_ROOM_OFFERS);
     for (int i = 0; i < n; i++) {
         V2 p = v2(ARENA_CX + ((float)i - (float)(n - 1) * 0.5f) * 410.0f, ARENA_CY - 20.0f);
-        pickup_spawn(PK_STAT, offers[i], p, v2(0, 0));
+        pickup_spawn_choice(PK_STAT, offers[i], p);
         fx_particle(p, v2(0, 0), 0.5f, 160.0f, col_hex(COLOR_STATS, 1), 0.0f, PT_RING);
     }
 }
@@ -481,6 +484,14 @@ static void room_clear(void) {
     else if (r->reward != RW_NONE) reward_drop(r->reward, v2(ARENA_CX, ARENA_CY));
     fx_banner("ROOM CLEARED", "choose your next door", col_hex(0x66f0ff, 1), 1.4f);
     fx_shake(0.25f);
+}
+
+void room_debug_clear(void) {
+    Room *r = &G.room;
+    if (r->cleared) return;
+    r->wave = r->nwaves;
+    G.nen = G.nsp = G.neb = 0;
+    room_clear();
 }
 
 static bool touching_door(const Door *d) {

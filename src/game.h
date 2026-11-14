@@ -137,6 +137,7 @@ typedef struct {
     PickupType type;
     int sub;        /* coin value, WeaponId, UpgradeId or encoded stat offer */
     int price;      /* shop price in coins, 0 = free */
+    bool choice;    /* one-of-N pick: taking it makes the other choice pickups vanish */
     V2 pos, vel;
     float t;
 } Pickup;
@@ -200,12 +201,12 @@ typedef struct {
 
 /* ---- Game ---------------------------------------------------------------- */
 
-typedef enum { GS_TITLE, GS_PLAYING, GS_PAUSED, GS_GAMEOVER } GameState;
+typedef enum { GS_TITLE, GS_PLAYING, GS_PAUSED, GS_GAMEOVER, GS_DEBUG } GameState;
 
 typedef struct {
     bool up, down, left, right, fire;
     /* edge-triggered, cleared after each simulation tick */
-    bool dash_pressed, bomb_pressed, pause_pressed, restart_pressed, confirm_pressed;
+    bool dash_pressed, bomb_pressed, pause_pressed, restart_pressed, confirm_pressed, debug_pressed;
     int weapon_select; /* -1 = none */
     int weapon_cycle;
     V2 mouse;          /* logical coordinates */
@@ -242,6 +243,7 @@ typedef struct {
     float last_enemy_damage_t; /* G.time of the last hit on an enemy (stall detection in tests) */
 
     bool quit, show_debug, god;
+    GameState debug_prev; /* state to return to when the debug menu closes */
     float fps;
 } Game;
 
@@ -268,6 +270,7 @@ extern const StatDef STATS[ST_COUNT];
 
 #define STATS_ROOM_OFFERS 4
 #define SHOP_ITEMS 5 /* a shop always sells exactly this many items */
+#define REWARD_CHOICES 3 /* weapon / upgrade rooms always offer this many items to pick from */
 #define COLOR_STATS 0x4dffd2
 #define COLOR_SHOP 0xff6bd6
 static inline int stat_offer_encode(int up, int down) { return up * ST_COUNT + down; }
@@ -301,6 +304,9 @@ bool room_line_clear(V2 a, V2 b, float margin);
 /* Next point to walk towards to reach goal, going around obstacles. */
 V2 room_navigate(V2 from, V2 goal, float margin);
 V2 door_position(Side side);
+RewardType room_roll_reward(void);
+/* Dev only (debug menu): kill the pending waves and clear the room at once. */
+void room_debug_clear(void);
 
 /* player.c */
 void player_init(void);
@@ -337,6 +343,8 @@ void pickup_spawn(PickupType type, int sub, V2 pos, V2 vel);
 void pickups_update(void);
 void pickups_draw(void);
 void reward_drop(RewardType r, V2 pos);
+/* Spawn a pedestal that belongs to the room's one-of-N choice. */
+void pickup_spawn_choice(PickupType type, int sub, V2 pos);
 void draw_pickup_icon(PickupType type, int sub, V2 pos, float s, float t);
 void draw_heart(V2 p, float s, SDL_FColor col, bool left_half_only);
 PickupType reward_icon(RewardType r);
@@ -357,6 +365,16 @@ void fx_update(void);
 void fx_draw(void);
 void fx_draw_popups(void);
 void fx_clear(void);
+
+/* debug_menu.c - F3 dev menu (teleport to any room type, cheats) */
+void debug_menu_open(void);
+void debug_menu_close(void);
+void debug_menu_update(void);
+void debug_menu_draw(void);
+/* Dev only: jump straight into a room. RW_NONE as a combat reward rolls one at random.
+ * Without enemies the room starts cleared with its reward already out - the one sanctioned
+ * exception to the "every room starts full of enemies" rule, never reachable in normal play. */
+void debug_teleport(RoomType type, RewardType reward, int depth, bool with_enemies);
 
 /* hud.c */
 void hud_draw(void);

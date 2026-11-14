@@ -17,6 +17,7 @@ typedef struct {
     bool stats_room;   /* start in a Stats room instead */
     bool shop_room;    /* start in a Shop instead */
     int coins;         /* extra starting coins */
+    bool debug_rooms;  /* test the debug menu teleports instead of playing normal runs */
     bool god;
     int expect_rooms;  /* fail if a run clears fewer rooms than this */
     const char *fail_shot; /* if set, render the failing frame offscreen into this BMP */

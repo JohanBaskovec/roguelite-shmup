@@ -11,11 +11,16 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   cleared or spawns its reward before the fight is over.
 - **Enemies never drop anything.** Resources (coins, keys, bombs, hearts) only come from room
   rewards, after the room is cleared. Luck affects reward quantities, not drops.
+- **Weapon and upgrade rooms always offer a choice of 3 items** (take one, the other two vanish).
+  A weapon room tops up with upgrades when fewer than 3 weapons can still be gained.
 - A shop always sells exactly 5 items (weapons, upgrades, stat trades), paid with coins.
 - After a room is cleared the player chooses between 3 doors; each door previews what the next
   room gives. One door may be locked (costs a key).
 
 These rules are enforced by invariants in `src/headless.c`; keep them there when adding rooms.
+The only exception is the F3 debug menu (`src/debug_menu.c`), a dev tool that can teleport into a
+room "without enemies" (already cleared). When adding a room type, add it to the debug menu and to
+the `--debug-rooms` test too.
 
 ## Build & test
 

@@ -67,11 +67,12 @@ void hud_draw(void) {
     } else {
         bool offers = false, items = false;
         for (int i = 0; i < G.npk; i++) {
-            offers |= G.pk[i].type == PK_STAT && G.pk[i].price == 0;
+            offers |= G.pk[i].choice;
             items |= G.pk[i].price > 0;
         }
         float a = 0.55f + 0.45f * sinf(G.time * 5.0f);
-        if (offers) draw_text_centered(SCREEN_W * 0.5f, 52.0f, 2.0f, col_hex(COLOR_STATS, a), "TAKE ONE TRADE - OR SKIP IT");
+        if (offers && r->type == ROOM_STATS) draw_text_centered(SCREEN_W * 0.5f, 52.0f, 2.0f, col_hex(COLOR_STATS, a), "TAKE ONE TRADE - OR SKIP IT");
+        else if (offers) draw_text_centered(SCREEN_W * 0.5f, 52.0f, 2.0f, col_hex(0xb57cff, a), "PICK ONE - THE OTHERS VANISH");
         else if (items) draw_text_centered(SCREEN_W * 0.5f, 52.0f, 2.0f, col_hex(COLOR_SHOP, a), "SPEND COINS - OR SKIP IT");
         else draw_text_centered(SCREEN_W * 0.5f, 52.0f, 2.0f, col_hex(0x66f0ff, a), "CHOOSE A DOOR");
     }
@@ -192,6 +193,9 @@ void overlay_draw(void) {
             draw_text_centered(SCREEN_W * 0.5f, 680.0f, 3.0f, col_a(COL_WHITE, 0.4f + 0.6f * pulse), "CLICK OR R TO RETRY");
         }
     } break;
+    case GS_DEBUG:
+        debug_menu_draw();
+        break;
     default:
         break;
     }

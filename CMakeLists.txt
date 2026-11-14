@@ -31,7 +31,8 @@ add_executable(neon_breach
     src/bullets.c
     src/enemies.c
     src/pickups.c
-    src/hud.c)
+    src/hud.c
+    src/debug_menu.c)
 
 target_link_libraries(neon_breach PRIVATE SDL3::SDL3)
 
@@ -79,6 +80,12 @@ if(SHMUP_BUILD_TESTS)
                      --fail-shot ${_out}/fail_sim_shop.bmp)
     add_test(NAME render_shop_room
              COMMAND neon_breach --shot ${_out}/render_shop.bmp --shop --coins 10 --god --seed 4 --frames 435)
+    # F3 debug menu: teleport into every room type, with and without enemies.
+    add_test(NAME sim_debug_teleports
+             COMMAND neon_breach --headless --debug-rooms --seed 1 --coins 40 --ticks 12000
+                     --fail-shot ${_out}/fail_debug_teleports.bmp)
+    add_test(NAME render_debug_menu
+             COMMAND neon_breach --shot ${_out}/render_debug_menu.bmp --debug-menu --depth 4 --seed 4 --frames 3)
     add_test(NAME render_stats_room
              COMMAND neon_breach --shot ${_out}/render_stats.bmp --stats --seed 4 --frames 20)
     add_test(NAME render_offscreen
@@ -86,5 +93,5 @@ if(SHMUP_BUILD_TESTS)
     add_test(NAME sfx_synthesis COMMAND neon_breach --dump-sfx ${_out}/sfx)
 
     set_tests_properties(sim_god_seed1 sim_god_seed2 sim_god_seed3 sim_mortal_runs sim_deep_rooms
-                         sim_stats_rooms sim_shop_rooms render_shop_room render_stats_room render_offscreen sfx_synthesis PROPERTIES TIMEOUT 600)
+                         sim_stats_rooms sim_shop_rooms render_shop_room sim_debug_teleports render_debug_menu render_stats_room render_offscreen sfx_synthesis PROPERTIES TIMEOUT 600)
 endif()

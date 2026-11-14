@@ -96,7 +96,16 @@ void game_update(void) {
     G.ticks++;
     fx_timers();
 
+    if (G.in.debug_pressed) {
+        if (G.state == GS_DEBUG) debug_menu_close();
+        else debug_menu_open();
+        return;
+    }
+
     switch (G.state) {
+    case GS_DEBUG:
+        debug_menu_update(); /* the world stays frozen behind the menu */
+        break;
     case GS_TITLE:
         if (G.in.pause_pressed) G.quit = true;
         else if (G.in.confirm_pressed) game_new_run();

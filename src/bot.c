@@ -5,6 +5,16 @@
 #define THREAT_RADIUS 150.0f
 #define NAV_MARGIN (PLAYER_BODY_R + 22.0f)
 
+/* Obstacles only (not the arena walls, which the bot must walk into to take a door). */
+static bool hits_obstacle(V2 p, float r) {
+    for (int i = 0; i < G.room.nobs; i++) {
+        SDL_FRect o = G.room.obs[i];
+        float dx = p.x - clampf(p.x, o.x, o.x + o.w), dy = p.y - clampf(p.y, o.y, o.y + o.h);
+        if (dx * dx + dy * dy < r * r) return true;
+    }
+    return false;
+}
+
 void bot_input(void) {
     Input *in = &G.in;
     const Player *pl = &G.pl;
@@ -13,6 +23,7 @@ void bot_input(void) {
         in->confirm_pressed = true;
         return;
     }
+    if (G.state == GS_DEBUG) return;
 
     /* Aim at the nearest enemy in line of sight, otherwise remember the nearest one. */
     Enemy *t = NULL, *hidden = NULL, *over = NULL;
@@ -40,12 +51,12 @@ void bot_input(void) {
     in->fire = true;
 
     V2 goal;
-    /* Stats room: take one of the trades (varies with depth), then leave. */
+    /* One-of-N choice (stat trades, weapon / upgrade rooms): take one (varies with depth), then leave. */
     const Pickup *offer = NULL;
     int noffers = 0;
-    for (int i = 0; i < G.npk; i++) noffers += G.pk[i].type == PK_STAT && G.pk[i].price == 0;
+    for (int i = 0; i < G.npk; i++) noffers += G.pk[i].choice;
     for (int i = 0, k = 0; i < G.npk && noffers > 0; i++)
-        if (G.pk[i].type == PK_STAT && G.pk[i].price == 0 && k++ == G.room.depth % noffers) offer = &G.pk[i];
+        if (G.pk[i].choice && k++ == G.room.depth % noffers) offer = &G.pk[i];
     /* Shop: buy the best affordable item (weapons, then upgrades, then trades; cheaper first). */
     int best_rank = 1 << 30;
     for (int i = 0; i < G.npk; i++) {
@@ -123,8 +134,21 @@ void bot_input(void) {
     if ((imminent || overlapped) && pl->dash_cd <= 0.0f) in->dash_pressed = true;
     if (pl->hp <= 2 && threats >= 6 && pl->bombs > 0 && pl->invuln <= 0.0f) in->bomb_pressed = true;
 
-    in->right = dir.x > 0.38f;
-    in->left = dir.x < -0.38f;
-    in->down = dir.y > 0.38f;
-    in->up = dir.y < -0.38f;
+    /* Keys only give 8 directions. Take the one closest to dir that does not run into an
+     * obstacle: a diagonal aimed exactly at a corner would otherwise pin the ship there. */
+    int best_k = -1;
+    float best_dot = 0.3f;
+    for (int k = 0; k < 8; k++) {
+        V2 d = v2_angle((float)k * (TAU_F / 8.0f));
+        float dot = v2_dot(d, dir);
+        if (dot > best_dot && !hits_obstacle(v2_add(pl->pos, v2_scale(d, 6.0f)), PLAYER_BODY_R + 0.5f)) {
+            best_dot = dot;
+            best_k = k;
+        }
+    }
+    V2 q = best_k >= 0 ? v2_angle((float)best_k * (TAU_F / 8.0f)) : dir;
+    in->right = q.x > 0.38f;
+    in->left = q.x < -0.38f;
+    in->down = q.y > 0.38f;
+    in->up = q.y < -0.38f;
 }

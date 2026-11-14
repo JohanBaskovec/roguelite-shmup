@@ -84,6 +84,31 @@ static const char *check_invariants(float room_time) {
     return NULL;
 }
 
+static int count_choices(void) {
+    int n = 0;
+    for (int i = 0; i < G.npk; i++) n += G.pk[i].choice;
+    return n;
+}
+
+/* Checked on the tick a room becomes cleared: what its reward must look like. */
+static const char *check_room_reward(void) {
+    static char buf[128];
+    int priced = 0;
+    for (int i = 0; i < G.npk; i++) priced += G.pk[i].price > 0;
+    if (G.room.type == ROOM_SHOP && priced != SHOP_ITEMS) {
+        snprintf(buf, sizeof buf, "shop opened with %d items for sale instead of %d", priced, SHOP_ITEMS);
+        return buf;
+    }
+    bool item_room = G.room.type == ROOM_COMBAT && (G.room.reward == RW_WEAPON || G.room.reward == RW_UPGRADE);
+    if (item_room && count_choices() != REWARD_CHOICES) {
+        snprintf(buf, sizeof buf, "%s room offers %d items to choose from instead of %d",
+                 reward_name(G.room.reward), count_choices(), REWARD_CHOICES);
+        return buf;
+    }
+    if (G.room.type == ROOM_STATS && count_choices() == 0) return "stats room cleared without any trade";
+    return NULL;
+}
+
 /* Render the current frame offscreen (no window is shown) and save it, for post-mortem debugging. */
 static void save_failure_shot(const char *path) {
     SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "offscreen");
@@ -108,11 +133,88 @@ static void save_failure_shot(const char *path) {
 static void clear_edges(void) {
     Input *in = &G.in;
     in->dash_pressed = in->bomb_pressed = in->pause_pressed = in->restart_pressed = in->confirm_pressed = false;
+    in->debug_pressed = false;
     in->weapon_select = -1;
     in->weapon_cycle = 0;
 }
 
+/* Debug-menu teleports: every room type, with and without enemies, must land in a
+ * coherent state, and the bot must be able to finish the room and leave it. */
+static int debug_rooms_run(const HeadlessOptions *o) {
+    static const RoomType types[] = {ROOM_START, ROOM_COMBAT, ROOM_COMBAT, ROOM_COMBAT, ROOM_STATS, ROOM_SHOP};
+    static const RewardType rewards[] = {RW_NONE, RW_NONE, RW_WEAPON, RW_UPGRADE, RW_NONE, RW_NONE};
+    static const char *names[] = {"launch bay", "combat", "weapon", "upgrade", "stats", "shop"};
+    int failures = 0;
+    for (int t = 0; t < ARRAY_LEN(types); t++) {
+        for (int with = 1; with >= 0; with--) {
+            game_init(o->seed + (uint64_t)t);
+            G.god = true;
+            game_new_run();
+            G.pl.coins += o->coins;
+            debug_menu_open();
+            debug_teleport(types[t], rewards[t], o->depth > 0 ? o->depth : 3, with);
+            G.state = GS_PLAYING;
+
+            const char *err = NULL;
+            if (G.room.type != types[t]) err = "teleported into the wrong room type";
+            else if (with && (G.room.cleared || G.npk > 0)) err = "room with enemies starts cleared or with its reward out";
+            else if (!with && (!G.room.cleared || G.nen + G.nsp > 0)) err = "room without enemies is not cleared";
+            else if (!with && (err = check_room_reward()) != NULL) {}
+            else if (!with && types[t] == ROOM_COMBAT && G.npk == 0) err = "empty combat room has no reward";
+
+            int depth = G.room.depth, tick = 0;
+            float room_time = 0.0f;
+            for (; !err && tick < o->max_ticks && G.room.depth == depth; tick++) {
+                bot_input();
+                game_update();
+                clear_edges();
+                room_time += DT;
+                if (G.room.depth == depth) err = check_invariants(room_time);
+            }
+            if (!err && G.room.depth == depth) err = "the bot never left the room";
+            printf("debug teleport %-10s %-14s -> %s (%.1f s)\n", names[t], with ? "with enemies" : "no enemies",
+                   err ? err : "OK", (double)tick / TICK_RATE);
+            if (err) {
+                if (o->fail_shot && failures == 0) save_failure_shot(o->fail_shot);
+                failures++;
+            }
+        }
+    }
+    /* Drive the menu like a player: F3, down x2 (combat -> shop), right (NO ENEMIES), Enter. */
+    game_init(o->seed);
+    game_new_run();
+    Input *in = &G.in;
+    in->mouse = v2(0, 0);
+    const char *steps = "F..D.D.R.E";
+    for (const char *c = steps; *c; c++) {
+        in->debug_pressed = *c == 'F';
+        in->down = *c == 'D';
+        in->right = *c == 'R';
+        in->confirm_pressed = *c == 'E';
+        game_update();
+        clear_edges();
+    }
+    in->down = in->right = false;
+    int priced = 0;
+    for (int i = 0; i < G.npk; i++) priced += G.pk[i].price > 0;
+    bool ok = G.state == GS_PLAYING && G.room.type == ROOM_SHOP && G.room.cleared && priced == SHOP_ITEMS;
+    in->debug_pressed = true; /* F3 again opens it, Escape closes it */
+    game_update();
+    clear_edges();
+    ok = ok && G.state == GS_DEBUG;
+    in->pause_pressed = true;
+    game_update();
+    clear_edges();
+    ok = ok && G.state == GS_PLAYING;
+    printf("debug menu keyboard: F3, down, down, right, enter -> %s\n", ok ? "OK (empty shop)" : "FAILED");
+    if (!ok) failures++;
+
+    printf("debug teleports - %s\n", failures ? "FAILED" : "OK");
+    return failures ? 1 : 0;
+}
+
 int headless_run(const HeadlessOptions *o) {
+    if (o->debug_rooms) return debug_rooms_run(o);
     int failures = 0;
     int runs = o->runs > 0 ? o->runs : 1;
     long long total_ticks = 0;
@@ -132,6 +234,7 @@ int headless_run(const HeadlessOptions *o) {
         int depth = G.room.depth;
         int stats_rooms = G.room.type == ROOM_STATS, shops = G.room.type == ROOM_SHOP;
         bool was_cleared = G.room.cleared;
+        int choices = 0; /* one-of-N pickups offered when the room was cleared */
         float room_time = 0.0f;
         const char *err = G.room.cleared ? "first room starts already cleared (every room must start with enemies)" : NULL;
         int tick = 0;
@@ -150,17 +253,16 @@ int headless_run(const HeadlessOptions *o) {
                 room_time = 0.0f;
                 was_cleared = false;
             }
-            if (G.room.cleared && !was_cleared && G.room.type == ROOM_SHOP) {
-                int items = 0;
-                for (int i = 0; i < G.npk; i++) items += G.pk[i].price > 0;
-                if (items != SHOP_ITEMS) {
-                    static char buf[96];
-                    snprintf(buf, sizeof buf, "shop opened with %d items for sale instead of %d", items, SHOP_ITEMS);
-                    err = buf;
-                    break;
-                }
+            if (G.room.cleared && !was_cleared) {
+                if ((err = check_room_reward()) != NULL) break;
+                choices = count_choices();
             }
             was_cleared = G.room.cleared;
+            /* A one-of-N choice goes all at once: never a leftover after picking one. */
+            if (G.room.cleared && count_choices() != 0 && count_choices() != choices) {
+                err = "some one-of-N choices remained after one was taken";
+                break;
+            }
             room_time += DT;
             if ((err = check_invariants(room_time)) != NULL) break;
         }
