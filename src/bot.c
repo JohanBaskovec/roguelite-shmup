@@ -69,8 +69,22 @@ void bot_input(void) {
         }
     }
 
+    /* Free pedestals that are not a choice (secret room loot): take them all. */
+    for (int i = 0; i < G.npk && !offer; i++) {
+        const Pickup *k = &G.pk[i];
+        if (k->price == 0 && !k->choice && (k->type == PK_WEAPON || k->type == PK_UPGRADE)) offer = k;
+    }
+    /* Secret room: once it has seen the corner flash, bomb it after the fight, then go in. */
+    const Room *r = &G.room;
+    bool secret_known = r->secret_corner >= 0 && r->secret_flashes > 0 && !r->secret_used;
+
     if (offer) {
         goal = offer->pos;
+    } else if (G.room.cleared && secret_known && !r->secret_open && pl->bombs > 0) {
+        goal = room_secret_spot(r->secret_corner);
+        if (v2_dist(pl->pos, goal) < SECRET_BOMB_RADIUS * 0.5f) in->bomb_pressed = true;
+    } else if (G.room.cleared && (r->secret_open || r->type == ROOM_SECRET)) {
+        goal = door_position(SIDE_BOTTOM); /* into the secret room, or back out of it */
     } else if (G.room.cleared) {
         /* Pick the most valuable door it can open. */
         int pick = 0, best_score = -1;

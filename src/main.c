@@ -20,6 +20,8 @@ typedef struct {
     int coins;             /* --coins N: extra starting coins */
     bool debug_rooms;      /* --debug-rooms (with --headless): test the debug menu teleports */
     bool debug_menu;       /* --debug-menu: open the F3 debug menu at startup */
+    bool secret;           /* --secret: every eligible room hides a secret room */
+    bool show_secret;      /* --show-secret: mark secret corners (debug menu: SHOW SECRET CORNER) */
     const char *fail_shot;
     int frames;            /* --frames N (with --bot: quit after N frames) */
     bool frames_given;
@@ -49,6 +51,8 @@ static void parse_args(int argc, char **argv, Options *o) {
         else if (!strcmp(a, "--shop")) o->shop_room = true;
         else if (!strcmp(a, "--debug-rooms")) o->debug_rooms = true;
         else if (!strcmp(a, "--debug-menu")) o->debug_menu = true;
+        else if (!strcmp(a, "--secret")) o->secret = true;
+        else if (!strcmp(a, "--show-secret")) o->show_secret = true;
         else if (!strcmp(a, "--coins") && more) o->coins = atoi(argv[++i]);
         else if (!strcmp(a, "--fail-shot") && more) o->fail_shot = argv[++i];
         else if (!strcmp(a, "--ticks") && more) o->ticks = atoi(argv[++i]);
@@ -152,7 +156,7 @@ int main(int argc, char **argv) {
         HeadlessOptions h = {
             .seed = opt.has_seed ? opt.seed : SDL_GetPerformanceCounter(),
             .runs = opt.runs, .max_ticks = opt.ticks, .depth = opt.depth, .stats_room = opt.stats_room,
-            .shop_room = opt.shop_room, .coins = opt.coins, .debug_rooms = opt.debug_rooms,
+            .shop_room = opt.shop_room, .coins = opt.coins, .debug_rooms = opt.debug_rooms, .secret = opt.secret,
             .god = opt.god, .expect_rooms = opt.expect_rooms, .fail_shot = opt.fail_shot,
         };
         return headless_run(&h);
@@ -187,6 +191,8 @@ int main(int argc, char **argv) {
     SDL_Log("Neon Breach - seed %llu (renderer: %s)", (unsigned long long)seed, SDL_GetRendererName(ren));
     game_init(seed);
     G.god = opt.god;
+    G.force_secret = opt.secret;
+    G.reveal_secrets = opt.show_secret;
     if (opt.stats_room || opt.shop_room || opt.depth > 0 || opt.coins > 0 || opt.debug_menu) {
         game_new_run();
         G.pl.coins += opt.coins;
@@ -237,9 +243,10 @@ int main(int argc, char **argv) {
         frame++;
         if (opt.shot_path && frame >= opt.frames) {
             if (!save_screenshot(ren, opt.shot_path)) SDL_Log("Screenshot failed: %s", SDL_GetError());
-            else SDL_Log("Saved %s (room %d, %d enemy bullets, cleared %d, coins %d, doors %s/%s/%s)", opt.shot_path,
-                         G.room.depth, G.neb, G.room.cleared, G.pl.coins, door_label(&G.room.doors[0]),
-                         door_label(&G.room.doors[1]), door_label(&G.room.doors[2]));
+            else SDL_Log("Saved %s (room %d type %d, %d enemy bullets, cleared %d, secret corner %d open %d, coins %d, doors %s/%s/%s)",
+                         opt.shot_path, G.room.depth, G.room.type, G.neb, G.room.cleared, G.room.secret_corner,
+                         G.room.secret_open, G.pl.coins, door_label(&G.room.doors[0]), door_label(&G.room.doors[1]),
+                         door_label(&G.room.doors[2]));
             G.quit = true;
         }
         if (opt.bot && !opt.shot_path && opt.frames_given && frame >= opt.frames) G.quit = true;

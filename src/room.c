@@ -7,6 +7,16 @@
 #define ARENA_W (ARENA_X1 - ARENA_X0)
 #define ARENA_H (ARENA_Y1 - ARENA_Y0)
 
+V2 room_secret_spot(int corner) {
+    const float in = 45.0f;
+    switch (corner) {
+    case 0: return v2(ARENA_X0 + in, ARENA_Y0 + in);
+    case 1: return v2(ARENA_X1 - in, ARENA_Y0 + in);
+    case 2: return v2(ARENA_X1 - in, ARENA_Y1 - in);
+    default: return v2(ARENA_X0 + in, ARENA_Y1 - in);
+    }
+}
+
 V2 door_position(Side side) {
     switch (side) {
     case SIDE_LEFT: return v2(ARENA_X0, ARENA_CY);
@@ -232,6 +242,12 @@ static bool rect_ok(SDL_FRect r) {
         if (rect_overlaps(r, keep_out[i])) return false;
     /* Rooms whose reward is a row of pedestals keep that row free. */
     const SDL_FRect pedestal_row = {ARENA_X0 + 150, ARENA_CY - 150, ARENA_X1 - ARENA_X0 - 300, 300};
+    /* The secret corner must stay reachable to drop a bomb there. */
+    if (G.room.secret_corner >= 0) {
+        V2 c = room_secret_spot(G.room.secret_corner);
+        SDL_FRect k = {c.x - 200, c.y - 200, 400, 400};
+        if (rect_overlaps(r, k)) return false;
+    }
     bool row = G.room.type == ROOM_STATS || G.room.type == ROOM_SHOP || G.room.reward == RW_WEAPON || G.room.reward == RW_UPGRADE;
     if (row && rect_overlaps(r, pedestal_row)) return false;
     for (int i = 0; i < G.room.nobs; i++) {
@@ -347,6 +363,13 @@ void room_enter(RoomType type, RewardType reward, int depth) {
     r->reward = reward;
     r->depth = depth;
     r->hue = 200.0f + (float)depth * 37.0f;
+    r->id = ++G.room_counter;
+    r->secret_corner = -1;
+    bool can_hide = type == ROOM_COMBAT || type == ROOM_STATS || type == ROOM_SHOP;
+    if (can_hide && (G.force_secret || chance(SECRET_CHANCE))) {
+        r->secret_corner = irand(0, 3);
+        r->secret_flash_cd = frand(2.0f, 5.0f);
+    }
 
     G.npb = G.neb = G.nen = G.nsp = G.npk = 0;
     fx_clear();
@@ -357,15 +380,24 @@ void room_enter(RoomType type, RewardType reward, int depth) {
     G.pl.dash_t = 0.0f;
     G.pl.invuln = fmaxf(G.pl.invuln, 0.6f);
 
-    /* Every room, of every type, starts full of enemies. What makes a room
-     * special is what appears once it is cleared (see room_clear). */
+    /* Every room starts full of enemies, except the launch bay and secret rooms. What
+     * makes a room special is what appears once it is cleared (see room_clear). */
     if (type == ROOM_STATS) r->hue = 165.0f;
     if (type == ROOM_SHOP) r->hue = 315.0f;
-    if (type != ROOM_START) gen_obstacles(); /* keep the launch bay open for the tutorial */
+    if (type == ROOM_SECRET) r->hue = 32.0f;
+    if (!room_type_peaceful(type)) gen_obstacles(); /* open floor for the tutorial / the loot */
+    if (type != ROOM_SECRET) gen_doors();          /* the secret room's only exit leads back */
+    if (room_type_peaceful(type)) {
+        r->cleared = true; /* no fight: doors (or loot) are there right away */
+        if (type == ROOM_SECRET) {
+            secret_reward_drop(v2(ARENA_CX, ARENA_CY));
+            fx_banner("SECRET ROOM", "help yourself", col_hex(COLOR_SECRET, 1), 1.6f);
+        }
+        return;
+    }
     int extra = depth / 3;
-    r->nwaves = type == ROOM_START ? 1 : 2 + (extra > 3 ? 3 : extra);
-    r->wave_t = type == ROOM_START ? 1.2f : 0.35f;
-    gen_doors();
+    r->nwaves = 2 + (extra > 3 ? 3 : extra);
+    r->wave_t = 0.35f;
 }
 
 /* ---- Waves --------------------------------------------------------------- */
@@ -384,7 +416,7 @@ static V2 find_spawn_point(float rad) {
 static void spawn_wave(void) {
     Room *r = &G.room;
     int depth = r->depth > 1 ? r->depth : 1;
-    float budget = r->type == ROOM_START ? 5.0f : 6.0f + (float)depth * 2.4f + (float)r->wave * 2.0f;
+    float budget = 6.0f + (float)depth * 2.4f + (float)r->wave * 2.0f;
     int queued = 0;
     while (budget >= 1.0f && queued < 26) {
         EnemyType cand[EN_COUNT];
@@ -486,6 +518,48 @@ static void room_clear(void) {
     fx_shake(0.25f);
 }
 
+/* ---- Secret rooms ------------------------------------------------------- */
+
+void room_bomb_at(V2 pos) {
+    Room *r = &G.room;
+    if (r->secret_corner < 0 || r->secret_open || r->secret_used) return;
+    V2 spot = room_secret_spot(r->secret_corner);
+    if (v2_dist(pos, spot) > SECRET_BOMB_RADIUS) return;
+    r->secret_open = true;
+    V2 door = door_position(SIDE_BOTTOM);
+    sfx_play(SFX_SECRET);
+    fx_explosion(v2(door.x, door.y - 10.0f), 40.0f, col_hex(COLOR_SECRET, 1));
+    fx_burst(spot, 40, 100.0f, 500.0f, 0.6f, 3.0f, col_hex(COLOR_SECRET, 1));
+    fx_particle(spot, v2(0, 0), 0.6f, 260.0f, col_hex(COLOR_SECRET, 1), 0.0f, PT_RING);
+    fx_popup(v2(door.x, door.y - 110.0f), col_hex(COLOR_SECRET, 1), "SECRET PASSAGE!");
+    fx_shake(0.5f);
+}
+
+void room_enter_secret(void) {
+    G.parent = G.room;
+    G.parent_npk = G.npk;
+    memcpy(G.parent_pk, G.pk, sizeof(Pickup) * (size_t)G.npk);
+    room_enter(ROOM_SECRET, RW_NONE, G.room.depth);
+}
+
+void room_return_from_secret(void) {
+    G.room = G.parent;
+    G.npk = G.parent_npk;
+    memcpy(G.pk, G.parent_pk, sizeof(Pickup) * (size_t)G.npk);
+    G.npb = G.neb = G.nen = G.nsp = 0;
+    fx_clear();
+    nav_reset();
+    Room *r = &G.room;
+    r->secret_open = false;
+    r->secret_used = true; /* one visit per secret */
+    r->revisit = true;
+    r->clear_t = 0.6f;     /* doors already open; give the player time to choose again */
+    G.pl.pos = v2(ARENA_CX, ARENA_Y1 - 80.0f);
+    G.pl.vel = v2(0, -250.0f);
+    G.pl.dash_t = 0.0f;
+    G.pl.invuln = fmaxf(G.pl.invuln, 0.6f);
+}
+
 void room_debug_clear(void) {
     Room *r = &G.room;
     if (r->cleared) return;
@@ -501,6 +575,7 @@ static bool touching_door(const Door *d) {
     case SIDE_LEFT: return p.x <= ARENA_X0 + reach && fabsf(p.y - ARENA_CY) < DOOR_HALF;
     case SIDE_RIGHT: return p.x >= ARENA_X1 - reach && fabsf(p.y - ARENA_CY) < DOOR_HALF;
     case SIDE_TOP: return p.y <= ARENA_Y0 + reach && fabsf(p.x - ARENA_CX) < DOOR_HALF;
+    case SIDE_BOTTOM: return p.y >= ARENA_Y1 - reach && fabsf(p.x - ARENA_CX) < DOOR_HALF;
     default: return false;
     }
 }
@@ -510,6 +585,17 @@ void room_update(void) {
     if (r->msg_cd > 0.0f) r->msg_cd -= DT;
     for (int i = 0; i < r->ndoors; i++)
         if (r->doors[i].anim > 0.0f) r->doors[i].anim -= DT;
+
+    /* The secret corner flashes, very briefly, every few seconds - only during combat. */
+    if (r->secret_flash_t > 0.0f) r->secret_flash_t -= DT;
+    if (r->secret_corner >= 0 && !r->cleared && !r->secret_open && !r->secret_used) {
+        r->secret_flash_cd -= DT;
+        if (r->secret_flash_cd <= 0.0f) {
+            r->secret_flash_t = 0.09f;
+            r->secret_flash_cd = frand(4.0f, 8.0f);
+            r->secret_flashes++;
+        }
+    }
 
     if (!r->cleared) {
         r->wave_t -= DT;
@@ -531,6 +617,13 @@ void room_update(void) {
     float prev_clear_t = r->clear_t;
     r->clear_t += DT;
     if (prev_clear_t < 0.35f && r->clear_t >= 0.35f) sfx_play(SFX_DOOR_OPEN);
+
+    /* Bottom door: into the secret room once bombed open, or the secret room's exit. */
+    Door bottom = {.side = SIDE_BOTTOM};
+    if ((r->secret_open || r->type == ROOM_SECRET) && r->clear_t > 0.35f && touching_door(&bottom)) {
+        game_start_transition(r->type == ROOM_SECRET ? DOOR_RETURN : DOOR_SECRET);
+        return;
+    }
     for (int i = 0; i < r->ndoors; i++) {
         Door *d = &r->doors[i];
         if (!touching_door(d)) continue;
@@ -596,6 +689,21 @@ void room_draw_floor(void) {
             draw_text_centered(ARENA_CX, ARENA_CY - 150.0f, 2.0f, col_a(COL_WHITE, 0.4f), "every gain has a price");
         }
     }
+    if (r->secret_corner >= 0 && !r->secret_used) {
+        V2 c = room_secret_spot(r->secret_corner);
+        if (r->secret_flash_t > 0.0f) /* barely there: a small square for a few frames */
+            draw_rect(c.x - 9.0f, c.y - 9.0f, 18.0f, 18.0f, col_a(COL_WHITE, 0.32f * r->secret_flash_t / 0.09f));
+        if (G.reveal_secrets && !r->secret_open) { /* debug menu: SHOW SECRET CORNER */
+            float pulse = 0.5f + 0.5f * sinf(G.time * 6.0f);
+            SDL_FColor sc = col_hex(COLOR_SECRET, 1);
+            draw_ring(c, SECRET_BOMB_RADIUS, 2.0f, col_a(sc, 0.25f)); /* where a bomb opens it */
+            draw_rect(c.x - 14.0f, c.y - 14.0f, 28.0f, 28.0f, col_a(sc, 0.35f + 0.35f * pulse));
+            draw_rect_outline(c.x - 18.0f, c.y - 18.0f, 36.0f, 36.0f, 3.0f, sc);
+            float tx = r->secret_corner == 1 || r->secret_corner == 2 ? c.x - 150.0f : c.x + 40.0f;
+            float ty = r->secret_corner >= 2 ? c.y - 40.0f : c.y + 24.0f;
+            draw_text(tx, ty, 2.0f, sc, "SECRET");
+        }
+    }
     if (r->type == ROOM_SHOP) {
         bool items = false;
         for (int i = 0; i < G.npk; i++) items |= G.pk[i].price > 0;
@@ -646,6 +754,7 @@ static void draw_door(const Door *d, bool cleared, bool entry) {
     SDL_FColor rc = entry ? col_hex(0x445566, 1)
                   : d->type == ROOM_STATS ? col_hex(COLOR_STATS, 1)
                   : d->type == ROOM_SHOP ? col_hex(COLOR_SHOP, 1)
+                  : d->type == ROOM_SECRET ? col_hex(COLOR_SECRET, 1)
                   : reward_color(d->reward);
     bool open = cleared && !d->locked && !entry;
     float pulse = 0.5f + 0.5f * sinf(G.time * 6.0f);
@@ -707,6 +816,7 @@ static void draw_door(const Door *d, bool cleared, bool entry) {
     draw_ngon(ip, 24.0f * sc, 6, PI_F / 6.0f, col_hex(0x0a0c14, 0.85f));
     draw_ngon_outline(ip, 24.0f * sc, 6, PI_F / 6.0f, 2.0f, col_a(rc, 0.8f));
     if (d->type == ROOM_SHOP) draw_shop_icon(ip, 11.0f * sc);
+    else if (d->type == ROOM_SECRET) draw_text_centered(ip.x + 1.0f, ip.y - 12.0f * sc, 3.0f * sc, col_hex(COLOR_SECRET, 1), "%s", G.room.type == ROOM_SECRET ? "v" : "?");
     else draw_pickup_icon(d->type == ROOM_STATS ? PK_STAT : reward_icon(d->reward), -1, ip, 11.0f * sc, G.time);
     if (pop >= 1.0f) draw_text_centered(ip.x, ip.y + 34.0f, 1.5f, col_a(rc, 0.9f), "%s", door_label(d));
 }
@@ -730,7 +840,8 @@ void room_draw_walls(void) {
         draw_rect_outline(o.x, o.y, o.w, o.h, 3, edge);
     }
 
-    Door entry = {.side = SIDE_BOTTOM, .pos = door_position(SIDE_BOTTOM)};
-    draw_door(&entry, r->cleared, true);
+    /* Bottom door: the way in, unless it is (or leads to) a secret passage. */
+    Door bottom = {.side = SIDE_BOTTOM, .pos = door_position(SIDE_BOTTOM), .type = ROOM_SECRET};
+    draw_door(&bottom, r->cleared, !(r->secret_open || r->type == ROOM_SECRET));
     for (int i = 0; i < r->ndoors; i++) draw_door(&r->doors[i], r->cleared, false);
 }

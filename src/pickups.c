@@ -46,6 +46,7 @@ const char *reward_name(RewardType r) {
 static V2 random_vel(float lo, float hi) { return v2_scale(v2_angle(frand(0.0f, TAU_F)), frand(lo, hi)); }
 
 const char *door_label(const Door *d) {
+    if (d->type == ROOM_SECRET) return G.room.type == ROOM_SECRET ? "EXIT" : "SECRET";
     return d->type == ROOM_STATS ? "STATS" : d->type == ROOM_SHOP ? "SHOP" : reward_name(d->reward);
 }
 
@@ -96,6 +97,45 @@ static void spawn_item_choices(RewardType r, V2 center) {
         pickup_spawn_choice(type, sub, p);
         fx_particle(p, v2(0, 0), 0.5f, 160.0f, col_hex(type == PK_WEAPON ? 0x66f0ff : 0xb57cff, 1), 0.0f, PT_RING);
     }
+}
+
+static bool item_present(PickupType type, int sub) {
+    for (int i = 0; i < G.npk; i++)
+        if (G.pk[i].type == type && G.pk[i].sub == sub) return true;
+    return false;
+}
+
+void secret_reward_drop(V2 center) {
+    /* Items: free pedestals, all of them can be taken (not a one-of-N choice). */
+    int n = chance(0.12f) ? 2 : 1;
+    for (int i = 0; i < n; i++) {
+        PickupType type = PK_UPGRADE;
+        int sub = -1;
+        for (int tries = 0; chance(0.5f) && tries < 8 && sub < 0; tries++) {
+            int w = weapon_roll();
+            if (w >= 0 && !item_present(PK_WEAPON, w)) {
+                type = PK_WEAPON;
+                sub = w;
+            }
+        }
+        for (int tries = 0; sub < 0 && tries < 32; tries++) {
+            int u = upgrade_roll();
+            if (!item_present(PK_UPGRADE, u)) sub = u;
+        }
+        if (sub < 0) sub = upgrade_roll();
+        V2 p = v2(center.x + ((float)i - (float)(n - 1) * 0.5f) * 360.0f, center.y - 40.0f);
+        pickup_spawn(type, sub, p, v2(0, 0));
+        fx_particle(p, v2(0, 0), 0.5f, 160.0f, col_hex(COLOR_SECRET, 1), 0.0f, PT_RING);
+    }
+    /* Resources: always coins, often bombs, sometimes keys. */
+    V2 pile = v2(center.x, center.y + 140.0f);
+    int coins = (int)roundf((float)irand(5, 10) * luck_factor());
+    for (int i = 0; i < coins; i++) pickup_spawn(PK_COIN, 1, pile, random_vel(100.0f, 400.0f));
+    int bombs = chance(0.6f) ? luck_adjust(irand(1, 2)) : 0;
+    for (int i = 0; i < bombs; i++) pickup_spawn(PK_BOMB, 0, pile, random_vel(100.0f, 250.0f));
+    int keys = chance(0.4f) ? luck_adjust(1) : 0;
+    for (int i = 0; i < keys; i++) pickup_spawn(PK_KEY, 0, pile, random_vel(50.0f, 200.0f));
+    fx_burst(center, 40, 100.0f, 500.0f, 0.5f, 3.0f, col_hex(COLOR_SECRET, 1));
 }
 
 void reward_drop(RewardType r, V2 pos) {
@@ -232,6 +272,9 @@ void pickups_update(void) {
                 float into = v2_dot(k->vel, n);
                 if (into < 0.0f) k->vel = v2_scale(v2_sub(k->vel, v2_scale(n, 2.0f * into)), 0.5f);
             }
+            /* ...but never through the arena walls (the player may be standing in a doorway). */
+            k->pos.x = clampf(k->pos.x, ARENA_X0 + 10.0f, ARENA_X1 - 10.0f);
+            k->pos.y = clampf(k->pos.y, ARENA_Y0 + 10.0f, ARENA_Y1 - 10.0f);
             if (wants && k->t > 0.2f && dist < PLAYER_BODY_R + 14.0f) taken = collect(k);
         }
 

@@ -17,6 +17,7 @@ typedef struct {
     bool stats_room;   /* start in a Stats room instead */
     bool shop_room;    /* start in a Shop instead */
     int coins;         /* extra starting coins */
+    bool secret;       /* every eligible room hides a secret room; fail if the bot never finds one */
     bool debug_rooms;  /* test the debug menu teleports instead of playing normal runs */
     bool god;
     int expect_rooms;  /* fail if a run clears fewer rooms than this */

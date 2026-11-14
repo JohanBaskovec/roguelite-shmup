@@ -10,8 +10,8 @@
 
 typedef enum {
     ROW_DEPTH, ROW_REWARD,
-    ROW_START, ROW_COMBAT, ROW_STATS, ROW_SHOP,
-    ROW_GOD, ROW_FPS, ROW_COINS, ROW_CLOSE,
+    ROW_START, ROW_COMBAT, ROW_STATS, ROW_SHOP, ROW_SECRET,
+    ROW_GOD, ROW_FPS, ROW_ALWAYS_SECRET, ROW_REVEAL, ROW_COINS, ROW_BOMBS, ROW_CLOSE,
     ROW_COUNT
 } Row;
 
@@ -24,6 +24,7 @@ static const struct {
     [ROW_COMBAT] = {"COMBAT ROOM", ROOM_COMBAT, 0x66f0ff},
     [ROW_STATS] = {"STATS ROOM", ROOM_STATS, COLOR_STATS},
     [ROW_SHOP] = {"SHOP", ROOM_SHOP, COLOR_SHOP},
+    [ROW_SECRET] = {"SECRET ROOM", ROOM_SECRET, COLOR_SECRET},
 };
 
 #define MAX_DEPTH 40
@@ -33,8 +34,8 @@ static const struct {
 /* Layout (logical pixels). */
 #define PANEL_W 940.0f
 #define PANEL_X ((SCREEN_W - PANEL_W) * 0.5f)
-#define ROWS_Y 250.0f
-#define ROW_H 54.0f
+#define ROWS_Y 228.0f
+#define ROW_H 46.0f
 #define BTN_W 240.0f
 #define BTN_X0 (PANEL_X + 410.0f)
 #define BTN_X1 (BTN_X0 + BTN_W + 20.0f)
@@ -46,7 +47,10 @@ static struct {
     V2 mouse;
 } M = {.sel = ROW_COMBAT, .depth = 3};
 
-static bool is_room_row(int row) { return row >= ROW_START && row <= ROW_SHOP; }
+static bool is_room_row(int row) { return row >= ROW_START && row <= ROW_SECRET; }
+/* Launch bay and secret rooms never have enemies: only their NO ENEMIES button exists. */
+static bool peaceful_row(int row) { return is_room_row(row) && room_type_peaceful(ROOM_ROWS[row].type); }
+static bool is_toggle_row(int row) { return row == ROW_GOD || row == ROW_FPS || row == ROW_ALWAYS_SECRET || row == ROW_REVEAL; }
 static float row_y(int row) { return ROWS_Y + (float)row * ROW_H + (row >= ROW_START ? 16.0f : 0.0f) + (row >= ROW_GOD ? 16.0f : 0.0f); }
 
 static int row_at(V2 m) {
@@ -62,7 +66,16 @@ void debug_teleport(RoomType type, RewardType reward, int depth, bool with_enemi
     else if (depth < 1) depth = 1;
     if (type != ROOM_COMBAT) reward = RW_NONE;
     else if (reward == RW_NONE) reward = room_roll_reward();
-    room_enter(type, reward, depth);
+    if (type == ROOM_SECRET) {
+        /* A secret room needs a room to return to: a cleared combat room that hid it. */
+        room_enter(ROOM_COMBAT, room_roll_reward(), depth);
+        room_debug_clear();
+        if (G.room.secret_corner < 0) G.room.secret_corner = irand(0, 3);
+        G.room.secret_open = true;
+        room_enter_secret();
+    } else {
+        room_enter(type, reward, depth);
+    }
     if (!with_enemies) room_debug_clear();
 }
 
@@ -109,10 +122,13 @@ static void activate(int row, int dir) {
     case ROW_REWARD: change_value(row, dir); break;
     case ROW_GOD: G.god = !G.god; sfx_play(SFX_WEAPON_SWITCH); break;
     case ROW_FPS: G.show_debug = !G.show_debug; sfx_play(SFX_WEAPON_SWITCH); break;
+    case ROW_ALWAYS_SECRET: G.force_secret = !G.force_secret; sfx_play(SFX_WEAPON_SWITCH); break;
+    case ROW_REVEAL: G.reveal_secrets = !G.reveal_secrets; sfx_play(SFX_WEAPON_SWITCH); break;
     case ROW_COINS: G.pl.coins += 50; sfx_play(SFX_COIN); break;
+    case ROW_BOMBS: G.pl.bombs += 3; sfx_play(SFX_BOMB_PICKUP); break;
     case ROW_CLOSE: debug_menu_close(); break;
     default:
-        if (is_room_row(row)) teleport_from_menu(row, M.col == 0);
+        if (is_room_row(row)) teleport_from_menu(row, M.col == 0 && !peaceful_row(row));
         break;
     }
 }
@@ -165,6 +181,16 @@ static void draw_button(float x, float y, float w, const char *text, SDL_FColor 
     draw_text_centered(x + w * 0.5f, y + h * 0.5f - 8.0f, 2.0f, selected ? col_hex(0x05060c, 1) : c, "%s", text);
 }
 
+static const char *secret_text(void) {
+    static const char *corners[] = {"TOP-LEFT", "TOP-RIGHT", "BOTTOM-RIGHT", "BOTTOM-LEFT"};
+    static char buf[64];
+    const Room *r = &G.room;
+    if (r->secret_corner < 0) return " - NO SECRET";
+    SDL_snprintf(buf, sizeof buf, " - SECRET: %s%s", corners[r->secret_corner],
+                 r->secret_used ? " (USED)" : r->secret_open ? " (OPEN)" : "");
+    return buf;
+}
+
 void debug_menu_draw(void) {
     draw_rect(0, 0, SCREEN_W, SCREEN_H, rgba(0, 0, 0, 0.72f));
     float top = 120.0f, bottom = row_y(ROW_COUNT - 1) + ROW_H + 70.0f;
@@ -186,8 +212,13 @@ void debug_menu_draw(void) {
         if (is_room_row(r)) {
             SDL_FColor c = col_hex(ROOM_ROWS[r].color, 1);
             draw_text(lx, ty, 2.5f, c, "%s", ROOM_ROWS[r].label);
-            draw_button(BTN_X0, y, BTN_W, "WITH ENEMIES", c, sel && M.col == 0);
-            draw_button(BTN_X1, y, BTN_W, "NO ENEMIES", c, sel && M.col == 1);
+            if (peaceful_row(r)) {
+                draw_text_centered(BTN_X0 + BTN_W * 0.5f, ty + 2.0f, 1.5f, col_a(COL_WHITE, 0.3f), "never has enemies");
+                draw_button(BTN_X1, y, BTN_W, "NO ENEMIES", c, sel);
+            } else {
+                draw_button(BTN_X0, y, BTN_W, "WITH ENEMIES", c, sel && M.col == 0);
+                draw_button(BTN_X1, y, BTN_W, "NO ENEMIES", c, sel && M.col == 1);
+            }
             continue;
         }
         const char *label = "";
@@ -203,24 +234,34 @@ void debug_menu_draw(void) {
             break;
         case ROW_GOD: label = "GOD MODE"; SDL_snprintf(value, sizeof value, "%s", G.god ? "ON" : "OFF"); break;
         case ROW_FPS: label = "FPS OVERLAY"; SDL_snprintf(value, sizeof value, "%s", G.show_debug ? "ON" : "OFF"); break;
+        case ROW_ALWAYS_SECRET:
+            label = "SECRET IN EVERY ROOM";
+            SDL_snprintf(value, sizeof value, "%s", G.force_secret ? "ON" : "OFF");
+            break;
+        case ROW_REVEAL:
+            label = "SHOW SECRET CORNER";
+            SDL_snprintf(value, sizeof value, "%s", G.reveal_secrets ? "ON" : "OFF");
+            break;
         case ROW_COINS: label = "+50 COINS"; break;
+        case ROW_BOMBS: label = "+3 BOMBS"; break;
         case ROW_CLOSE: label = "CLOSE"; break;
         default: break;
         }
         draw_text(lx, ty, 2.5f, sel ? white : dimw, "%s", label);
         if (value[0]) {
             bool on = !SDL_strcmp(value, "ON");
-            SDL_FColor vc = r == ROW_GOD || r == ROW_FPS ? (on ? col_hex(0x9dff6a, 1) : col_hex(0xff4d6a, 1)) : white;
+            SDL_FColor vc = is_toggle_row(r) ? (on ? col_hex(0x9dff6a, 1) : col_hex(0xff4d6a, 1)) : white;
             draw_text_centered(BTN_X1 - 10.0f, ty, 2.5f, vc, "%s", value);
         }
     }
 
-    const char *names[] = {"LAUNCH BAY", "COMBAT", "STATS", "SHOP", "TREASURE", "BOSS"};
+    const char *names[] = {"LAUNCH BAY", "COMBAT", "STATS", "TREASURE", "SHOP", "BOSS", "SECRET"};
     bool in_run = G.debug_prev == GS_PLAYING || G.debug_prev == GS_PAUSED;
     if (in_run)
         draw_text_centered(SCREEN_W * 0.5f, bottom - 46.0f, 1.5f, col_a(COL_WHITE, 0.5f),
-                           "NOW: ROOM %d - %s - %s - %d ENEMIES - %d COINS", G.room.depth, names[G.room.type],
-                           G.room.cleared ? "CLEARED" : "FIGHTING", G.nen + G.nsp, G.pl.coins);
+                           "NOW: ROOM %d - %s - %s - %d ENEMIES - %d COINS%s", G.room.depth, names[G.room.type],
+                           G.room.cleared ? "CLEARED" : "FIGHTING", G.nen + G.nsp, G.pl.coins,
+                           secret_text());
     else
         draw_text_centered(SCREEN_W * 0.5f, bottom - 46.0f, 1.5f, col_a(COL_WHITE, 0.5f), "NO RUN IN PROGRESS - TELEPORTING STARTS ONE");
 }

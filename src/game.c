@@ -74,8 +74,14 @@ static void update_playing(void) {
         float prev = G.trans_t;
         G.trans_t += DT;
         if (prev < TRANS_TIME * 0.5f && G.trans_t >= TRANS_TIME * 0.5f) {
-            Door d = G.room.doors[G.trans_door];
-            room_enter(d.type, d.reward, G.room.depth + 1);
+            if (G.trans_door == DOOR_SECRET) {
+                room_enter_secret();
+            } else if (G.trans_door == DOOR_RETURN) {
+                room_return_from_secret();
+            } else {
+                Door d = G.room.doors[G.trans_door];
+                room_enter(d.type, d.reward, G.room.depth + 1);
+            }
         }
         if (G.trans_t >= TRANS_TIME) G.transitioning = false;
         fx_update();

@@ -144,7 +144,7 @@ typedef struct {
 
 /* ---- Rooms --------------------------------------------------------------- */
 
-typedef enum { ROOM_START, ROOM_COMBAT, ROOM_STATS, ROOM_TREASURE, ROOM_SHOP, ROOM_BOSS } RoomType;
+typedef enum { ROOM_START, ROOM_COMBAT, ROOM_STATS, ROOM_TREASURE, ROOM_SHOP, ROOM_BOSS, ROOM_SECRET } RoomType;
 typedef enum { RW_NONE, RW_COINS, RW_KEY, RW_BOMBS, RW_HEART, RW_WEAPON, RW_UPGRADE, RW_COUNT } RewardType;
 typedef enum { SIDE_LEFT, SIDE_TOP, SIDE_RIGHT, SIDE_BOTTOM } Side;
 
@@ -171,7 +171,20 @@ typedef struct {
     float clear_t;
     float msg_cd;
     float hue;
+    int id;              /* unique per room_enter; kept when returning from a secret room */
+    bool revisit;        /* restored after leaving its secret room (the only re-entered room) */
+    /* Secret room: a corner flashes faintly during combat; a bomb there opens the bottom door. */
+    int secret_corner;   /* -1 = none, else 0..3 (top-left, top-right, bottom-right, bottom-left) */
+    bool secret_open, secret_used;
+    float secret_flash_t, secret_flash_cd;
+    int secret_flashes;  /* how many times it flashed (the bot only "knows" after seeing one) */
 } Room;
+
+/* Pseudo door indices for game_start_transition(). */
+#define DOOR_SECRET (-1) /* bottom door into the secret room */
+#define DOOR_RETURN (-2) /* secret room exit, back to the room it was found in */
+#define SECRET_CHANCE 0.15f
+#define SECRET_BOMB_RADIUS 220.0f
 
 /* ---- Player -------------------------------------------------------------- */
 
@@ -239,6 +252,11 @@ typedef struct {
     SDL_FColor banner_col;
     int rooms_cleared, kills;
     int items_bought; /* shop purchases this run */
+    int room_counter; /* source of Room.id */
+    Room parent;      /* room the current secret room was found in, restored on exit */
+    Pickup parent_pk[MAX_PICKUPS]; int parent_npk;
+    bool force_secret;   /* dev: every eligible room hides a secret */
+    bool reveal_secrets; /* dev: draw secret corners permanently */
     float gameover_t;
     float last_enemy_damage_t; /* G.time of the last hit on an enemy (stall detection in tests) */
 
@@ -273,6 +291,7 @@ extern const StatDef STATS[ST_COUNT];
 #define REWARD_CHOICES 3 /* weapon / upgrade rooms always offer this many items to pick from */
 #define COLOR_STATS 0x4dffd2
 #define COLOR_SHOP 0xff6bd6
+#define COLOR_SECRET 0xffb347
 static inline int stat_offer_encode(int up, int down) { return up * ST_COUNT + down; }
 static inline int stat_offer_up(int offer) { return offer / ST_COUNT; }
 static inline int stat_offer_down(int offer) { return offer % ST_COUNT; }
@@ -305,6 +324,13 @@ bool room_line_clear(V2 a, V2 b, float margin);
 V2 room_navigate(V2 from, V2 goal, float margin);
 V2 door_position(Side side);
 RewardType room_roll_reward(void);
+V2 room_secret_spot(int corner);
+/* The launch bay and secret rooms are the exceptions to "every room starts full of enemies". */
+static inline bool room_type_peaceful(RoomType t) { return t == ROOM_START || t == ROOM_SECRET; }
+/* A bomb went off at pos: opens the secret passage if pos is near the secret corner. */
+void room_bomb_at(V2 pos);
+void room_enter_secret(void);
+void room_return_from_secret(void);
 /* Dev only (debug menu): kill the pending waves and clear the room at once. */
 void room_debug_clear(void);
 
@@ -343,6 +369,8 @@ void pickup_spawn(PickupType type, int sub, V2 pos, V2 vel);
 void pickups_update(void);
 void pickups_draw(void);
 void reward_drop(RewardType r, V2 pos);
+/* Secret room loot: 1 item (rarely 2) plus coins / bombs / keys. */
+void secret_reward_drop(V2 center);
 /* Spawn a pedestal that belongs to the room's one-of-N choice. */
 void pickup_spawn_choice(PickupType type, int sub, V2 pos);
 void draw_pickup_icon(PickupType type, int sub, V2 pos, float s, float t);

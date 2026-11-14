@@ -38,6 +38,7 @@ static void player_bomb(void) {
     p->invuln = fmaxf(p->invuln, 0.7f);
     G.bomb_flash = 1.0f;
     G.hitstop = 0.06f;
+    room_bomb_at(p->pos);
     fx_shake(1.0f);
     fx_particle(p->pos, v2(0, 0), 0.6f, 1500.0f, col_hex(0xffffff, 0.9f), 0.0f, PT_RING);
     fx_particle(p->pos, v2(0, 0), 0.45f, 900.0f, col_hex(0xff8a3d, 1.0f), 0.0f, PT_RING);

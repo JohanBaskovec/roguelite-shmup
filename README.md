@@ -28,12 +28,13 @@ Preset `debug` disponible aussi (`build/debug`).
 
 ## Boucle de jeu
 
-- **Toutes les salles démarrent pleines d'ennemis** (y compris la *Launch Bay*, avec une vague légère). Ce qui rend une salle spéciale n'apparaît qu'une fois tous les ennemis morts.
+- **Toutes les salles démarrent pleines d'ennemis**, sauf deux exceptions : la *Launch Bay* (première salle, portes ouvertes tout de suite) et les salles secrètes. Ce qui rend une salle spéciale n'apparaît qu'une fois tous les ennemis morts.
 - Une fois la salle nettoyée : 3 portes (gauche / haut / droite). Chaque porte affiche la récompense de la salle suivante. Une porte peut être verrouillée (coûte 1 clef) et contient toujours une arme ou une amélioration.
 - **Salles d'arme et d'amélioration : toujours 3 objets au choix** (avec leur description), on en prend un et les deux autres disparaissent. S'il reste moins de 3 armes à obtenir, une salle d'arme complète avec des améliorations.
 - Ressources : pièces, clefs, bombes (+ cœurs). **Les ennemis ne lâchent jamais rien** : les ressources sont uniquement des récompenses de salle, aspirées automatiquement une fois la salle nettoyée.
 - **Salles Stats** (porte turquoise, ~20 % des portes après un combat) : une fois les ennemis tués, 4 échanges apparaissent, on en prend un (ou aucun). Chaque échange augmente une stat et en baisse une autre. Stats : dégâts, cadence, portée, PV max, vitesse de déplacement, recharge du dash, vitesse des projectiles, taille de la hitbox, chance (quantité des récompenses de salle). Valeurs et bornes dans `src/stats.c`.
 - **Shops** (porte rose, à partir de la salle 2, jamais deux d'affilée) : une fois les ennemis tués, toujours 5 objets à vendre — au moins une arme, une amélioration et un échange de stats, plus 2 emplacements aléatoires. On achète en marchant dessus ; prix affiché en doré si on peut payer, en rouge sinon. Prix : `shop_price()` dans `src/pickups.c`.
+- **Salles secrètes** (~15 % des salles de combat, Stats et shops) : pendant le combat, un coin de la salle flashe très brièvement (petit carré presque invisible). Une bombe dans ce coin ouvre la porte du bas, vers la salle secrète : pas d'ennemis, le butin attend déjà — 1 arme ou amélioration (rarement 2) + pièces, bombes ou clefs. La sortie ramène dans la salle d'origine.
 - 5 armes (Blaster, Scatter, Needler, Seeker, Bouncer) avec 5 niveaux chacune, 11 améliorations passives qui s'appliquent à toutes les armes (tir multiple, perçant, rebond, homing, drones...).
 
 ## Architecture (`src/`)
@@ -68,7 +69,7 @@ ctest --preset asan         # même suite sous AddressSanitizer + UBSan (cmake -
 
 Aucun test n'ouvre de fenêtre :
 
-- **Simulation headless** (`--headless`) : pas de vidéo ni d'audio, un autopilote (`bot.c`) joue aussi vite que le CPU le permet (~500x le temps réel). Des invariants sont vérifiés à chaque tick (positions finies et dans l'arène, PV cohérents, arme possédée, aucun objet au sol avant la fin d'une salle (pas de drop d'ennemi), shop à 5 objets, pas de salle bloquée — aucun ennemi touché pendant 60 s —, pas de salle nettoyée jamais quittée). En cas d'échec, `--fail-shot` enregistre l'image de l'instant fautif (rendue offscreen).
+- **Simulation headless** (`--headless`) : pas de vidéo ni d'audio, un autopilote (`bot.c`) joue aussi vite que le CPU le permet (~500x le temps réel). Des invariants sont vérifiés à chaque tick (positions finies et dans l'arène, PV cohérents, arme possédée, aucun objet au sol avant la fin d'une salle (pas de drop d'ennemi), shop à 5 objets, 3 choix dans les salles d'arme / d'amélioration, butin et retour des salles secrètes, pas de salle bloquée — aucun ennemi touché pendant 60 s —, pas de salle nettoyée jamais quittée). En cas d'échec, `--fail-shot` enregistre l'image de l'instant fautif (rendue offscreen).
 - **Rendu** : `--shot` dessine dans le pilote vidéo `offscreen` de SDL et sauve un BMP.
 - **Audio** : `--dump-sfx` synthétise tous les sons en WAV.
 
@@ -76,7 +77,7 @@ Les sorties des tests sont dans `build/<preset>/test-output/`.
 
 ## Menu de debug (F3)
 
-Fige le jeu et permet de se téléporter dans chaque type de salle (Launch Bay, combat, Stats, Shop), **avec ses ennemis** ou **sans ennemis** (salle déjà nettoyée, récompense déjà sortie). On choisit aussi la profondeur de la salle et la récompense des salles de combat (aléatoire ou imposée). Bonus : god mode, overlay FPS, +50 pièces. Navigation flèches / WASD + Entrée, ou à la souris ; F3 ou Échap pour fermer.
+Fige le jeu et permet de se téléporter dans chaque type de salle (Launch Bay, combat, Stats, Shop, salle secrète), **avec ses ennemis** ou **sans ennemis** (salle déjà nettoyée, récompense déjà sortie) ; la Launch Bay et la salle secrète n'ont que « sans ennemis ». On choisit aussi la profondeur de la salle et la récompense des salles de combat (aléatoire ou imposée). Pour la salle secrète, on arrive depuis une salle de combat nettoyée, où l'on revient en sortant. Bonus : god mode, overlay FPS, « secret dans chaque salle », « afficher le coin secret » (carré, libellé et rayon de la bombe ; le coin est aussi indiqué en bas du menu), +50 pièces, +3 bombes. Navigation flèches / WASD + Entrée, ou à la souris ; F3 ou Échap pour fermer.
 
 ## Options de dev
 
@@ -90,6 +91,8 @@ neon_breach --seed 42 --depth 8                         # jouer : run reproducti
 neon_breach --stats                                     # démarrer directement dans une salle Stats
 neon_breach --shop --coins 50                           # démarrer dans un shop avec 50 pièces
 neon_breach --debug-menu                                # ouvrir le menu de debug au démarrage
+neon_breach --secret                                    # chaque salle cache une salle secrète
+neon_breach --show-secret                               # affiche le coin secret (comme dans le menu F3)
 neon_breach --headless --debug-rooms                    # teste les téléportations du menu de debug
 neon_breach --bot --god                                 # regarder l'autopilote jouer (ouvre une fenêtre)
 ```

@@ -80,6 +80,11 @@ if(SHMUP_BUILD_TESTS)
                      --fail-shot ${_out}/fail_sim_shop.bmp)
     add_test(NAME render_shop_room
              COMMAND neon_breach --shot ${_out}/render_shop.bmp --shop --coins 10 --god --seed 4 --frames 435)
+    # Every room hides a secret: the bot must spot the flash, bomb the corner, clear the
+    # secret room and come back to the room it was found in.
+    add_test(NAME sim_secret_rooms
+             COMMAND neon_breach --headless --god --secret --seed 70 --runs 8 --ticks 36000 --expect-rooms 3
+                     --fail-shot ${_out}/fail_sim_secret.bmp)
     # F3 debug menu: teleport into every room type, with and without enemies.
     add_test(NAME sim_debug_teleports
              COMMAND neon_breach --headless --debug-rooms --seed 1 --coins 40 --ticks 12000
@@ -93,5 +98,5 @@ if(SHMUP_BUILD_TESTS)
     add_test(NAME sfx_synthesis COMMAND neon_breach --dump-sfx ${_out}/sfx)
 
     set_tests_properties(sim_god_seed1 sim_god_seed2 sim_god_seed3 sim_mortal_runs sim_deep_rooms
-                         sim_stats_rooms sim_shop_rooms render_shop_room sim_debug_teleports render_debug_menu render_stats_room render_offscreen sfx_synthesis PROPERTIES TIMEOUT 600)
+                         sim_stats_rooms sim_shop_rooms render_shop_room sim_secret_rooms sim_debug_teleports render_debug_menu render_stats_room render_offscreen sfx_synthesis PROPERTIES TIMEOUT 600)
 endif()

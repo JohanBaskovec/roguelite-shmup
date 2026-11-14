@@ -57,12 +57,16 @@ static const char *check_invariants(float room_time) {
         if (!finite_v2(G.pk[i].pos) || !in_arena(G.pk[i].pos, 0.0f)) return "pickup outside the arena";
     /* Rules: every room starts with enemies; enemies never drop anything - every pickup
      * (resources included) is a room reward and only appears once the room is cleared. */
-    if (G.room.nwaves < 1) return "room without enemy waves";
+    bool peaceful = room_type_peaceful(G.room.type);
+    if (G.room.nwaves < 1 && !peaceful) return "room without enemy waves";
+    if (peaceful && (!G.room.cleared || G.nen + G.nsp > 0)) return "enemies in the launch bay or a secret room";
     if (!G.room.cleared && G.npk > 0) {
         snprintf(msg, sizeof msg, "pickup (type %d) present before the room was cleared - enemy drop or early reward?",
                  G.pk[0].type);
         return msg;
     }
+    if (G.room.secret_open && G.room.secret_corner < 0) return "secret passage open in a room without a secret";
+    if (G.room.type == ROOM_SECRET && G.room.ndoors != 0) return "secret room has regular doors (its only exit leads back)";
     for (int i = 0; i < G.npk; i++)
         if (G.pk[i].price < 0 || (G.pk[i].price > 0 && G.room.type != ROOM_SHOP)) return "priced item outside a shop";
     float stall = fminf(room_time, G.time - G.last_enemy_damage_t);
@@ -106,6 +110,19 @@ static const char *check_room_reward(void) {
         return buf;
     }
     if (G.room.type == ROOM_STATS && count_choices() == 0) return "stats room cleared without any trade";
+    if (G.room.type == ROOM_SECRET) {
+        int items = 0, resources = 0;
+        for (int i = 0; i < G.npk; i++) {
+            const Pickup *k = &G.pk[i];
+            items += (k->type == PK_WEAPON || k->type == PK_UPGRADE) && !k->choice && k->price == 0;
+            resources += k->type == PK_COIN || k->type == PK_BOMB || k->type == PK_KEY;
+        }
+        if (items < 1 || items > 2) {
+            snprintf(buf, sizeof buf, "secret room holds %d items instead of 1 or 2", items);
+            return buf;
+        }
+        if (resources == 0) return "secret room holds no coins / bombs / keys";
+    }
     return NULL;
 }
 
@@ -141,12 +158,12 @@ static void clear_edges(void) {
 /* Debug-menu teleports: every room type, with and without enemies, must land in a
  * coherent state, and the bot must be able to finish the room and leave it. */
 static int debug_rooms_run(const HeadlessOptions *o) {
-    static const RoomType types[] = {ROOM_START, ROOM_COMBAT, ROOM_COMBAT, ROOM_COMBAT, ROOM_STATS, ROOM_SHOP};
-    static const RewardType rewards[] = {RW_NONE, RW_NONE, RW_WEAPON, RW_UPGRADE, RW_NONE, RW_NONE};
-    static const char *names[] = {"launch bay", "combat", "weapon", "upgrade", "stats", "shop"};
+    static const RoomType types[] = {ROOM_START, ROOM_COMBAT, ROOM_COMBAT, ROOM_COMBAT, ROOM_STATS, ROOM_SHOP, ROOM_SECRET};
+    static const RewardType rewards[] = {RW_NONE, RW_NONE, RW_WEAPON, RW_UPGRADE, RW_NONE, RW_NONE, RW_NONE};
+    static const char *names[] = {"launch bay", "combat", "weapon", "upgrade", "stats", "shop", "secret"};
     int failures = 0;
     for (int t = 0; t < ARRAY_LEN(types); t++) {
-        for (int with = 1; with >= 0; with--) {
+        for (int with = room_type_peaceful(types[t]) ? 0 : 1; with >= 0; with--) {
             game_init(o->seed + (uint64_t)t);
             G.god = true;
             game_new_run();
@@ -162,16 +179,18 @@ static int debug_rooms_run(const HeadlessOptions *o) {
             else if (!with && (err = check_room_reward()) != NULL) {}
             else if (!with && types[t] == ROOM_COMBAT && G.npk == 0) err = "empty combat room has no reward";
 
-            int depth = G.room.depth, tick = 0;
+            int id = G.room.id, parent = G.parent.id, tick = 0;
+            bool secret = G.room.type == ROOM_SECRET;
             float room_time = 0.0f;
-            for (; !err && tick < o->max_ticks && G.room.depth == depth; tick++) {
+            for (; !err && tick < o->max_ticks && G.room.id == id; tick++) {
                 bot_input();
                 game_update();
                 clear_edges();
                 room_time += DT;
-                if (G.room.depth == depth) err = check_invariants(room_time);
+                if (G.room.id == id) err = check_invariants(room_time);
             }
-            if (!err && G.room.depth == depth) err = "the bot never left the room";
+            if (!err && G.room.id == id) err = "the bot never left the room";
+            else if (!err && secret && (G.room.id != parent || !G.room.revisit)) err = "secret room exit did not lead back";
             printf("debug teleport %-10s %-14s -> %s (%.1f s)\n", names[t], with ? "with enemies" : "no enemies",
                    err ? err : "OK", (double)tick / TICK_RATE);
             if (err) {
@@ -225,33 +244,54 @@ int headless_run(const HeadlessOptions *o) {
         uint64_t seed = o->seed + (uint64_t)run;
         game_init(seed);
         G.god = o->god;
+        G.force_secret = o->secret;
         game_new_run();
         G.pl.coins += o->coins;
         if (o->stats_room) room_enter(ROOM_STATS, RW_NONE, o->depth > 0 ? o->depth : 1);
         else if (o->shop_room) room_enter(ROOM_SHOP, RW_NONE, o->depth > 0 ? o->depth : 1);
         else if (o->depth > 0) room_enter(ROOM_COMBAT, RW_UPGRADE, o->depth);
 
-        int depth = G.room.depth;
-        int stats_rooms = G.room.type == ROOM_STATS, shops = G.room.type == ROOM_SHOP;
+        int room_id = G.room.id, secret_parent = -1;
+        int stats_rooms = G.room.type == ROOM_STATS, shops = G.room.type == ROOM_SHOP, secrets = 0;
         bool was_cleared = G.room.cleared;
         int choices = 0; /* one-of-N pickups offered when the room was cleared */
         float room_time = 0.0f;
-        const char *err = G.room.cleared ? "first room starts already cleared (every room must start with enemies)" : NULL;
+        const char *err = G.room.cleared != room_type_peaceful(G.room.type)
+                              ? "first room: only the launch bay / secret rooms start without enemies" : NULL;
         int tick = 0;
         for (; !err && tick < o->max_ticks && G.state != GS_GAMEOVER; tick++) {
             bot_input();
             game_update();
             clear_edges();
-            if (G.room.depth != depth) {
-                depth = G.room.depth;
-                if (G.room.cleared) {
-                    err = "entered a room that was already cleared (every room must start with enemies)";
-                    break;
-                }
-                stats_rooms += G.room.type == ROOM_STATS;
-                shops += G.room.type == ROOM_SHOP;
+            if (G.room.id != room_id) {
+                int from = room_id;
+                room_id = G.room.id;
                 room_time = 0.0f;
-                was_cleared = false;
+                if (G.room.revisit) {
+                    /* Leaving a secret room: back in the (cleared) room it was found in. */
+                    if (G.room.id != secret_parent || !G.room.cleared) {
+                        err = "secret room exit did not lead back to the room it was found in";
+                        break;
+                    }
+                    was_cleared = true;
+                    choices = count_choices();
+                } else {
+                    if (G.room.cleared != room_type_peaceful(G.room.type)) {
+                        err = "new room: every room starts with enemies, except the launch bay and secret rooms";
+                        break;
+                    }
+                    if (G.room.type == ROOM_SECRET) {
+                        secret_parent = from;
+                        secrets++;
+                        if (!G.parent.cleared || G.parent.id != from) {
+                            err = "entered a secret room from a room that was not cleared";
+                            break;
+                        }
+                    }
+                    stats_rooms += G.room.type == ROOM_STATS;
+                    shops += G.room.type == ROOM_SHOP;
+                    was_cleared = false;
+                }
             }
             if (G.room.cleared && !was_cleared) {
                 if ((err = check_room_reward()) != NULL) break;
@@ -274,7 +314,7 @@ int headless_run(const HeadlessOptions *o) {
         for (int w = 0; w < WPN_COUNT; w++)
             if (G.pl.wlevel[w]) printf("%.3s%d ", WEAPONS[w].name, G.pl.wlevel[w]);
         const Player *p = &G.pl;
-        printf("coins=%d shops=%d bought=%d stats_rooms=%d", p->coins, shops, G.items_bought, stats_rooms);
+        printf("coins=%d shops=%d bought=%d secrets=%d stats_rooms=%d", p->coins, shops, G.items_bought, secrets, stats_rooms);
         if (stats_rooms)
             printf(" [dmg x%.2f rate x%.2f range x%.2f speed x%.2f dash %.2fs hitbox %.1f luck %+d]", (double)p->dmg_mult,
                    (double)p->rate_mult, (double)p->range_mult, (double)(p->speed / 540.0f), (double)p->dash_cooldown,
@@ -286,6 +326,9 @@ int headless_run(const HeadlessOptions *o) {
             failures++;
         } else if (o->shop_room && o->coins >= 30 && G.items_bought == 0) {
             printf("  started in a shop with %d coins but never bought anything\n", G.pl.coins);
+            failures++;
+        } else if (o->secret && secrets == 0) {
+            printf("  every room hid a secret but the bot never entered one\n");
             failures++;
         } else if (G.rooms_cleared < o->expect_rooms) {
             printf("  expected at least %d cleared rooms\n", o->expect_rooms);

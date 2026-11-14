@@ -5,20 +5,27 @@ All graphics and sounds are generated in code. See README.md for controls and ar
 
 ## Game design rules (must always hold)
 
-- **Every room starts full of enemies — every room type, including the launch bay, stats rooms
-  and any future shop / treasure / boss room.** What makes a room special is only what appears
-  once all its enemies are dead (reward drop, stat trades, ...). Never create a room that starts
-  cleared or spawns its reward before the fight is over.
+- **Every room starts full of enemies — every room type, including stats rooms, shops and any
+  future treasure / boss room.** What makes a room special is only what appears once all its
+  enemies are dead (reward drop, stat trades, ...). Never create a room that starts cleared or
+  spawns its reward before the fight is over.
+  **Only two exceptions** (`room_type_peaceful()`): the launch bay (first room, doors open at once)
+  and secret rooms (loot already there). They never have enemies.
 - **Enemies never drop anything.** Resources (coins, keys, bombs, hearts) only come from room
   rewards, after the room is cleared. Luck affects reward quantities, not drops.
 - **Weapon and upgrade rooms always offer a choice of 3 items** (take one, the other two vanish).
   A weapon room tops up with upgrades when fewer than 3 weapons can still be gained.
+- **Secret rooms**: some rooms (combat / stats / shop) hide one. During the fight one corner flashes
+  very briefly (small, faint square); a bomb in that corner opens the bottom door to the secret room.
+  The secret room has no enemies (exception above): 1 item (rarely 2) plus coins / bombs / keys
+  are waiting there. Its exit leads back to the room it was found in - the only time a room is
+  re-entered, already cleared (`Room.revisit`; headless tracks rooms by `Room.id`).
 - A shop always sells exactly 5 items (weapons, upgrades, stat trades), paid with coins.
 - After a room is cleared the player chooses between 3 doors; each door previews what the next
   room gives. One door may be locked (costs a key).
 
 These rules are enforced by invariants in `src/headless.c`; keep them there when adding rooms.
-The only exception is the F3 debug menu (`src/debug_menu.c`), a dev tool that can teleport into a
+Besides the two peaceful room types, the only exception is the F3 debug menu (`src/debug_menu.c`), a dev tool that can teleport into a
 room "without enemies" (already cleared). When adding a room type, add it to the debug menu and to
 the `--debug-rooms` test too.
 

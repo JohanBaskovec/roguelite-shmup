@@ -73,6 +73,7 @@ static const SfxInfo INFO[SFX_COUNT] = {
     [SFX_ROOM_CLEAR] = {0.60f, 0.50f, 1, 0.00f},
     [SFX_DOOR_OPEN] = {0.90f, 0.20f, 1, 0.00f},
     [SFX_UNLOCK] = {0.60f, 0.20f, 1, 0.00f},
+    [SFX_SECRET] = {0.80f, 0.50f, 1, 0.00f},
     [SFX_DOOR_ENTER] = {1.00f, 0.20f, 1, 0.00f},
     [SFX_UI_START] = {0.50f, 0.20f, 1, 0.00f},
     [SFX_PAUSE] = {0.40f, 0.10f, 1, 0.00f},
@@ -293,6 +294,15 @@ static void generate_all(void) {
         {.wave = W_SQUARE, .f0 = 1700, .dur = 0.04f, .delay = 0.07f, .vol = 0.3f},
         {.wave = W_TRI, .f0 = G6, .dur = 0.2f, .delay = 0.12f, .vol = 0.35f},
         {.wave = W_TRI, .f0 = C7, .dur = 0.35f, .delay = 0.18f, .decay = 2, .vol = 0.35f});
+    /* Rubble burst, then a rising shimmering arpeggio: a hidden passage opened. */
+    SFX(SFX_SECRET,
+        {.wave = W_NOISE, .f0 = WHITE, .dur = 0.35f, .decay = 3, .lp0 = 1800, .lp1 = 300, .vol = 0.7f},
+        {.wave = W_SINE, .f0 = 90, .f1 = 40, .dur = 0.3f, .decay = 2, .vol = 0.6f},
+        {.wave = W_TRI, .f0 = G5, .dur = 0.12f, .delay = 0.18f, .vol = 0.35f},
+        {.wave = W_TRI, .f0 = B5, .dur = 0.12f, .delay = 0.26f, .vol = 0.35f},
+        {.wave = W_TRI, .f0 = D6, .dur = 0.12f, .delay = 0.34f, .vol = 0.35f},
+        {.wave = W_TRI, .f0 = G6, .dur = 0.6f, .delay = 0.42f, .decay = 2, .vib_hz = 7, .vib_depth = 0.01f, .vol = 0.4f},
+        {.wave = W_SINE, .f0 = D7, .dur = 0.5f, .delay = 0.46f, .decay = 3, .vol = 0.15f});
     SFX(SFX_DOOR_ENTER,
         {.wave = W_NOISE, .f0 = WHITE, .dur = 0.4f, .attack = 0.25f, .decay = 3, .lp0 = 400, .lp1 = 5000, .vol = 0.5f},
         {.wave = W_SINE, .f0 = 200, .f1 = 600, .dur = 0.35f, .attack = 0.3f, .decay = 3, .vol = 0.2f});
