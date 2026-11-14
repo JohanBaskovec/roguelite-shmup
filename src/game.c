@@ -20,6 +20,7 @@ void game_init(uint64_t seed) {
     rng_seed(&G.rng, seed);
     rng_seed(&vis_rng, seed ^ 0xA5A5A5A5ull);
     G.in.weapon_select = -1;
+    G.secret_shop_override = G.secret_ambush_override = -1; /* random */
     G.state = GS_TITLE;
     player_init();
     room_enter(ROOM_START, RW_NONE, 0);
@@ -90,6 +91,7 @@ static void update_playing(void) {
 
     player_update();
     weapons_update();
+    upg_update();
     bullets_update();
     enemies_update();
     pickups_update();
@@ -153,6 +155,7 @@ void game_render(void) {
     bullets_draw_player();
     if (G.state != GS_GAMEOVER) {
         drones_draw();
+        upg_draw();
         player_draw();
     }
     bullets_draw_enemy();

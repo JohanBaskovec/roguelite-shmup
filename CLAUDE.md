@@ -10,7 +10,8 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   enemies are dead (reward drop, stat trades, ...). Never create a room that starts cleared or
   spawns its reward before the fight is over.
   **Only two exceptions** (`room_type_peaceful()`): the launch bay (first room, doors open at once)
-  and secret rooms (loot already there). They never have enemies.
+  and secret rooms (loot already there). They start without enemies; the only twist is the
+  secret room's 10% ambush variant (`Room.peaceful` false: one wave, loot after it).
 - **Enemies never drop anything.** Resources (coins, keys, bombs, hearts) only come from room
   rewards, after the room is cleared. Luck affects reward quantities, not drops.
 - **Weapon and upgrade rooms always offer a choice of 3 items** (take one, the other two vanish).
@@ -18,7 +19,8 @@ All graphics and sounds are generated in code. See README.md for controls and ar
 - **Secret rooms**: some rooms (combat / stats / shop) hide one. During the fight one corner flashes
   very briefly (small, faint square); a bomb in that corner opens the bottom door to the secret room.
   The secret room has no enemies (exception above): 1 item (rarely 2) plus coins / bombs / keys
-  are waiting there. Its exit leads back to the room it was found in - the only time a room is
+  are waiting there. Variants: 10% secret shop (5 priced items instead of the free item),
+  10% ambush (enemies first, loot once cleared). Its exit leads back to the room it was found in - the only time a room is
   re-entered, already cleared (`Room.revisit`; headless tracks rooms by `Room.id`).
 - A shop always sells exactly 5 items (weapons, upgrades, stat trades), paid with coins.
 - After a room is cleared the player chooses between 3 doors; each door previews what the next
@@ -56,7 +58,13 @@ invariants / a CTest entry in `CMakeLists.txt`.
 ## Code conventions
 
 - Single global `Game G` (`src/game.h`), fixed 120 Hz update (`DT`), rendering separate from update.
-- Content lives in data tables: `WEAPONS` / `UPGRADES` (`weapons.c`), `ENEMIES` (`enemies.c`),
+- Content lives in data tables: `WEAPONS` (`weapons.c`), `UPGRADES` (`upgrades.c`), `ENEMIES` (`enemies.c`),
   `STATS` (`stats.c`), sound definitions (`audio.c`).
+- Upgrade effects live in `upgrades.c` as `upg_*` hooks called from bullets / enemies / player /
+  room code; add new upgrades there (table entry + hook), and stat upgrades must clamp to the
+  invariant floors. `--all-upgrades` tests them all at once.
+- Hooks can run inside an entity loop (e.g. `upg_on_lethal_hit` runs inside the enemy bullet loop):
+  never clear or compact an array from there, mark entities dead (`life = -1`) instead.
+- Shields (`Player.shield`, half-hearts, max `MAX_SHIELD`) absorb damage before hearts.
 - Game code only queues sounds (`sfx_play*`); never call SDL audio directly.
 - In-game text is English and ASCII only (SDL's debug font has no accents). The user writes in French.

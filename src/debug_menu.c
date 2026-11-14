@@ -9,9 +9,9 @@
  */
 
 typedef enum {
-    ROW_DEPTH, ROW_REWARD,
+    ROW_DEPTH, ROW_REWARD, ROW_SECRET_CONTENT,
     ROW_START, ROW_COMBAT, ROW_STATS, ROW_SHOP, ROW_SECRET,
-    ROW_GOD, ROW_FPS, ROW_ALWAYS_SECRET, ROW_REVEAL, ROW_COINS, ROW_BOMBS, ROW_CLOSE,
+    ROW_GOD, ROW_FPS, ROW_ALWAYS_SECRET, ROW_REVEAL, ROW_COINS, ROW_BOMBS, ROW_UPGRADE, ROW_CLOSE,
     ROW_COUNT
 } Row;
 
@@ -34,8 +34,8 @@ static const struct {
 /* Layout (logical pixels). */
 #define PANEL_W 940.0f
 #define PANEL_X ((SCREEN_W - PANEL_W) * 0.5f)
-#define ROWS_Y 228.0f
-#define ROW_H 46.0f
+#define ROWS_Y 214.0f
+#define ROW_H 40.0f
 #define BTN_W 240.0f
 #define BTN_X0 (PANEL_X + 410.0f)
 #define BTN_X1 (BTN_X0 + BTN_W + 20.0f)
@@ -43,13 +43,17 @@ static const struct {
 static struct {
     int sel, col; /* selected row, and button column on room rows (0 = with enemies) */
     int depth, reward;
+    int secret_content; /* 0 random, 1 item, 2 shop */
+    int upgrade;        /* GIVE UPGRADE selection */
     bool up, down, left, right; /* previous held state, for edge detection */
     V2 mouse;
 } M = {.sel = ROW_COMBAT, .depth = 3};
 
 static bool is_room_row(int row) { return row >= ROW_START && row <= ROW_SECRET; }
-/* Launch bay and secret rooms never have enemies: only their NO ENEMIES button exists. */
-static bool peaceful_row(int row) { return is_room_row(row) && room_type_peaceful(ROOM_ROWS[row].type); }
+/* The launch bay never has enemies: only its NO ENEMIES button exists. (A secret room
+ * WITH ENEMIES is its rare guarded variant.) */
+static bool peaceful_row(int row) { return row == ROW_START; }
+static bool is_value_row(int row) { return row == ROW_DEPTH || row == ROW_REWARD || row == ROW_SECRET_CONTENT || row == ROW_UPGRADE; }
 static bool is_toggle_row(int row) { return row == ROW_GOD || row == ROW_FPS || row == ROW_ALWAYS_SECRET || row == ROW_REVEAL; }
 static float row_y(int row) { return ROWS_Y + (float)row * ROW_H + (row >= ROW_START ? 16.0f : 0.0f) + (row >= ROW_GOD ? 16.0f : 0.0f); }
 
@@ -72,7 +76,10 @@ void debug_teleport(RoomType type, RewardType reward, int depth, bool with_enemi
         room_debug_clear();
         if (G.room.secret_corner < 0) G.room.secret_corner = irand(0, 3);
         G.room.secret_open = true;
+        int ambush = G.secret_ambush_override;
+        G.secret_ambush_override = with_enemies;
         room_enter_secret();
+        G.secret_ambush_override = ambush;
     } else {
         room_enter(type, reward, depth);
     }
@@ -101,7 +108,9 @@ static void teleport_from_menu(int row, bool with_enemies) {
     /* No run in progress (title / game over): start one first. */
     if (G.debug_prev != GS_PLAYING && G.debug_prev != GS_PAUSED) game_new_run();
     RewardType rw = M.reward == 0 ? RW_NONE : (RewardType)(RW_COINS + M.reward - 1);
+    G.secret_shop_override = M.secret_content - 1; /* -1 random, 0 item, 1 shop */
     debug_teleport(ROOM_ROWS[row].type, rw, M.depth, with_enemies);
+    G.secret_shop_override = -1;
     G.state = GS_PLAYING;
     G.pl.invuln = fmaxf(G.pl.invuln, 0.8f);
     sfx_play(SFX_DOOR_ENTER);
@@ -111,6 +120,8 @@ static void teleport_from_menu(int row, bool with_enemies) {
 static void change_value(int row, int dir) {
     if (row == ROW_DEPTH) M.depth = (M.depth - 1 + dir + MAX_DEPTH) % MAX_DEPTH + 1;
     else if (row == ROW_REWARD) M.reward = (M.reward + dir + MENU_REWARDS) % MENU_REWARDS;
+    else if (row == ROW_SECRET_CONTENT) M.secret_content = (M.secret_content + dir + 3) % 3;
+    else if (row == ROW_UPGRADE) M.upgrade = (M.upgrade + dir + UPG_COUNT) % UPG_COUNT;
     else if (is_room_row(row)) M.col = dir > 0;
     else return;
     sfx_play(SFX_WEAPON_SWITCH);
@@ -119,7 +130,18 @@ static void change_value(int row, int dir) {
 static void activate(int row, int dir) {
     switch (row) {
     case ROW_DEPTH:
-    case ROW_REWARD: change_value(row, dir); break;
+    case ROW_REWARD:
+    case ROW_SECRET_CONTENT: change_value(row, dir); break;
+    case ROW_UPGRADE:
+        if (dir != 0) {
+            change_value(row, dir);
+        } else if (upgrade_capped(M.upgrade)) {
+            sfx_play(SFX_DENIED);
+        } else {
+            upgrade_apply(M.upgrade);
+            sfx_play(SFX_ITEM);
+        }
+        break;
     case ROW_GOD: G.god = !G.god; sfx_play(SFX_WEAPON_SWITCH); break;
     case ROW_FPS: G.show_debug = !G.show_debug; sfx_play(SFX_WEAPON_SWITCH); break;
     case ROW_ALWAYS_SECRET: G.force_secret = !G.force_secret; sfx_play(SFX_WEAPON_SWITCH); break;
@@ -164,11 +186,15 @@ void debug_menu_update(void) {
     }
 
     if (in->confirm_pressed) {
-        if (hover == M.sel && (M.sel == ROW_DEPTH || M.sel == ROW_REWARD)) {
+        if (hover == M.sel && M.sel == ROW_UPGRADE) {
+            /* < name > on the left (click either half to browse), GIVE button on the right. */
+            float x = in->mouse.x;
+            activate(M.sel, x >= BTN_X1 + BTN_W * 0.5f ? 0 : x < BTN_X0 + BTN_W * 0.5f ? -1 : +1);
+        } else if (hover == M.sel && is_value_row(M.sel)) {
             /* Click on the left half of a value decreases it, right half increases. */
             activate(M.sel, in->mouse.x < BTN_X1 - 10.0f ? -1 : +1);
         } else if (hover >= 0 || !in->fire) { /* ignore clicks outside the rows */
-            activate(M.sel, +1);
+            activate(M.sel, M.sel == ROW_UPGRADE ? 0 : +1); /* Enter on GIVE UPGRADE gives it */
         }
     }
 }
@@ -232,6 +258,18 @@ void debug_menu_draw(void) {
             label = "COMBAT REWARD";
             SDL_snprintf(value, sizeof value, "<  %s  >", M.reward == 0 ? "RANDOM" : reward_name((RewardType)(RW_COINS + M.reward - 1)));
             break;
+        case ROW_SECRET_CONTENT: {
+            static const char *contents[] = {"RANDOM", "ITEM", "SHOP"};
+            label = "SECRET CONTENT";
+            SDL_snprintf(value, sizeof value, "<  %s  >", contents[M.secret_content]);
+        } break;
+        case ROW_UPGRADE: {
+            label = "GIVE UPGRADE";
+            SDL_FColor uc = col_hex(UPGRADES[M.upgrade].color, 1);
+            draw_text_centered(BTN_X0 + BTN_W * 0.5f + 40.0f, ty + 2.0f, 2.0f, upgrade_capped(M.upgrade) ? col_a(uc, 0.35f) : uc,
+                               "< %s >", UPGRADES[M.upgrade].name);
+            draw_button(BTN_X1 + BTN_W * 0.5f, y, BTN_W * 0.5f, "GIVE", uc, sel);
+        } break;
         case ROW_GOD: label = "GOD MODE"; SDL_snprintf(value, sizeof value, "%s", G.god ? "ON" : "OFF"); break;
         case ROW_FPS: label = "FPS OVERLAY"; SDL_snprintf(value, sizeof value, "%s", G.show_debug ? "ON" : "OFF"); break;
         case ROW_ALWAYS_SECRET:

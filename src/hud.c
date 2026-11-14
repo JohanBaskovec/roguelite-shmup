@@ -48,6 +48,13 @@ void hud_draw(void) {
         if (here >= 2) draw_heart(c, 12.0f, col_hex(0xff3355, 1), false);
         else if (here == 1) draw_heart(c, 12.0f, col_hex(0xff3355, 1), true);
     }
+    /* Shields: temporary blue hearts after the containers. */
+    for (int i = 0; i * 2 < p->shield; i++) {
+        V2 c = v2(48.0f + (float)(containers + i) * 36.0f, 30.0f);
+        draw_heart(c, 12.0f, col_hex(0x66d9ff, 1), p->shield - i * 2 == 1);
+    }
+    if (p->revives > 0)
+        draw_text(48.0f + (float)(containers + (p->shield + 1) / 2) * 36.0f, 22.0f, 2.0f, col_hex(0xfff5c0, 1), "+%d", p->revives);
 
     resource(PK_COIN, 48.0f, 68.0f, p->coins);
     resource(PK_BOMB, 160.0f, 68.0f, p->bombs);
@@ -58,7 +65,7 @@ void hud_draw(void) {
     } else if (r->type == ROOM_STATS) {
         draw_text_centered(SCREEN_W * 0.5f, 16.0f, 3.0f, col_hex(COLOR_STATS, 1), "ROOM %d - STATS", r->depth);
     } else if (r->type == ROOM_SECRET) {
-        draw_text_centered(SCREEN_W * 0.5f, 16.0f, 3.0f, col_hex(COLOR_SECRET, 1), "SECRET ROOM");
+        draw_text_centered(SCREEN_W * 0.5f, 16.0f, 3.0f, col_hex(COLOR_SECRET, 1), "%s", r->secret_shop ? "SECRET SHOP" : "SECRET ROOM");
     } else if (r->type == ROOM_SHOP) {
         draw_text_centered(SCREEN_W * 0.5f, 16.0f, 3.0f, col_hex(COLOR_SHOP, 1), "ROOM %d - SHOP", r->depth);
     } else {
@@ -75,7 +82,7 @@ void hud_draw(void) {
         float a = 0.55f + 0.45f * sinf(G.time * 5.0f);
         if (offers && r->type == ROOM_STATS) draw_text_centered(SCREEN_W * 0.5f, 52.0f, 2.0f, col_hex(COLOR_STATS, a), "TAKE ONE TRADE - OR SKIP IT");
         else if (offers) draw_text_centered(SCREEN_W * 0.5f, 52.0f, 2.0f, col_hex(0xb57cff, a), "PICK ONE - THE OTHERS VANISH");
-        else if (r->type == ROOM_SECRET) draw_text_centered(SCREEN_W * 0.5f, 52.0f, 2.0f, col_hex(COLOR_SECRET, a), "GRAB THE LOOT - EXIT AT THE BOTTOM");
+        else if (r->type == ROOM_SECRET && !items) draw_text_centered(SCREEN_W * 0.5f, 52.0f, 2.0f, col_hex(COLOR_SECRET, a), "GRAB THE LOOT - EXIT AT THE BOTTOM");
         else if (items) draw_text_centered(SCREEN_W * 0.5f, 52.0f, 2.0f, col_hex(COLOR_SHOP, a), "SPEND COINS - OR SKIP IT");
         else draw_text_centered(SCREEN_W * 0.5f, 52.0f, 2.0f, col_hex(0x66f0ff, a), "CHOOSE A DOOR");
     }
@@ -123,15 +130,20 @@ static void draw_stats(float y) {
                        (double)(p->speed / 540.0f), (double)p->dash_cooldown, (double)p->hit_radius, p->luck);
     draw_text_centered(SCREEN_W * 0.5f, y + 60.0f, 2.0f, c, "PROJECTILES +%d   PIERCE +%d   BOUNCE +%d   DRONES %d",
                        p->extra_proj, p->pierce, p->bounce, p->drones);
-    char line[256];
-    int len = 0;
-    line[0] = '\0';
-    for (int u = 0; u < UPG_COUNT; u++) {
-        if (p->upg_count[u] == 0) continue;
-        len += SDL_snprintf(line + len, sizeof line - (size_t)len, "%s%s x%d", len ? "  " : "", UPGRADES[u].name, p->upg_count[u]);
-        if (len >= (int)sizeof line - 1) break;
+    /* Upgrades, wrapped over as many lines as needed. */
+    char line[160];
+    int len = 0, row = 0;
+    for (int u = 0; u <= UPG_COUNT; u++) {
+        char item[48] = "";
+        if (u < UPG_COUNT && p->upg_count[u] == 1) SDL_snprintf(item, sizeof item, "%s", UPGRADES[u].name);
+        else if (u < UPG_COUNT && p->upg_count[u] > 1) SDL_snprintf(item, sizeof item, "%s x%d", UPGRADES[u].name, p->upg_count[u]);
+        if (u < UPG_COUNT && !item[0]) continue;
+        if (len > 0 && (u == UPG_COUNT || len + 3 + (int)SDL_strlen(item) > 120)) {
+            draw_text_centered(SCREEN_W * 0.5f, y + 100.0f + (float)row++ * 22.0f, 1.5f, col_hex(0xb57cff, 0.9f), "%s", line);
+            len = 0;
+        }
+        if (u < UPG_COUNT) len += SDL_snprintf(line + len, sizeof line - (size_t)len, "%s%s", len ? "   " : "", item);
     }
-    if (len) draw_text_centered(SCREEN_W * 0.5f, y + 100.0f, 1.5f, col_hex(0xb57cff, 0.9f), "%s", line);
 }
 
 void overlay_draw(void) {
@@ -181,7 +193,7 @@ void overlay_draw(void) {
         dim(0.75f);
         draw_text_centered(SCREEN_W * 0.5f, 280.0f, 8.0f, COL_WHITE, "PAUSED");
         draw_stats(420.0f);
-        draw_text_centered(SCREEN_W * 0.5f, 640.0f, 2.0f, col_a(COL_WHITE, 0.7f), "ESC resume    R restart    Q quit");
+        draw_text_centered(SCREEN_W * 0.5f, 820.0f, 2.0f, col_a(COL_WHITE, 0.7f), "ESC resume    R restart    Q quit");
         break;
     case GS_GAMEOVER: {
         dim(fminf(G.gameover_t, 0.75f));
@@ -193,7 +205,7 @@ void overlay_draw(void) {
         draw_stats(460.0f);
         if (G.gameover_t > 0.8f) {
             float pulse = 0.5f + 0.5f * sinf(G.time * 3.0f);
-            draw_text_centered(SCREEN_W * 0.5f, 680.0f, 3.0f, col_a(COL_WHITE, 0.4f + 0.6f * pulse), "CLICK OR R TO RETRY");
+            draw_text_centered(SCREEN_W * 0.5f, 840.0f, 3.0f, col_a(COL_WHITE, 0.4f + 0.6f * pulse), "CLICK OR R TO RETRY");
         }
     } break;
     case GS_DEBUG:

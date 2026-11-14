@@ -21,6 +21,7 @@ void player_init(void) {
     p->range_mult = 1.0f;
     p->hit_radius = PLAYER_HIT_R;
     p->luck = 0;
+    p->spread_mult = p->bullet_size = 1.0f;
 }
 
 static void player_bomb(void) {
@@ -32,7 +33,7 @@ static void player_bomb(void) {
     for (int i = 0; i < G.nen; i++) {
         Enemy *e = &G.en[i];
         float d = v2_dist(e->pos, p->pos);
-        float dmg = (d < 650.0f ? 90.0f : 35.0f) * scale;
+        float dmg = (d < 650.0f ? 90.0f : 35.0f) * scale * (1.0f + 0.6f * (float)p->upg_count[UPG_BOMB_BELT]);
         enemy_damage(e, dmg, v2_scale(v2_norm(v2_sub(e->pos, p->pos)), 700.0f));
     }
     p->invuln = fmaxf(p->invuln, 0.7f);
@@ -50,10 +51,15 @@ void player_hurt(int dmg) {
     if (G.state != GS_PLAYING || G.transitioning) return;
     if (p->invuln > 0.0f || p->dash_t > 0.0f) return;
     if (G.god) dmg = 0;
-    p->hp -= dmg;
+    /* Shields (temporary hearts) soak damage before the hull. */
+    bool shielded = p->shield > 0;
+    int soak = dmg < p->shield ? dmg : p->shield;
+    p->shield -= soak;
+    p->hp -= dmg - soak;
     p->invuln = 1.2f;
-    G.hurt_flash = 1.0f;
-    sfx_play(SFX_PLAYER_HURT);
+    G.hurt_flash = shielded ? 0.4f : 1.0f;
+    sfx_play_ex(SFX_PLAYER_HURT, 1.0f, shielded ? 1.6f : 1.0f, 0.0f);
+    upg_on_hurt();
     G.hitstop = 0.08f;
     fx_shake(0.55f);
     /* Mercy: wipe bullets right around the ship. Marked dead, removed by the bullet loop. */
@@ -66,7 +72,7 @@ void player_hurt(int dmg) {
     }
     fx_burst(p->pos, 26, 150.0f, 650.0f, 0.4f, 3.0f, col_hex(0xff3355, 1));
     fx_particle(p->pos, v2(0, 0), 0.3f, 160.0f, col_hex(0xff3355, 1), 0.0f, PT_RING);
-    if (p->hp <= 0) {
+    if (p->hp <= 0 && !upg_on_lethal_hit()) {
         p->hp = 0;
         game_over();
     }
@@ -90,6 +96,7 @@ void player_update(void) {
         p->dash_t = 0.13f;
         p->dash_cd = p->dash_cooldown;
         sfx_play_at(SFX_DASH, p->pos);
+        upg_on_dash();
         fx_burst(p->pos, 12, 100.0f, 350.0f, 0.25f, 2.5f, col_hex(SHIP_COLOR, 1));
     }
 
@@ -98,7 +105,7 @@ void player_update(void) {
         p->vel = v2_scale(p->dash_dir, p->speed * 3.4f);
         fx_particle(p->pos, v2(0, 0), 0.2f, 22.0f, col_hex(SHIP_COLOR, 0.45f), 0.0f, PT_GLOW);
     } else {
-        p->vel = v2_lerp(p->vel, v2_scale(mv, p->speed), smooth_k(24.0f));
+        p->vel = v2_lerp(p->vel, v2_scale(mv, p->speed * upg_move_speed_mult()), smooth_k(24.0f));
     }
 
     p->pos = v2_add(p->pos, v2_scale(p->vel, DT));

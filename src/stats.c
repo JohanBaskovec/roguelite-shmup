@@ -19,6 +19,7 @@ const StatDef STATS[ST_COUNT] = {
     [ST_SHOT_SPEED] = {"SHOT SPEED", "+25% SHOT SPEED", "-15% SHOT SPEED"},
     [ST_HITBOX] = {"HITBOX", "-20% HITBOX SIZE", "+25% HITBOX SIZE"},
     [ST_LUCK] = {"LUCK", "+1 LUCK", "-1 LUCK"},
+    [ST_SHIELD] = {"SHIELDS", "+3 SHIELDS", ""},
 };
 
 bool stat_can_change(int s, bool up) {
@@ -33,6 +34,7 @@ bool stat_can_change(int s, bool up) {
     case ST_SHOT_SPEED: return up ? p->shot_speed_mult < 3.0f : p->shot_speed_mult * 0.85f >= 0.4f;
     case ST_HITBOX: return up ? p->hit_radius * 0.8f >= 2.0f : p->hit_radius * 1.25f <= 9.0f;
     case ST_LUCK: return up ? p->luck < 5 : p->luck > -3;
+    case ST_SHIELD: return up && p->shield + 6 <= MAX_SHIELD; /* shields can only be gained */
     default: return false;
     }
 }
@@ -53,6 +55,7 @@ void stat_apply(int s, bool up) {
     case ST_SHOT_SPEED: p->shot_speed_mult *= up ? 1.25f : 0.85f; break;
     case ST_HITBOX: p->hit_radius *= up ? 0.8f : 1.25f; break;
     case ST_LUCK: p->luck += up ? 1 : -1; break;
+    case ST_SHIELD: if (up) player_add_shield(6); break;
     default: break;
     }
 }

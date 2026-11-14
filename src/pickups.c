@@ -52,7 +52,9 @@ const char *door_label(const Door *d) {
 
 int shop_price(PickupType type, int sub) {
     int base = type == PK_WEAPON ? (G.pl.wlevel[sub] > 0 ? 12 : 18) : type == PK_UPGRADE ? 14 : 8;
-    return base + G.room.depth / 4;
+    int price = base + G.room.depth / 4;
+    if (G.pl.upg_count[UPG_COUPON]) price = (int)roundf((float)price * 0.7f);
+    return price > 1 ? price : 1;
 }
 
 /* Luck nudges the amount of resources a room reward gives. */
@@ -105,9 +107,9 @@ static bool item_present(PickupType type, int sub) {
     return false;
 }
 
-void secret_reward_drop(V2 center) {
+void secret_reward_drop(V2 center, bool items) {
     /* Items: free pedestals, all of them can be taken (not a one-of-N choice). */
-    int n = chance(0.12f) ? 2 : 1;
+    int n = !items ? 0 : chance(0.12f) ? 2 : 1;
     for (int i = 0; i < n; i++) {
         PickupType type = PK_UPGRADE;
         int sub = -1;
@@ -343,8 +345,9 @@ void draw_pickup_icon(PickupType type, int sub, V2 p, float s, float t) {
     } break;
     case PK_UPGRADE: {
         SDL_FColor c = col_hex(sub >= 0 ? UPGRADES[sub].color : 0xb57cff, 1);
-        draw_ngon(p, s, 4, t * 2.0f, c);
-        draw_ngon(p, s, 4, t * 2.0f + PI_F * 0.25f, c);
+        int sides = sub >= 0 ? 3 + sub % 4 : 4; /* a little shape variety across 50+ upgrades */
+        draw_ngon(p, s, sides, t * 2.0f, c);
+        draw_ngon(p, s, sides, t * 2.0f + PI_F / (float)sides, c);
         draw_circle(p, s * 0.4f, COL_WHITE);
     } break;
     case PK_STAT: {

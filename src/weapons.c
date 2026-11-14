@@ -47,37 +47,24 @@ const WeaponDef WEAPONS[WPN_COUNT] = {
     },
 };
 
-const UpgradeDef UPGRADES[UPG_COUNT] = {
-    [UPG_RAPID] = {"OVERCLOCK", "+18% fire rate", 0xff5f7e},
-    [UPG_DAMAGE] = {"HEAVY ROUNDS", "+22% damage", 0xff8a3d},
-    [UPG_MULTI] = {"SPLIT SHOT", "+1 projectile on every weapon", 0x66f0ff},
-    [UPG_PIERCE] = {"PIERCER", "Shots pierce one more enemy", 0xf28cff},
-    [UPG_BOUNCE] = {"RUBBER CORE", "Shots bounce off walls twice", 0xffe14d},
-    [UPG_HOMING] = {"SMART ROUNDS", "Shots steer towards enemies", 0x9dff6a},
-    [UPG_THRUSTER] = {"THRUSTERS", "+10% speed, faster dash", 0x7da8ff},
-    [UPG_HULL] = {"HULL PLATING", "+1 heart container", 0xff3355},
-    [UPG_DRONE] = {"WING DRONE", "An auto-firing drone joins you", 0xb6ffb0},
-    [UPG_MAGNET] = {"MAGNET", "Bigger pickup radius", 0xffd23f},
-    [UPG_VELOCITY] = {"ACCELERATOR", "+20% shot speed, +8% damage", 0x9ad7ff},
-};
 
 static void fire_volley(void) {
     Player *p = &G.pl;
     const WeaponDef *w = &WEAPONS[p->weapon];
     int lvl = p->wlevel[p->weapon];
     int n = w->count + w->count_per_level * (lvl - 1) + p->extra_proj;
-    float cd = w->cooldown * powf(w->level_rate, (float)(lvl - 1)) / p->rate_mult;
+    float cd = w->cooldown * powf(w->level_rate, (float)(lvl - 1)) / (p->rate_mult * upg_fire_rate_mult());
     p->fire_cd += cd;
 
-    float spread = w->spread + w->spread_per * (float)(n - 1);
-    float dmg = w->damage * (1.0f + 0.15f * (float)(lvl - 1)) * p->dmg_mult;
+    float spread = (w->spread + w->spread_per * (float)(n - 1)) * p->spread_mult;
+    float dmg = w->damage * (1.0f + 0.15f * (float)(lvl - 1)) * p->dmg_mult * upg_volley_damage_mult();
     SDL_FColor col = col_hex(w->color, 1);
     V2 fwd = v2_angle(p->aim_angle), side = v2_perp(fwd);
     V2 muzzle = v2_add(p->pos, v2_scale(fwd, 22.0f));
 
     for (int i = 0; i < n; i++) {
         float t = n > 1 ? (float)i / (float)(n - 1) - 0.5f : 0.0f;
-        float a = p->aim_angle + t * spread + frand(-w->jitter, w->jitter);
+        float a = p->aim_angle + t * spread + frand(-w->jitter, w->jitter) * fminf(p->spread_mult, 1.0f);
         V2 pos = v2_add(muzzle, v2_scale(side, w->parallel * t * (float)(n - 1)));
         float spd = (w->speed + frand(0.0f, w->speed_var)) * p->shot_speed_mult;
         PBullet *b = pbullet_spawn(pos, v2_scale(v2_angle(a), spd), w->radius, dmg, col);
@@ -88,7 +75,9 @@ static void fire_volley(void) {
         b->homing = w->homing + p->homing;
         b->knockback = w->knockback;
         b->weapon = p->weapon;
+        upg_on_bullet_spawn(b);
     }
+    upg_on_volley(muzzle, p->aim_angle, dmg, col);
 
     fx_particle(muzzle, v2(0, 0), 0.05f, 18.0f + (float)n * 2.0f, col_a(col, 0.8f), 0.0f, PT_GLOW);
     static const SfxId shot_sfx[WPN_COUNT] = {
@@ -128,6 +117,7 @@ static void update_drones(void) {
         b->homing = p->homing;
         b->knockback = 20.0f;
         b->weapon = -1;
+        upg_on_bullet_spawn(b);
         sfx_play_at(SFX_DRONE_SHOT, dp);
     }
 }
@@ -182,43 +172,3 @@ int weapon_roll(void) {
     return -1;
 }
 
-static bool upgrade_capped(int u) {
-    const Player *p = &G.pl;
-    switch (u) {
-    case UPG_DRONE: return p->drones >= MAX_DRONES;
-    case UPG_HULL: return p->max_hp >= 24;
-    case UPG_MULTI: return p->extra_proj >= 4;
-    case UPG_HOMING: return p->upg_count[UPG_HOMING] >= 3;
-    case UPG_MAGNET: return p->upg_count[UPG_MAGNET] >= 3;
-    case UPG_THRUSTER: return p->upg_count[UPG_THRUSTER] >= 4;
-    default: return false;
-    }
-}
-
-int upgrade_roll(void) {
-    for (int tries = 0; tries < 32; tries++) {
-        int u = irand(0, UPG_COUNT - 1);
-        if (!upgrade_capped(u)) return u;
-    }
-    return UPG_DAMAGE;
-}
-
-void upgrade_apply(int u) {
-    Player *p = &G.pl;
-    switch (u) {
-    case UPG_RAPID: p->rate_mult *= 1.18f; break;
-    case UPG_DAMAGE: p->dmg_mult += 0.22f; break;
-    case UPG_MULTI: p->extra_proj++; break;
-    case UPG_PIERCE: p->pierce++; break;
-    case UPG_BOUNCE: p->bounce += 2; break;
-    case UPG_HOMING: p->homing += 3.0f; break;
-    case UPG_THRUSTER: p->speed *= 1.1f; p->dash_cooldown *= 0.85f; break;
-    case UPG_HULL: p->max_hp += 2; p->hp += 2; break;
-    case UPG_DRONE: p->drones++; break;
-    case UPG_MAGNET: p->magnet += 120.0f; break;
-    case UPG_VELOCITY: p->shot_speed_mult *= 1.2f; p->dmg_mult += 0.08f; break;
-    default: return;
-    }
-    p->upg_count[u]++;
-    fx_banner(UPGRADES[u].name, UPGRADES[u].desc, col_hex(UPGRADES[u].color, 1), 2.6f);
-}

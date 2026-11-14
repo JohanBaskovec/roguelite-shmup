@@ -356,6 +356,14 @@ static void gen_doors(void) {
     }
 }
 
+static void spawn_shop_items(void);
+
+/* Secret room content: 1-2 free items, or (rarely) a full shop, plus resources. */
+static void secret_loot(void) {
+    if (G.room.secret_shop) spawn_shop_items();
+    secret_reward_drop(v2(ARENA_CX, ARENA_CY), !G.room.secret_shop);
+}
+
 void room_enter(RoomType type, RewardType reward, int depth) {
     Room *r = &G.room;
     memset(r, 0, sizeof *r);
@@ -387,17 +395,26 @@ void room_enter(RoomType type, RewardType reward, int depth) {
     if (type == ROOM_SECRET) r->hue = 32.0f;
     if (!room_type_peaceful(type)) gen_obstacles(); /* open floor for the tutorial / the loot */
     if (type != ROOM_SECRET) gen_doors();          /* the secret room's only exit leads back */
-    if (room_type_peaceful(type)) {
-        r->cleared = true; /* no fight: doors (or loot) are there right away */
-        if (type == ROOM_SECRET) {
-            secret_reward_drop(v2(ARENA_CX, ARENA_CY));
-            fx_banner("SECRET ROOM", "help yourself", col_hex(COLOR_SECRET, 1), 1.6f);
-        }
-        return;
+    r->peaceful = type == ROOM_START;
+    if (type == ROOM_SECRET) {
+        int shop = G.secret_shop_override, ambush = G.secret_ambush_override;
+        r->secret_shop = shop >= 0 ? shop == 1 : chance(SECRET_SHOP_CHANCE);
+        r->peaceful = !(ambush >= 0 ? ambush == 1 : chance(SECRET_AMBUSH_CHANCE));
+        fx_banner(r->secret_shop ? "SECRET SHOP" : "SECRET ROOM", r->peaceful ? "help yourself" : "it was guarded!",
+                  col_hex(COLOR_SECRET, 1), 1.6f);
     }
-    int extra = depth / 3;
-    r->nwaves = 2 + (extra > 3 ? 3 : extra);
-    r->wave_t = 0.35f;
+    if (r->peaceful) {
+        r->cleared = true; /* no fight: doors (or loot) are there right away */
+        if (type == ROOM_SECRET) secret_loot();
+    } else if (type == ROOM_SECRET) {
+        r->nwaves = 1; /* ambush: a single wave guards the loot */
+        r->wave_t = 0.8f;
+    } else {
+        int extra = depth / 4;
+        r->nwaves = 2 + (extra > 3 ? 3 : extra);
+        r->wave_t = 0.35f;
+    }
+    upg_on_room_enter();
 }
 
 /* ---- Waves --------------------------------------------------------------- */
@@ -416,7 +433,7 @@ static V2 find_spawn_point(float rad) {
 static void spawn_wave(void) {
     Room *r = &G.room;
     int depth = r->depth > 1 ? r->depth : 1;
-    float budget = 6.0f + (float)depth * 2.4f + (float)r->wave * 2.0f;
+    float budget = 5.0f + (float)depth * 1.7f + (float)r->wave * 1.5f;
     int queued = 0;
     while (budget >= 1.0f && queued < 26) {
         EnemyType cand[EN_COUNT];
@@ -511,8 +528,10 @@ static void room_clear(void) {
     G.rooms_cleared++;
     sfx_play(SFX_ROOM_CLEAR);
     ebullets_clear(true);
+    upg_on_room_clear();
     if (r->type == ROOM_STATS) spawn_stat_offers();
     else if (r->type == ROOM_SHOP) spawn_shop_items();
+    else if (r->type == ROOM_SECRET) secret_loot(); /* after an ambush */
     else if (r->reward != RW_NONE) reward_drop(r->reward, v2(ARENA_CX, ARENA_CY));
     fx_banner("ROOM CLEARED", "choose your next door", col_hex(0x66f0ff, 1), 1.4f);
     fx_shake(0.25f);
@@ -704,7 +723,7 @@ void room_draw_floor(void) {
             draw_text(tx, ty, 2.0f, sc, "SECRET");
         }
     }
-    if (r->type == ROOM_SHOP) {
+    if (r->type == ROOM_SHOP || r->secret_shop) {
         bool items = false;
         for (int i = 0; i < G.npk; i++) items |= G.pk[i].price > 0;
         if (items) {

@@ -50,13 +50,27 @@ typedef struct {
 
 typedef enum {
     UPG_RAPID, UPG_DAMAGE, UPG_MULTI, UPG_PIERCE, UPG_BOUNCE, UPG_HOMING,
-    UPG_THRUSTER, UPG_HULL, UPG_DRONE, UPG_MAGNET, UPG_VELOCITY, UPG_COUNT
+    UPG_THRUSTER, UPG_HULL, UPG_DRONE, UPG_MAGNET, UPG_VELOCITY,
+    /* bullet effects */
+    UPG_FROST, UPG_VENOM, UPG_THERMITE, UPG_ARC, UPG_PAYLOAD, UPG_SHRAPNEL, UPG_BIG_IRON, UPG_CRIT,
+    UPG_GUILLOTINE, UPG_BOOMERANG, UPG_PHASE, UPG_IMPACT, UPG_TAIL_GUN, UPG_FLANK, UPG_CAPACITOR,
+    UPG_WIDE_LENS, UPG_FOCUS_LENS,
+    /* stat changes */
+    UPG_GLASS_CANNON, UPG_TITAN_HULL, UPG_FEATHER, UPG_LONG_BARREL, UPG_HAIR_TRIGGER, UPG_FOUR_LEAF,
+    UPG_MICRO_HULL,
+    /* economy */
+    UPG_PIGGY_BANK, UPG_BOMB_BELT, UPG_SKELETON_KEY, UPG_COUPON,
+    /* defence, auras, triggers */
+    UPG_REACTIVE, UPG_SECOND_WIND, UPG_BARRIER, UPG_ORB, UPG_TESLA, UPG_LEECH, UPG_ADRENALINE,
+    UPG_BLOODLUST, UPG_RAM, UPG_DASH_NOVA, UPG_CHRONO, UPG_VOLATILE, UPG_MINES,
+    UPG_COUNT
 } UpgradeId;
 
 typedef struct {
     const char *name;
     const char *desc;
     uint32_t color;
+    int max;        /* how many times it can be taken (0 = unlimited) */
 } UpgradeDef;
 
 extern const WeaponDef WEAPONS[WPN_COUNT];
@@ -70,8 +84,12 @@ typedef struct {
     int pierce, bounces;
     int last_hit;   /* uid of the last enemy hit, avoids multi-hits while piercing */
     int weapon;     /* WeaponId, or -1 for drones */
+    int flags;      /* PB_* */
+    float age;
     SDL_FColor col;
 } PBullet;
+
+enum { PB_FRAGMENT = 1, PB_CRIT = 2, PB_RETURNED = 4, PB_MINE = 8, PB_CHARGED = 16 };
 
 typedef struct {
     V2 pos, vel;
@@ -103,6 +121,8 @@ typedef struct {
     float radius, hp, max_hp;
     float t, fire_t, state_t, angle, spin, flash;
     int state, burst, spin_dir;
+    float slow_t;                 /* chilled: moves and shoots slower */
+    float poison_t, poison_dps, burn_t, burn_dps;
 } Enemy;
 
 typedef struct {
@@ -178,6 +198,8 @@ typedef struct {
     bool secret_open, secret_used;
     float secret_flash_t, secret_flash_cd;
     int secret_flashes;  /* how many times it flashed (the bot only "knows" after seeing one) */
+    bool peaceful;       /* starts without enemies: launch bay, secret room without an ambush */
+    bool secret_shop;    /* secret room variant: a shop instead of the bonus item */
 } Room;
 
 /* Pseudo door indices for game_start_transition(). */
@@ -208,9 +230,17 @@ typedef struct {
     float magnet;
     float range_mult;           /* bullet lifetime multiplier */
     float hit_radius;           /* bullet hitbox radius */
-    int luck;                   /* drop chance modifier */
+    int luck;                   /* room reward modifier */
     int upg_count[UPG_COUNT];
+    int shield;                 /* temporary hearts, in half-hearts, lost before hp */
+    int revives;                /* SECOND WIND charges */
+    float spread_mult, bullet_size;
+    int volleys;                /* volleys fired (CAPACITOR / FLANK cadence) */
+    int room_kills, leech_kills;
+    float mine_cd;
 } Player;
+
+#define MAX_SHIELD 12 /* half-hearts: 6 shields */
 
 /* ---- Game ---------------------------------------------------------------- */
 
@@ -257,6 +287,7 @@ typedef struct {
     Pickup parent_pk[MAX_PICKUPS]; int parent_npk;
     bool force_secret;   /* dev: every eligible room hides a secret */
     bool reveal_secrets; /* dev: draw secret corners permanently */
+    int secret_shop_override, secret_ambush_override; /* dev (debug menu / tests): -1 random, 0 no, 1 yes */
     float gameover_t;
     float last_enemy_damage_t; /* G.time of the last hit on an enemy (stall detection in tests) */
 
@@ -275,7 +306,9 @@ static inline bool chance(float p) { return rng_chance(&G.rng, p); }
 
 typedef enum {
     ST_DAMAGE, ST_FIRE_RATE, ST_RANGE, ST_MAX_HP, ST_MOVE_SPEED, ST_DASH,
-    ST_SHOT_SPEED, ST_HITBOX, ST_LUCK, ST_COUNT
+    ST_SHOT_SPEED, ST_HITBOX, ST_LUCK,
+    ST_SHIELD, /* gain-only: +3 shields (temporary hearts) */
+    ST_COUNT
 } StatId;
 
 typedef struct {
@@ -295,6 +328,29 @@ extern const StatDef STATS[ST_COUNT];
 static inline int stat_offer_encode(int up, int down) { return up * ST_COUNT + down; }
 static inline int stat_offer_up(int offer) { return offer / ST_COUNT; }
 static inline int stat_offer_down(int offer) { return offer % ST_COUNT; }
+
+/* upgrades.c - passive upgrades and their effects (hooks called by the systems they modify) */
+int upgrade_roll(void);
+void upgrade_apply(int u);
+bool upgrade_capped(int u);
+void player_add_shield(int half_hearts);
+float upg_volley_damage_mult(void);   /* BLOODLUST */
+float upg_fire_rate_mult(void);       /* ADRENALINE */
+float upg_move_speed_mult(void);      /* ADRENALINE */
+void upg_on_volley(V2 muzzle, float aim, float dmg, SDL_FColor col);
+void upg_on_bullet_spawn(PBullet *b);
+void upg_bullet_update(PBullet *b);   /* BOOMERANG */
+float upg_hit_damage(const PBullet *b, const Enemy *e);
+void upg_after_hit(PBullet *b, Enemy *e, float dmg);
+void upg_on_kill(const Enemy *e);
+bool upg_on_lethal_hit(void);         /* SECOND WIND: true = survived */
+void upg_on_hurt(void);
+void upg_on_dash(void);
+void upg_update(void);
+void upg_on_room_enter(void);
+void upg_on_room_clear(void);
+float upg_enemy_bullet_speed(void);   /* CHRONO */
+void upg_draw(void);
 
 /* stats.c */
 bool stat_can_change(int s, bool up);
@@ -327,6 +383,8 @@ RewardType room_roll_reward(void);
 V2 room_secret_spot(int corner);
 /* The launch bay and secret rooms are the exceptions to "every room starts full of enemies". */
 static inline bool room_type_peaceful(RoomType t) { return t == ROOM_START || t == ROOM_SECRET; }
+#define SECRET_SHOP_CHANCE 0.10f   /* a secret room holds a shop instead of its bonus item */
+#define SECRET_AMBUSH_CHANCE 0.10f /* a secret room is guarded by enemies before its loot */
 /* A bomb went off at pos: opens the secret passage if pos is near the secret corner. */
 void room_bomb_at(V2 pos);
 void room_enter_secret(void);
@@ -345,8 +403,6 @@ void weapons_update(void);
 void drones_draw(void);
 void weapon_give(int w);
 int weapon_roll(void);
-int upgrade_roll(void);
-void upgrade_apply(int u);
 
 /* bullets.c */
 PBullet *pbullet_spawn(V2 pos, V2 vel, float radius, float damage, SDL_FColor col);
@@ -370,7 +426,7 @@ void pickups_update(void);
 void pickups_draw(void);
 void reward_drop(RewardType r, V2 pos);
 /* Secret room loot: 1 item (rarely 2) plus coins / bombs / keys. */
-void secret_reward_drop(V2 center);
+void secret_reward_drop(V2 center, bool items);
 /* Spawn a pedestal that belongs to the room's one-of-N choice. */
 void pickup_spawn_choice(PickupType type, int sub, V2 pos);
 void draw_pickup_icon(PickupType type, int sub, V2 pos, float s, float t);

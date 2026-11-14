@@ -23,7 +23,7 @@ EBullet *ebullet_spawn(V2 pos, float angle, float speed, float radius, SDL_FColo
     if (G.neb >= MAX_EBULLETS) return NULL;
     EBullet *b = &G.eb[G.neb++];
     b->pos = pos;
-    b->vel = v2_scale(v2_angle(angle), speed);
+    b->vel = v2_scale(v2_angle(angle), speed * upg_enemy_bullet_speed());
     b->radius = radius;
     b->life = 12.0f;
     b->age = 0.0f;
@@ -41,6 +41,16 @@ void ebullets_clear(bool with_fx) {
         }
     }
     G.neb = 0;
+}
+
+static bool arena_collide(V2 *p, float r, V2 *normal) {
+    V2 n = v2(0, 0);
+    if (p->x < ARENA_X0 + r) { p->x = ARENA_X0 + r; n.x = 1; }
+    if (p->x > ARENA_X1 - r) { p->x = ARENA_X1 - r; n.x = -1; }
+    if (p->y < ARENA_Y0 + r) { p->y = ARENA_Y0 + r; n.y = 1; }
+    if (p->y > ARENA_Y1 - r) { p->y = ARENA_Y1 - r; n.y = -1; }
+    *normal = v2_norm(n);
+    return n.x != 0.0f || n.y != 0.0f;
 }
 
 static void reflect(V2 *v, V2 n) {
@@ -64,17 +74,20 @@ static void update_player_bullets(void) {
         bool dead = false, wall = false;
         V2 n = v2(0, 0);
         b->life -= DT;
+        b->age += DT;
         if (b->life <= 0.0f) dead = true;
 
         if (!dead) {
-            if (b->homing > 0.0f && G.nen > 0) steer(b);
+            if (b->homing > 0.0f && G.nen > 0 && !(b->flags & PB_MINE)) steer(b);
+            upg_bullet_update(b);
             if (b->weapon == WPN_SEEKER) {
                 if (v2_len2(b->vel) < 1500.0f * 1500.0f) b->vel = v2_scale(b->vel, 1.0f + 2.4f * DT);
                 if ((G.ticks + i) % 3 == 0)
                     fx_particle(b->pos, v2(0, 0), 0.22f, 6.0f, col_a(b->col, 0.5f), 0.0f, PT_GLOW);
             }
             b->pos = v2_add(b->pos, v2_scale(b->vel, DT));
-            wall = room_collide_circle(&b->pos, b->radius, &n);
+            /* PHASE ROUNDS fly through obstacles; only the arena walls stop them. */
+            wall = G.pl.upg_count[UPG_PHASE] ? arena_collide(&b->pos, b->radius, &n) : room_collide_circle(&b->pos, b->radius, &n);
         }
 
         if (!dead) {
@@ -83,8 +96,10 @@ static void update_player_bullets(void) {
                 if (e->hp <= 0.0f || e->uid == b->last_hit) continue;
                 float rr = e->radius + b->radius;
                 if (v2_dist2(b->pos, e->pos) >= rr * rr) continue;
-                V2 dir = v2_norm(b->vel);
-                enemy_damage(e, b->damage, v2_scale(dir, b->knockback));
+                V2 dir = b->flags & PB_MINE ? v2_norm(v2_sub(e->pos, b->pos)) : v2_norm(b->vel);
+                float dmg = upg_hit_damage(b, e);
+                enemy_damage(e, dmg, v2_scale(dir, b->knockback));
+                upg_after_hit(b, e, dmg);
                 sfx_play_at(SFX_HIT, e->pos);
                 fx_particle(b->pos, v2_scale(dir, -120.0f), 0.1f, b->radius * 3.0f, col_a(b->col, 0.8f), 0.0f, PT_GLOW);
                 if ((G.ticks + i) & 1)
@@ -165,7 +180,12 @@ void bullets_draw_player(void) {
         const PBullet *b = &G.pb[i];
         float spd = v2_len(b->vel);
         V2 dir = spd > 1e-3f ? v2_scale(b->vel, 1.0f / spd) : v2(1, 0);
-        if (b->weapon == WPN_BOUNCER) {
+        if (b->flags & PB_MINE) {
+            float blink = 0.5f + 0.5f * sinf(G.time * 10.0f + (float)i);
+            draw_glow(b->pos, 26.0f, col_a(b->col, 0.2f + 0.25f * blink));
+            draw_ngon(b->pos, b->radius, 6, G.time, col_a(b->col, 0.9f));
+            draw_circle(b->pos, 3.5f, col_a(COL_WHITE, blink));
+        } else if (b->weapon == WPN_BOUNCER) {
             draw_glow(b->pos, b->radius * 2.6f, col_a(b->col, 0.45f));
             draw_circle(b->pos, b->radius * 0.9f, col_a(b->col, 0.85f));
             draw_circle(b->pos, b->radius * 0.45f, col_a(COL_WHITE, 0.8f));

@@ -49,6 +49,9 @@ static const char *check_invariants(float room_time) {
             return msg;
         }
     }
+    if (G.neb < 0 || G.neb > MAX_EBULLETS || G.npb < 0 || G.npb > MAX_PBULLETS || G.nen < 0 || G.nen > MAX_ENEMIES ||
+        G.npk < 0 || G.npk > MAX_PICKUPS)
+        return "entity count out of range (array modified while being iterated?)";
     for (int i = 0; i < G.neb; i++)
         if (!finite_v2(G.eb[i].pos)) return "enemy bullet position is not finite";
     for (int i = 0; i < G.npb; i++)
@@ -57,9 +60,12 @@ static const char *check_invariants(float room_time) {
         if (!finite_v2(G.pk[i].pos) || !in_arena(G.pk[i].pos, 0.0f)) return "pickup outside the arena";
     /* Rules: every room starts with enemies; enemies never drop anything - every pickup
      * (resources included) is a room reward and only appears once the room is cleared. */
-    bool peaceful = room_type_peaceful(G.room.type);
+    bool peaceful = G.room.peaceful;
+    if (peaceful && !room_type_peaceful(G.room.type)) return "a room type that must have enemies started peaceful";
     if (G.room.nwaves < 1 && !peaceful) return "room without enemy waves";
-    if (peaceful && (!G.room.cleared || G.nen + G.nsp > 0)) return "enemies in the launch bay or a secret room";
+    if (peaceful && (!G.room.cleared || G.nen + G.nsp > 0)) return "enemies in a peaceful room";
+    if (p->shield < 0 || p->shield > MAX_SHIELD || p->revives < 0) return "shield / revive count out of range";
+    if (!(p->spread_mult > 0.0f) || !(p->bullet_size > 0.0f) || !isfinite(p->bullet_size)) return "bullet shape multiplier invalid";
     if (!G.room.cleared && G.npk > 0) {
         snprintf(msg, sizeof msg, "pickup (type %d) present before the room was cleared - enemy drop or early reward?",
                  G.pk[0].type);
@@ -68,7 +74,8 @@ static const char *check_invariants(float room_time) {
     if (G.room.secret_open && G.room.secret_corner < 0) return "secret passage open in a room without a secret";
     if (G.room.type == ROOM_SECRET && G.room.ndoors != 0) return "secret room has regular doors (its only exit leads back)";
     for (int i = 0; i < G.npk; i++)
-        if (G.pk[i].price < 0 || (G.pk[i].price > 0 && G.room.type != ROOM_SHOP)) return "priced item outside a shop";
+        if (G.pk[i].price < 0 || (G.pk[i].price > 0 && G.room.type != ROOM_SHOP && !G.room.secret_shop))
+            return "priced item outside a shop";
     float stall = fminf(room_time, G.time - G.last_enemy_damage_t);
     if (G.room.type == ROOM_COMBAT && !G.room.cleared &&
         (room_time > MAX_ROOM_SECONDS || (G.nen > 0 && stall > MAX_STALL_SECONDS))) {
@@ -99,7 +106,7 @@ static const char *check_room_reward(void) {
     static char buf[128];
     int priced = 0;
     for (int i = 0; i < G.npk; i++) priced += G.pk[i].price > 0;
-    if (G.room.type == ROOM_SHOP && priced != SHOP_ITEMS) {
+    if ((G.room.type == ROOM_SHOP || G.room.secret_shop) && priced != SHOP_ITEMS) {
         snprintf(buf, sizeof buf, "shop opened with %d items for sale instead of %d", priced, SHOP_ITEMS);
         return buf;
     }
@@ -117,8 +124,8 @@ static const char *check_room_reward(void) {
             items += (k->type == PK_WEAPON || k->type == PK_UPGRADE) && !k->choice && k->price == 0;
             resources += k->type == PK_COIN || k->type == PK_BOMB || k->type == PK_KEY;
         }
-        if (items < 1 || items > 2) {
-            snprintf(buf, sizeof buf, "secret room holds %d items instead of 1 or 2", items);
+        if (G.room.secret_shop ? items != 0 : items < 1 || items > 2) {
+            snprintf(buf, sizeof buf, "secret room holds %d free items (%s)", items, G.room.secret_shop ? "shop variant: 0" : "1 or 2");
             return buf;
         }
         if (resources == 0) return "secret room holds no coins / bombs / keys";
@@ -158,18 +165,21 @@ static void clear_edges(void) {
 /* Debug-menu teleports: every room type, with and without enemies, must land in a
  * coherent state, and the bot must be able to finish the room and leave it. */
 static int debug_rooms_run(const HeadlessOptions *o) {
-    static const RoomType types[] = {ROOM_START, ROOM_COMBAT, ROOM_COMBAT, ROOM_COMBAT, ROOM_STATS, ROOM_SHOP, ROOM_SECRET};
-    static const RewardType rewards[] = {RW_NONE, RW_NONE, RW_WEAPON, RW_UPGRADE, RW_NONE, RW_NONE, RW_NONE};
-    static const char *names[] = {"launch bay", "combat", "weapon", "upgrade", "stats", "shop", "secret"};
+    static const RoomType types[] = {ROOM_START, ROOM_COMBAT, ROOM_COMBAT, ROOM_COMBAT, ROOM_STATS, ROOM_SHOP, ROOM_SECRET, ROOM_SECRET};
+    static const RewardType rewards[] = {RW_NONE, RW_NONE, RW_WEAPON, RW_UPGRADE, RW_NONE, RW_NONE, RW_NONE, RW_NONE};
+    static const int secret_shop[] = {0, 0, 0, 0, 0, 0, 0, 1};
+    static const char *names[] = {"launch bay", "combat", "weapon", "upgrade", "stats", "shop", "secret", "secret shop"};
     int failures = 0;
     for (int t = 0; t < ARRAY_LEN(types); t++) {
-        for (int with = room_type_peaceful(types[t]) ? 0 : 1; with >= 0; with--) {
+        for (int with = types[t] == ROOM_START ? 0 : 1; with >= 0; with--) {
             game_init(o->seed + (uint64_t)t);
             G.god = true;
             game_new_run();
             G.pl.coins += o->coins;
             debug_menu_open();
+            G.secret_shop_override = secret_shop[t];
             debug_teleport(types[t], rewards[t], o->depth > 0 ? o->depth : 3, with);
+            G.secret_shop_override = -1;
             G.state = GS_PLAYING;
 
             const char *err = NULL;
@@ -228,6 +238,32 @@ static int debug_rooms_run(const HeadlessOptions *o) {
     printf("debug menu keyboard: F3, down, down, right, enter -> %s\n", ok ? "OK (empty shop)" : "FAILED");
     if (!ok) failures++;
 
+    /* Scripted: a shield soaks a hit; SECOND WIND survives a lethal hit, which is resolved
+     * from inside the enemy bullet loop while other bullets are still in flight. */
+    {
+        game_init(o->seed);
+        game_new_run();
+        debug_teleport(ROOM_COMBAT, RW_COINS, 3, false);
+        G.state = GS_PLAYING;
+        Player *pl = &G.pl;
+        pl->invuln = 0.0f;
+        pl->hp = 2;
+        player_add_shield(2);
+        for (int k = 0; k < 40; k++) ebullet_spawn(pl->pos, frand(0.0f, TAU_F), 1.0f, 8.0f, COL_WHITE);
+        for (int t = 0; t < 10; t++) { game_update(); clear_edges(); }
+        bool shield_ok = pl->shield == 1 && pl->hp == 2;
+
+        pl->invuln = 0.0f;
+        pl->shield = 0;
+        pl->hp = 1;
+        upgrade_apply(UPG_SECOND_WIND);
+        for (int k = 0; k < 40; k++) ebullet_spawn(pl->pos, frand(0.0f, TAU_F), 1.0f, 8.0f, COL_WHITE);
+        for (int t = 0; t < 10; t++) { game_update(); clear_edges(); }
+        bool wind_ok = G.state == GS_PLAYING && pl->hp == 2 && pl->revives == 0 && G.neb >= 0 && G.neb <= MAX_EBULLETS;
+        printf("scripted: shield soaks a hit -> %s, second wind -> %s\n", shield_ok ? "OK" : "FAILED", wind_ok ? "OK" : "FAILED");
+        failures += !shield_ok + !wind_ok;
+    }
+
     printf("debug teleports - %s\n", failures ? "FAILED" : "OK");
     return failures ? 1 : 0;
 }
@@ -247,6 +283,11 @@ int headless_run(const HeadlessOptions *o) {
         G.force_secret = o->secret;
         game_new_run();
         G.pl.coins += o->coins;
+        if (o->all_upgrades)
+            for (int u = 0; u < UPG_COUNT; u++)
+                if (!upgrade_capped(u)) upgrade_apply(u);
+        if (o->hp > 0) G.pl.hp = G.pl.max_hp = o->hp;
+        int start_revives = G.pl.revives;
         if (o->stats_room) room_enter(ROOM_STATS, RW_NONE, o->depth > 0 ? o->depth : 1);
         else if (o->shop_room) room_enter(ROOM_SHOP, RW_NONE, o->depth > 0 ? o->depth : 1);
         else if (o->depth > 0) room_enter(ROOM_COMBAT, RW_UPGRADE, o->depth);
@@ -256,7 +297,7 @@ int headless_run(const HeadlessOptions *o) {
         bool was_cleared = G.room.cleared;
         int choices = 0; /* one-of-N pickups offered when the room was cleared */
         float room_time = 0.0f;
-        const char *err = G.room.cleared != room_type_peaceful(G.room.type)
+        const char *err = G.room.cleared != G.room.peaceful
                               ? "first room: only the launch bay / secret rooms start without enemies" : NULL;
         int tick = 0;
         for (; !err && tick < o->max_ticks && G.state != GS_GAMEOVER; tick++) {
@@ -276,7 +317,7 @@ int headless_run(const HeadlessOptions *o) {
                     was_cleared = true;
                     choices = count_choices();
                 } else {
-                    if (G.room.cleared != room_type_peaceful(G.room.type)) {
+                    if (G.room.cleared != G.room.peaceful) {
                         err = "new room: every room starts with enemies, except the launch bay and secret rooms";
                         break;
                     }
@@ -315,6 +356,7 @@ int headless_run(const HeadlessOptions *o) {
             if (G.pl.wlevel[w]) printf("%.3s%d ", WEAPONS[w].name, G.pl.wlevel[w]);
         const Player *p = &G.pl;
         printf("coins=%d shops=%d bought=%d secrets=%d stats_rooms=%d", p->coins, shops, G.items_bought, secrets, stats_rooms);
+        if (start_revives > p->revives) printf(" second_winds=%d", start_revives - p->revives);
         if (stats_rooms)
             printf(" [dmg x%.2f rate x%.2f range x%.2f speed x%.2f dash %.2fs hitbox %.1f luck %+d]", (double)p->dmg_mult,
                    (double)p->rate_mult, (double)p->range_mult, (double)(p->speed / 540.0f), (double)p->dash_cooldown,

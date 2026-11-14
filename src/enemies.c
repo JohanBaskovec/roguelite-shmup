@@ -9,15 +9,16 @@ const EnemyDef ENEMIES[EN_COUNT] = {
     [EN_CHASER]  = {"chaser",  16.0f,  14.0f, 360.0f, 1, 1, 0xff4d5e, 3},
     [EN_SWARM]   = {"swarm",   10.0f,   5.0f, 430.0f, 3, 1, 0xff9a3c, 3},
     [EN_SHOOTER] = {"shooter", 20.0f,  32.0f, 140.0f, 2, 1, 0xffe04d, 4},
-    [EN_BURSTER] = {"burster", 24.0f,  50.0f,  90.0f, 4, 2, 0xc05cff, 5},
-    [EN_SPINNER] = {"spinner", 28.0f,  75.0f,  50.0f, 5, 3, 0xff4fd8, 6},
-    [EN_SNIPER]  = {"sniper",  18.0f,  28.0f, 200.0f, 3, 3, 0x5dff9d, 4},
-    [EN_TANK]    = {"tank",    42.0f, 240.0f,  70.0f, 8, 5, 0xff8a3d, 8},
+    [EN_BURSTER] = {"burster", 24.0f,  50.0f,  90.0f, 4, 3, 0xc05cff, 5},
+    [EN_SPINNER] = {"spinner", 28.0f,  75.0f,  50.0f, 5, 4, 0xff4fd8, 6},
+    [EN_SNIPER]  = {"sniper",  18.0f,  28.0f, 200.0f, 3, 5, 0x5dff9d, 4},
+    [EN_TANK]    = {"tank",    42.0f, 240.0f,  70.0f, 8, 7, 0xff8a3d, 8},
 };
 
-float enemy_hp_scale(void) { return 1.0f + 0.14f * (float)(G.room.depth > 1 ? G.room.depth - 1 : 0); }
+/* Difficulty curve: enemy hp and bullet speed grow with depth (gently - see also spawn_wave). */
+float enemy_hp_scale(void) { return 1.0f + 0.09f * (float)(G.room.depth > 1 ? G.room.depth - 1 : 0); }
 
-static float bullet_speed_scale(void) { return fminf(1.0f + 0.025f * (float)G.room.depth, 1.45f); }
+static float bullet_speed_scale(void) { return fminf(1.0f + 0.015f * (float)G.room.depth, 1.35f); }
 
 void enemy_queue_spawn(EnemyType type, V2 pos, float delay) {
     if (G.nsp >= MAX_SPAWNS) return;
@@ -124,8 +125,22 @@ static void update_enemy(Enemy *e) {
 
     e->t += DT;
     e->flash -= DT;
-    e->fire_t -= DT;
-    e->state_t -= DT;
+    /* CRYO ROUNDS: chilled enemies move and shoot slower. */
+    float tempo = e->slow_t > 0.0f ? 0.6f : 1.0f;
+    e->slow_t -= DT;
+    e->fire_t -= DT * tempo;
+    e->state_t -= DT * tempo;
+    /* VENOM TIPS / THERMITE: damage over time. */
+    float dot = 0.0f;
+    if (e->poison_t > 0.0f) { e->poison_t -= DT; dot += e->poison_dps; }
+    if (e->burn_t > 0.0f) { e->burn_t -= DT; dot += e->burn_dps; }
+    if (dot > 0.0f) {
+        e->hp -= dot * DT;
+        G.last_enemy_damage_t = G.time;
+        if ((G.ticks + e->uid) % 9 == 0)
+            fx_particle(v2_add(e->pos, v2(frand(-e->radius, e->radius), frand(-e->radius, e->radius))), v2(0, -60), 0.4f, 6.0f,
+                        col_hex(e->burn_t > 0.0f ? 0xff7a2e : 0x7dff4a, 0.9f), 0.0f, PT_GLOW);
+    }
 
     switch (e->type) {
     case EN_CHASER: {
@@ -166,7 +181,7 @@ static void update_enemy(Enemy *e) {
         wander(e, 300.0f, 700.0f, d->speed);
         e->angle += 0.8f * DT;
         if (e->fire_t <= 0.0f) {
-            int n = 16 + G.room.depth;
+            int n = 14 + G.room.depth / 2;
             if (n > 30) n = 30;
             e->spin += PI_F / (float)n;
             fire_ring(e->pos, n, 250.0f * bs, 8.0f, e->spin, col_hex(0xd070ff, 1));
@@ -184,7 +199,7 @@ static void update_enemy(Enemy *e) {
         if (e->state == 0) {
             e->spin += 1.9f * DT * (float)e->spin_dir;
             if (e->fire_t <= 0.0f) {
-                int arms = G.room.depth >= 6 ? 4 : 3;
+                int arms = G.room.depth >= 9 ? 4 : 3;
                 for (int k = 0; k < arms; k++)
                     ebullet_spawn(e->pos, e->spin + TAU_F * (float)k / (float)arms, 230.0f * bs, 7.0f, col_hex(0xff4fd8, 1));
                 e->fire_t = 0.075f;
@@ -255,7 +270,7 @@ static void update_enemy(Enemy *e) {
         break;
     }
 
-    e->pos = v2_add(e->pos, v2_scale(e->vel, DT));
+    e->pos = v2_add(e->pos, v2_scale(e->vel, DT * tempo));
     V2 n;
     if (room_collide_circle(&e->pos, e->radius, &n)) {
         float into = v2_dot(e->vel, n);
@@ -296,6 +311,7 @@ static void on_death(Enemy *e) {
     else sfx_play_at(SFX_EXPLODE_SMALL, e->pos);
 
     /* No drops: resources only ever come from room rewards. */
+    upg_on_kill(e);
 }
 
 void enemies_update(void) {
