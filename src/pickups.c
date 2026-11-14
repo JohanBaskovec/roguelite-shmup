@@ -19,6 +19,8 @@ void pickup_spawn(PickupType type, int sub, V2 pos, V2 vel) {
 static SDL_FColor pickup_glow_color(const Pickup *k);
 
 static bool is_pedestal(PickupType t) { return t == PK_UPGRADE || t == PK_STAT || t == PK_AUGMENT || t == PK_ACTIVE; }
+/* Items for sale stand on a pedestal too (the shop's hearts, bombs and keys included). */
+static bool on_pedestal(const Pickup *k) { return is_pedestal(k->type) || k->price > 0; }
 
 PickupType reward_icon(RewardType r) {
     switch (r) {
@@ -53,8 +55,13 @@ const char *door_label(const Door *d) {
 
 int shop_price(PickupType type, int sub) {
     (void)sub;
-    int base = type == PK_UPGRADE ? 14 : 8;
-    int price = base + G.room.depth / 4;
+    int price;
+    switch (type) {
+    case PK_HEART: price = 6; break; /* supplies: flat prices */
+    case PK_BOMB: price = 5; break;
+    case PK_KEY: price = 6; break;
+    default: price = (type == PK_UPGRADE ? 14 : 8) + G.room.depth / 4; break;
+    }
     if (upg_has(UPG_COUPON)) price = (int)roundf((float)price * 0.7f);
     price = (int)roundf((float)price * (1.0f + malus_pct(MAL_PRICES)));
     return price > 1 ? price : 1;
@@ -253,7 +260,7 @@ static bool collect(const Pickup *k) {
         fx_shake(0.5f);
     } break;
     }
-    if (is_pedestal(k->type)) {
+    if (on_pedestal(k)) {
         sfx_play(SFX_ITEM);
         fx_particle(k->pos, v2(0, 0), 0.5f, 300.0f, COL_WHITE, 0.0f, PT_RING);
         fx_burst(k->pos, 40, 200.0f, 700.0f, 0.5f, 3.0f, COL_WHITE);
@@ -290,7 +297,7 @@ void pickups_update(void) {
         float dist = v2_len(d);
         bool taken = false;
 
-        if (is_pedestal(k->type)) {
+        if (on_pedestal(k)) {
             if (k->t > 0.5f && dist < 40.0f) {
                 if (k->price > G.pl.coins) {
                     deny_purchase(k);
@@ -425,7 +432,7 @@ void pickups_draw(void) {
     for (int i = 0; i < G.npk; i++) {
         const Pickup *k = &G.pk[i];
         SDL_FColor c = pickup_glow_color(k);
-        if (is_pedestal(k->type)) {
+        if (on_pedestal(k)) {
             float pulse = 0.5f + 0.5f * sinf(G.time * 4.0f);
             draw_glow(k->pos, 90.0f, col_a(c, 0.25f + 0.1f * pulse));
             draw_quad_grad(v2(k->pos.x - 20, k->pos.y + 10), v2(k->pos.x + 20, k->pos.y + 10),
@@ -439,7 +446,7 @@ void pickups_draw(void) {
 
     for (int i = 0; i < G.npk; i++) {
         const Pickup *k = &G.pk[i];
-        if (is_pedestal(k->type)) {
+        if (on_pedestal(k)) {
             V2 base = v2(k->pos.x, k->pos.y + 20.0f);
             draw_ngon(base, 28.0f, 6, 0.0f, col_hex(0x14182a, 1));
             draw_ngon_outline(base, 28.0f, 6, 0.0f, 3.0f, pickup_glow_color(k));
@@ -451,7 +458,7 @@ void pickups_draw(void) {
 
     for (int i = 0; i < G.npk; i++) {
         const Pickup *k = &G.pk[i];
-        if (!is_pedestal(k->type)) continue;
+        if (!on_pedestal(k)) continue;
         if (k->price > 0) {
             char buf[16];
             int len = snprintf(buf, sizeof buf, "%d", k->price);
@@ -462,6 +469,16 @@ void pickups_draw(void) {
             draw_text(x0 + 26.0f, k->pos.y - 72.0f, 2.5f, afford ? col_hex(0xffd23f, 1) : col_hex(0xff4d6a, 1), "%s", buf);
         }
         float ls = k->price > 0 ? 1.75f : 2.0f; /* shops pack 5 items in a row */
+        if (k->type == PK_HEART || k->type == PK_BOMB || k->type == PK_KEY) { /* the shop's supply counter */
+            static const char *const what[] = {[PK_HEART] = "+1 HEART", [PK_BOMB] = "+1 BOMB", [PK_KEY] = "+1 KEY"};
+            static const char *const why[] = {[PK_HEART] = "heals one heart", [PK_BOMB] = "clears the bullets,|opens secret rooms",
+                                              [PK_KEY] = "opens a locked door"};
+            draw_text_centered(k->pos.x, k->pos.y + 56.0f, ls, pickup_glow_color(k), "%s", what[k->type]);
+            bool full = k->type == PK_HEART && G.pl.hp >= G.pl.max_hp;
+            draw_desc(k->pos.x, k->pos.y + 60.0f + 10.0f * ls, 1.2f, full ? col_hex(0xff6a7e, 0.9f) : col_a(COL_WHITE, 0.75f),
+                      full ? "full health" : why[k->type]);
+            continue;
+        }
         if (k->type == PK_STAT) {
             draw_text_centered(k->pos.x, k->pos.y + 56.0f, ls, col_hex(0x5dff8a, 1), "%s", STATS[stat_offer_up(k->sub)].up_text);
             draw_text_centered(k->pos.x, k->pos.y + 56.0f + 13.0f * ls, ls, col_hex(0xff4d6a, 1), "%s", STATS[stat_offer_down(k->sub)].down_text);
@@ -490,7 +507,7 @@ void pickups_draw(void) {
         }
         draw_text_centered(k->pos.x, k->pos.y + 56.0f, ls, pickup_glow_color(k), "%s", name);
         /* Bonus, then malus in red; shops pack 5 items in a row: smaller text there. */
-        draw_upgrade_texts(k->pos.x, k->pos.y + 60.0f + 10.0f * ls, k->price > 0 ? 1.0f : 1.5f, 0.9f, k->sub);
+        draw_upgrade_texts(k->pos.x, k->pos.y + 60.0f + 10.0f * ls, k->price > 0 ? 1.2f : 1.5f, 0.9f, k->sub);
     }
 }
 

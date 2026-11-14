@@ -257,6 +257,11 @@ static bool rect_ok(SDL_FRect r) {
     bool row = G.room.type == ROOM_STATS || G.room.type == ROOM_SHOP || G.room.type == ROOM_WORKSHOP ||
                G.room.reward == RW_UPGRADE || G.room.reward == RW_ACTIVE;
     if (row && rect_overlaps(r, pedestal_row)) return false;
+    if (G.room.type == ROOM_SHOP) { /* the supply counter */
+        V2 a = shop_supply_spot(0), b = shop_supply_spot(SHOP_SUPPLIES - 1);
+        SDL_FRect k = {a.x - 150, a.y - 130, b.x - a.x + 300, 260};
+        if (rect_overlaps(r, k)) return false;
+    }
     for (int i = 0; i < G.room.nobs; i++) {
         SDL_FRect o = G.room.obs[i];
         SDL_FRect grown = {o.x - 60, o.y - 60, o.w + 120, o.h + 120};
@@ -513,7 +518,7 @@ static void spawn_stat_offers(void) {
     }
 }
 
-/* Shop: always SHOP_ITEMS priced items - a weapon mod, upgrades and stat trades. */
+/* Shop: always SHOP_ITEMS priced items (upgrades, stat trades) + the supply counter. */
 static void spawn_shop_items(void) {
     /* One of each category, plus two random slots so shops vary. Sorted left to right. */
     enum { K_UPGRADE, K_STAT };
@@ -548,7 +553,19 @@ static void spawn_shop_items(void) {
         if (G.npk > before) G.pk[G.npk - 1].price = shop_price(type, sub);
         fx_particle(p, v2(0, 0), 0.5f, 160.0f, col_hex(COLOR_SHOP, 1), 0.0f, PT_RING);
     }
+    /* The supply counter: a heart, a bomb and a key, always. */
+    static const PickupType supplies[SHOP_SUPPLIES] = {PK_HEART, PK_BOMB, PK_KEY};
+    for (int i = 0; i < SHOP_SUPPLIES; i++) {
+        V2 p = shop_supply_spot(i);
+        int before = G.npk;
+        pickup_spawn(supplies[i], 1, p, v2(0, 0));
+        if (G.npk > before) G.pk[G.npk - 1].price = shop_price(supplies[i], 1);
+        fx_particle(p, v2(0, 0), 0.4f, 120.0f, col_hex(COLOR_SHOP, 1), 0.0f, PT_RING);
+    }
 }
+
+/* Bottom right, away from the entry spot and the path to the doors. */
+V2 shop_supply_spot(int i) { return v2(ARENA_CX + 330.0f + 230.0f * (float)i, ARENA_CY + 270.0f); }
 
 static void room_clear(void) {
     Room *r = &G.room;

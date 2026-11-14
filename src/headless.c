@@ -183,13 +183,27 @@ static int count_choices(void) {
 }
 
 /* Checked on the tick a room becomes cleared: what its reward must look like. */
+static bool is_supply(const Pickup *k) { return k->type == PK_HEART || k->type == PK_BOMB || k->type == PK_KEY; }
+
+/* Items for sale: upgrades / stat trades, or the supply counter's heart, bomb and key. */
+static int shop_count(bool supplies) {
+    int n = 0;
+    for (int i = 0; i < G.npk; i++) n += G.pk[i].price > 0 && is_supply(&G.pk[i]) == supplies;
+    return n;
+}
+
 static const char *check_room_reward(void) {
     static char buf[128];
-    int priced = 0;
-    for (int i = 0; i < G.npk; i++) priced += G.pk[i].price > 0;
-    if ((G.room.type == ROOM_SHOP || G.room.secret_shop) && priced != SHOP_ITEMS) {
-        snprintf(buf, sizeof buf, "shop opened with %d items for sale instead of %d", priced, SHOP_ITEMS);
+    if ((G.room.type == ROOM_SHOP || G.room.secret_shop) && (shop_count(false) != SHOP_ITEMS || shop_count(true) != SHOP_SUPPLIES)) {
+        snprintf(buf, sizeof buf, "shop opened with %d items + %d supplies for sale instead of %d + %d", shop_count(false),
+                 shop_count(true), SHOP_ITEMS, SHOP_SUPPLIES);
         return buf;
+    }
+    if (G.room.type == ROOM_SHOP || G.room.secret_shop) {
+        bool kinds[PK_ACTIVE + 1] = {false};
+        for (int i = 0; i < G.npk; i++)
+            if (G.pk[i].price > 0 && is_supply(&G.pk[i])) kinds[G.pk[i].type] = true;
+        if (!kinds[PK_HEART] || !kinds[PK_BOMB] || !kinds[PK_KEY]) return "shop supply counter without its heart, bomb and key";
     }
     bool item_room = G.room.type == ROOM_COMBAT && (G.room.reward == RW_UPGRADE || G.room.reward == RW_ACTIVE);
     if (item_room && count_choices() != REWARD_CHOICES) {
@@ -331,9 +345,8 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         clear_edges();
     }
     in->down = in->right = false;
-    int priced = 0;
-    for (int i = 0; i < G.npk; i++) priced += G.pk[i].price > 0;
-    bool ok = G.state == GS_PLAYING && G.room.type == ROOM_SHOP && G.room.cleared && priced == SHOP_ITEMS;
+    bool ok = G.state == GS_PLAYING && G.room.type == ROOM_SHOP && G.room.cleared && shop_count(false) == SHOP_ITEMS &&
+              shop_count(true) == SHOP_SUPPLIES;
     in->debug_pressed = true; /* F3 again opens it, Escape closes it */
     game_update();
     clear_edges();
@@ -931,6 +944,38 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         in->fire = false;
         G.npb = 0;
         names[nres] = "maluses", oks[nres++] = mal_ok;
+
+        /* Shop supply counter: a heart (refused at full health), a bomb and a key, paid in coins. */
+        game_init(o->seed);
+        G.god = true;
+        game_new_run();
+        debug_teleport(ROOM_SHOP, RW_NONE, 3, false);
+        G.state = GS_PLAYING;
+        pl->coins = 100;
+        bool supply_ok = true;
+        static const PickupType sup[] = {PK_HEART, PK_BOMB, PK_KEY};
+        for (int s = 0; s < 3; s++) {
+            int idx = -1;
+            for (int i = 0; i < G.npk; i++)
+                if (G.pk[i].type == sup[s] && G.pk[i].price > 0) idx = i;
+            supply_ok = supply_ok && idx >= 0;
+            if (idx < 0) break;
+            int price = G.pk[idx].price, coins = pl->coins, bombs = pl->bombs, keys = pl->keys, hp = pl->hp, n0 = G.npk;
+            if (sup[s] == PK_HEART) { /* full health: nothing happens */
+                pl->pos = G.pk[idx].pos;
+                for (int t = 0; t < 70; t++) TICK();
+                supply_ok = supply_ok && G.npk == n0 && pl->coins == coins;
+                pl->hp = pl->max_hp - 2;
+                hp = pl->hp;
+            }
+            pl->pos = G.pk[idx].pos;
+            for (int t = 0; t < 70; t++) TICK();
+            supply_ok = supply_ok && pl->coins == coins - price && G.npk == n0 - 1 &&
+                        (sup[s] == PK_HEART ? pl->hp == hp + 2 : sup[s] == PK_BOMB ? pl->bombs == bombs + 1 : pl->keys == keys + 1);
+            pl->pos = v2(ARENA_CX, ARENA_Y1 - 80.0f);
+            TICK();
+        }
+        names[nres] = "shop supplies", oks[nres++] = supply_ok;
 #undef DUMMY
 #undef FRESH
 #undef TICK

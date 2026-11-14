@@ -437,7 +437,9 @@ typedef struct {
 extern const StatDef STATS[ST_COUNT];
 
 #define STATS_ROOM_OFFERS 4
-#define SHOP_ITEMS 5 /* a shop always sells exactly this many items */
+#define SHOP_ITEMS 5 /* a shop always sells exactly this many items (upgrades, stat trades) */
+#define SHOP_SUPPLIES 3 /* ...plus a supply counter: a heart, a bomb, a key (shop_supply_spot) */
+V2 shop_supply_spot(int i);
 #define REWARD_CHOICES 3 /* weapon / upgrade rooms always offer this many items to pick from */
 #define COLOR_STATS 0x4dffd2
 #define COLOR_SHOP 0xff6bd6

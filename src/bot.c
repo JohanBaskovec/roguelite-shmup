@@ -91,6 +91,14 @@ void bot_input(void) {
         const Pickup *k = &G.pk[i];
         if (k->price <= 0 || k->price > pl->coins) continue;
         int rank = (k->type == PK_UPGRADE ? (upgrade_is_weapon(k->sub) ? 0 : 1) : 2) * 1000 + k->price;
+        /* Supplies only when needed: a heart when hurt (first when low), a bomb / key when out. */
+        if (k->type == PK_HEART) {
+            if (pl->hp > pl->max_hp - 2) continue;
+            rank = (pl->hp <= pl->max_hp / 2 ? -1 : 3) * 1000 + k->price;
+        } else if (k->type == PK_BOMB || k->type == PK_KEY) {
+            if (k->type == PK_BOMB ? pl->bombs >= 2 : pl->keys >= 1) continue;
+            rank = 4000 + k->price;
+        }
         if (rank < best_rank) {
             best_rank = rank;
             offer = k;

@@ -167,10 +167,10 @@ const char *upgrade_malus_desc(int u) {
     case MAL_SHOT_SPEED: SDL_snprintf(b, 96, "-%d%% shot speed", a); break;
     case MAL_HITBOX: SDL_snprintf(b, 96, "+%d%% hitbox size", a); break;
     case MAL_SPREAD: SDL_snprintf(b, 96, "+%d%% spread", a); break;
-    case MAL_RECHARGE: SDL_snprintf(b, 96, "Active items recharge %d%% slower", a); break;
+    case MAL_RECHARGE: SDL_snprintf(b, 96, "Active items recharge|%d%% slower", a); break;
     case MAL_LUCK: SDL_snprintf(b, 96, "-%d luck", a); break;
     case MAL_MAX_HP: SDL_snprintf(b, 96, "-%d heart container%s", a, a > 1 ? "s" : ""); break;
-    case MAL_RECOIL: SDL_snprintf(b, 96, "%s: every volley pushes you back", a >= 2 ? "Heavy recoil" : "Recoil"); break;
+    case MAL_RECOIL: SDL_snprintf(b, 96, "%s: every volley|pushes you back", a >= 2 ? "Heavy recoil" : "Recoil"); break;
     case MAL_FIRE_SLOW: SDL_snprintf(b, 96, "-%d%% move speed while firing", a); break;
     case MAL_ENEMY_BULLETS: SDL_snprintf(b, 96, "Enemy bullets %d%% faster", a); break;
     case MAL_INVULN: SDL_snprintf(b, 96, "%d%% shorter invulnerability|after a hit", a); break;

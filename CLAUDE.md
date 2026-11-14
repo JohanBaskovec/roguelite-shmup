@@ -65,7 +65,8 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   (`actives_recharge_all`; running effects keep going).
 - A stat trade never lowers max HP (`stat_can_change(ST_MAX_HP, false)` is false; raising it is fine):
   stats rooms, shops and the slot machine never offer one (headless checks). Only workshop augments cost max HP.
-- A shop always sells exactly 5 items (weapons, upgrades, stat trades), paid with coins.
+- A shop always sells exactly 5 items (upgrades, stat trades), plus a supply counter (`SHOP_SUPPLIES`,
+  `shop_supply_spot`): one heart, one bomb, one key, flat prices; all paid with coins, descriptions shown like on any pedestal.
 - After a room is cleared the player chooses between 3 doors; each door previews what the next
   room gives. One door may be locked (costs a key). The 3 doors are always different (no reward or
   special room behind two doors, locked or not).
