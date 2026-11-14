@@ -292,6 +292,7 @@ typedef struct {
     float last_enemy_damage_t; /* G.time of the last hit on an enemy (stall detection in tests) */
 
     bool quit, show_debug, god;
+    bool show_stats; /* F2: semi-transparent stats overlay (hidden by default) */
     GameState debug_prev; /* state to return to when the debug menu closes */
     float fps;
 } Game;

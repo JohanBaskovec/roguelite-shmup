@@ -101,11 +101,13 @@ if(SHMUP_BUILD_TESTS)
              COMMAND neon_breach --shot ${_out}/render_debug_menu.bmp --debug-menu --depth 4 --seed 4 --frames 3)
     add_test(NAME render_stats_room
              COMMAND neon_breach --shot ${_out}/render_stats.bmp --stats --seed 4 --frames 20)
+    add_test(NAME render_stats_overlay
+             COMMAND neon_breach --shot ${_out}/render_stats_overlay.bmp --show-stats --all-upgrades --depth 6 --seed 9 --frames 600)
     add_test(NAME render_offscreen
              COMMAND neon_breach --shot ${_out}/render.bmp --depth 4 --seed 4 --frames 30)
     add_test(NAME sfx_synthesis COMMAND neon_breach --dump-sfx ${_out}/sfx)
 
     set_tests_properties(sim_god_seed1 sim_god_seed2 sim_god_seed3 sim_mortal_runs sim_deep_rooms
                          sim_stats_rooms sim_shop_rooms render_shop_room sim_secret_rooms sim_all_upgrades sim_all_upgrades_mortal
-                         sim_debug_teleports render_debug_menu render_stats_room render_offscreen sfx_synthesis PROPERTIES TIMEOUT 600)
+                         sim_debug_teleports render_debug_menu render_stats_room render_stats_overlay render_offscreen sfx_synthesis PROPERTIES TIMEOUT 600)
 endif()

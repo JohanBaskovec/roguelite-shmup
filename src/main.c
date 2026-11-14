@@ -21,6 +21,7 @@ typedef struct {
     bool debug_rooms;      /* --debug-rooms (with --headless): test the debug menu teleports */
     bool debug_menu;       /* --debug-menu: open the F3 debug menu at startup */
     bool secret;           /* --secret: every eligible room hides a secret room */
+    bool show_stats;       /* --show-stats: start with the F2 stats overlay visible */
     bool show_secret;      /* --show-secret: mark secret corners (debug menu: SHOW SECRET CORNER) */
     bool all_upgrades;     /* --all-upgrades: start with one of every upgrade */
     int hp;                /* --hp N (headless): starting max hp in half-hearts */
@@ -55,6 +56,7 @@ static void parse_args(int argc, char **argv, Options *o) {
         else if (!strcmp(a, "--debug-menu")) o->debug_menu = true;
         else if (!strcmp(a, "--secret")) o->secret = true;
         else if (!strcmp(a, "--show-secret")) o->show_secret = true;
+        else if (!strcmp(a, "--show-stats")) o->show_stats = true;
         else if (!strcmp(a, "--all-upgrades")) o->all_upgrades = true;
         else if (!strcmp(a, "--hp") && more) o->hp = atoi(argv[++i]);
         else if (!strcmp(a, "--coins") && more) o->coins = atoi(argv[++i]);
@@ -108,6 +110,7 @@ static void handle_event(const SDL_Event *e, SDL_Window *win, bool bot) {
         case SDL_SCANCODE_E: in->bomb_pressed = true; break;
         case SDL_SCANCODE_RETURN:
         case SDL_SCANCODE_KP_ENTER: in->confirm_pressed = true; break;
+        case SDL_SCANCODE_F2: G.show_stats = !G.show_stats; break;
         case SDL_SCANCODE_F3: in->debug_pressed = true; break;
         case SDL_SCANCODE_F11:
             SDL_SetWindowFullscreen(win, (SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN) == 0);
@@ -198,6 +201,7 @@ int main(int argc, char **argv) {
     G.god = opt.god;
     G.force_secret = opt.secret;
     G.reveal_secrets = opt.show_secret;
+    G.show_stats = opt.show_stats;
     if (opt.stats_room || opt.shop_room || opt.depth > 0 || opt.coins > 0 || opt.debug_menu || opt.all_upgrades) {
         game_new_run();
         G.pl.coins += opt.coins;

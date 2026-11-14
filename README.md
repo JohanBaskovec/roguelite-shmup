@@ -24,6 +24,7 @@ Preset `debug` disponible aussi (`build/debug`).
 | Pause | Échap (R = restart, Q = quitter) |
 | Couper le son | M |
 | Plein écran | F11 |
+| Afficher / cacher les stats | F2 |
 | Menu de debug | F3 |
 
 ## Boucle de jeu
@@ -31,6 +32,7 @@ Preset `debug` disponible aussi (`build/debug`).
 - **Toutes les salles démarrent pleines d'ennemis**, sauf deux exceptions : la *Launch Bay* (première salle, portes ouvertes tout de suite) et les salles secrètes (sauf leur variante « embuscade »). Ce qui rend une salle spéciale n'apparaît qu'une fois tous les ennemis morts.
 - Une fois la salle nettoyée : 3 portes (gauche / haut / droite). Chaque porte affiche la récompense de la salle suivante. Une porte peut être verrouillée (coûte 1 clef) et contient toujours une arme ou une amélioration.
 - **Salles d'arme et d'amélioration : toujours 3 objets au choix** (avec leur description), on en prend un et les deux autres disparaissent. S'il reste moins de 3 armes à obtenir, une salle d'arme complète avec des améliorations.
+- **Stats du vaisseau** (F2, cachées par défaut) : panneau semi-transparent en haut à gauche de l'arène, avec dégâts, cadence, portée, vitesse des tirs, vitesse, dash, hitbox, chance, projectiles, perçage, rebonds, drones. Valeurs effectives (bonus situationnels de Bloodlust / Adrenaline inclus), en vert au-dessus de la base et en rouge en dessous ; une stat qui vient de changer clignote.
 - Ressources : pièces, clefs, bombes (+ cœurs). **Les ennemis ne lâchent jamais rien** : les ressources sont uniquement des récompenses de salle, aspirées automatiquement une fois la salle nettoyée.
 - **Salles Stats** (porte turquoise, ~20 % des portes après un combat) : une fois les ennemis tués, 4 échanges apparaissent, on en prend un (ou aucun). Chaque échange augmente une stat et en baisse une autre. Stats : dégâts, cadence, portée, PV max, vitesse de déplacement, recharge du dash, vitesse des projectiles, taille de la hitbox, chance (quantité des récompenses de salle). Échange spécial **+3 boucliers** : 3 cœurs bleus temporaires (absorbent les dégâts avant les vrais cœurs, ne se régénèrent pas, max 6) contre une baisse de stat. Valeurs et bornes dans `src/stats.c`.
 - **Shops** (porte rose, à partir de la salle 2, jamais deux d'affilée) : une fois les ennemis tués, toujours 5 objets à vendre — au moins une arme, une amélioration et un échange de stats, plus 2 emplacements aléatoires. On achète en marchant dessus ; prix affiché en doré si on peut payer, en rouge sinon. Prix : `shop_price()` dans `src/pickups.c`.
@@ -64,7 +66,7 @@ Preset `debug` disponible aussi (`build/debug`).
 | `headless.c` | Simulation sans fenêtre + vérification d'invariants |
 | `stats.c` | Stats échangeables des salles Stats (gains, pertes, bornes) |
 | `audio.c/h` | Synthèse procédurale des sons + mixeur (voix, panoramique, limitation de fréquence) |
-| `hud.c` | HUD et écrans (titre, pause, game over) |
+| `hud.c` | HUD, overlay des stats (F2), écrans (titre, pause, game over) |
 | `debug_menu.c` | Menu de debug F3 : téléportation dans chaque type de salle (avec / sans ennemis), cheats |
 
 Les types de salles `ROOM_TREASURE` et `ROOM_BOSS` sont déjà prévus (sur le modèle de `ROOM_STATS` / `ROOM_SHOP`) dans `RoomType` (`game.h`) : il suffit de les générer dans `gen_doors()` (`room.c`) et de leur donner un comportement dans `room_enter()`.
@@ -102,6 +104,7 @@ neon_breach --shop --coins 50                           # démarrer dans un shop
 neon_breach --debug-menu                                # ouvrir le menu de debug au démarrage
 neon_breach --secret                                    # chaque salle cache une salle secrète
 neon_breach --show-secret                               # affiche le coin secret (comme dans le menu F3)
+neon_breach --show-stats                                # démarre avec l'overlay des stats (F2) visible
 neon_breach --headless --debug-rooms                    # teste les téléportations du menu de debug
 neon_breach --headless --god --all-upgrades             # démarre avec toutes les améliorations au max
 neon_breach --hp 1                                      # démarre avec 1 PV (tester boucliers / Second Wind)

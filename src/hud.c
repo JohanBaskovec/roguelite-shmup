@@ -32,6 +32,76 @@ static void draw_weapon_slots(void) {
     }
 }
 
+/* ---- Stats overlay (F2, top-left of the arena, semi-transparent) ---------- */
+
+typedef struct {
+    const char *label;
+    float value, base;
+    int better; /* +1: higher is better, -1: lower is better */
+    const char *fmt;
+} SideStat;
+
+enum { SIDE_STATS = 12 };
+
+/* Effective values: include the situational boosts (Bloodlust, Adrenaline). */
+static int side_stats(SideStat *s) {
+    const Player *p = &G.pl;
+    int n = 0;
+    s[n++] = (SideStat){"DAMAGE", p->dmg_mult * upg_volley_damage_mult(), 1.0f, 1, "x%.2f"};
+    s[n++] = (SideStat){"FIRE RATE", p->rate_mult * upg_fire_rate_mult(), 1.0f, 1, "x%.2f"};
+    s[n++] = (SideStat){"RANGE", p->range_mult, 1.0f, 1, "x%.2f"};
+    s[n++] = (SideStat){"SHOT SPEED", p->shot_speed_mult, 1.0f, 1, "x%.2f"};
+    s[n++] = (SideStat){"MOVE SPEED", p->speed * upg_move_speed_mult() / 540.0f, 1.0f, 1, "x%.2f"};
+    s[n++] = (SideStat){"DASH", p->dash_cooldown, 0.6f, -1, "%.2fs"};
+    s[n++] = (SideStat){"HITBOX", p->hit_radius, PLAYER_HIT_R, -1, "%.1fpx"};
+    s[n++] = (SideStat){"LUCK", (float)p->luck, 0.0f, 1, "%+.0f"};
+    s[n++] = (SideStat){"PROJECTILES", (float)p->extra_proj, 0.0f, 1, "+%.0f"};
+    s[n++] = (SideStat){"PIERCE", (float)p->pierce, 0.0f, 1, "+%.0f"};
+    s[n++] = (SideStat){"BOUNCE", (float)p->bounce, 0.0f, 1, "+%.0f"};
+    s[n++] = (SideStat){"DRONES", (float)p->drones, 0.0f, 1, "%.0f"};
+    return n;
+}
+
+static void draw_stats_overlay(void) {
+    static float last[SIDE_STATS], changed_at[SIDE_STATS];
+    static bool seen;
+    SideStat st[SIDE_STATS];
+    int n = side_stats(st);
+
+    /* Drawn over the play area: keep it light so bullets stay readable underneath. */
+    const float x0 = ARENA_X0 + 10.0f, x1 = x0 + 200.0f, top = ARENA_Y0 + 10.0f, row = 28.0f;
+    const float h = 30.0f * 2.0f + 14.0f + row * (float)n + 22.0f;
+    draw_rect(x0, top, x1 - x0, h, rgba(0.02f, 0.03f, 0.06f, 0.45f));
+    draw_rect_outline(x0, top, x1 - x0, h, 1.0f, col_hex(0x66f0ff, 0.18f));
+
+    float y = top + 14.0f;
+    for (int i = 0; i < n; i++) {
+        if (i == 0 || i == 8) {
+            if (i) y += 14.0f;
+            draw_text(x0 + 12.0f, y, 1.5f, col_hex(0x66f0ff, 0.6f), "%s", i ? "SHOTS" : "STATS");
+            draw_line(v2(x0 + 12.0f, y + 18.0f), v2(x1 - 12.0f, y + 18.0f), 1.0f, col_hex(0x66f0ff, 0.15f));
+            y += 30.0f;
+        }
+        /* Briefly highlight a stat that just changed (pickup, trade, Bloodlust...). */
+        if (!seen || fabsf(st[i].value - last[i]) > 1e-4f) {
+            changed_at[i] = seen ? G.time : -10.0f;
+            last[i] = st[i].value;
+        }
+        float age = G.time - changed_at[i];
+        if (age >= 0.0f && age < 1.2f)
+            draw_rect(x0 + 4.0f, y - 6.0f, x1 - x0 - 8.0f, row - 4.0f, col_hex(0x66f0ff, 0.18f * (1.0f - age / 1.2f)));
+
+        float diff = (st[i].value - st[i].base) * (float)st[i].better;
+        SDL_FColor c = diff > 1e-4f ? col_hex(0x7dff9a, 0.75f) : diff < -1e-4f ? col_hex(0xff5f7e, 0.75f) : col_a(COL_WHITE, 0.65f);
+        char val[24];
+        SDL_snprintf(val, sizeof val, st[i].fmt, (double)st[i].value);
+        draw_text(x0 + 12.0f, y + 2.0f, 1.25f, col_a(COL_WHITE, 0.4f), "%s", st[i].label);
+        draw_text(x1 - 12.0f - draw_text_width(val, 1.5f), y, 1.5f, c, "%s", val);
+        y += row;
+    }
+    seen = true;
+}
+
 void hud_draw(void) {
     const Player *p = &G.pl;
     const Room *r = &G.room;
@@ -88,6 +158,7 @@ void hud_draw(void) {
     }
 
     draw_weapon_slots();
+    if (G.show_stats) draw_stats_overlay();
 
     if (audio_muted()) draw_text(SCREEN_W - 120.0f, SCREEN_H - 24.0f, 2.0f, col_a(COL_WHITE, 0.5f), "MUTED");
     if (G.show_debug)
