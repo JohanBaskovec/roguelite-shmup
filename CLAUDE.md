@@ -26,6 +26,13 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   fall back to stat trades. No upgrade is reserved to a character: all of them, the sword included,
   can be found by everyone (character / upgrade unlocks may come later).
 - **Upgrade rooms always offer a choice of 3 items** (take one, the other two vanish).
+- **Every upgrade has a bonus AND a malus** (`MALUSES` table in `src/maluses.c`, one `MalusKind` + amount
+  per upgrade, or `MAL_CUSTOM` text when the trade-off is built into the effect, e.g. weapon-like ones).
+  Stat maluses go through `stat_effect` (`malus_stat_effect`), the others are read with `malus(kind)`
+  where they apply (fire gate, `player_hurt`, prices, waves...). Texts are generated
+  (`upgrade_malus_desc`, shown in red under the bonus by `draw_upgrade_texts`). A malus only applies
+  while its upgrade is owned and turned on; CHAOS lends upgrades without their malus. A new upgrade
+  needs a `MALUSES` entry (headless checks every upgrade has one).
 - **Every upgrade found can be turned off and back on, one by one** (TAB menu, `src/upgrade_menu.c`,
   `upgrade_toggle`; only purely one-time ones like SKELETON KEY cannot, `upgrade_toggleable`). Turned
   off = no effect at all (`Player.upg_off`, `has()` returns 0, stats left out); turning a heart

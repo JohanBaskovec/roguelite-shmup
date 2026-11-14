@@ -471,6 +471,7 @@ static void spawn_wave(void) {
     /* Slightly faster than linear, and the size cap grows too: fixed-strength enemies must
      * keep up with a player who only gets stronger. */
     float budget = 5.0f + WAVE_BUDGET_SCALE * powf((float)depth, WAVE_BUDGET_EXP) + (float)r->wave * 1.5f;
+    budget *= 1.0f + malus_pct(MAL_CROWD); /* CROWD malus: bigger waves (more enemies, never stronger ones) */
     int cap = (int)(30.0f + 2.5f * (float)depth);
     if (cap > MAX_ENEMIES - 20) cap = MAX_ENEMIES - 20;
     int queued = 0;

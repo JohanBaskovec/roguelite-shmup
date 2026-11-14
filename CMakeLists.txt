@@ -37,7 +37,8 @@ add_executable(neon_breach
     src/debug_menu.c
     src/characters.c
     src/workshop.c
-    src/actives.c)
+    src/actives.c
+    src/maluses.c)
 
 target_link_libraries(neon_breach PRIVATE SDL3::SDL3)
 

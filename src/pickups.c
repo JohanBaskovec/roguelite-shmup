@@ -56,6 +56,7 @@ int shop_price(PickupType type, int sub) {
     int base = type == PK_UPGRADE ? 14 : 8;
     int price = base + G.room.depth / 4;
     if (upg_has(UPG_COUPON)) price = (int)roundf((float)price * 0.7f);
+    price = (int)roundf((float)price * (1.0f + malus_pct(MAL_PRICES)));
     return price > 1 ? price : 1;
 }
 
@@ -121,6 +122,8 @@ static void spawn_item_choices(V2 center) {
 }
 
 void pickups_refresh_owned(void) {
+    for (int i = 0; i < G.npk; i++) /* prices follow COUPON / the PRICES malus being turned on or off */
+        if (G.pk[i].price > 0) G.pk[i].price = shop_price(G.pk[i].type, G.pk[i].sub);
     for (int i = 0; i < G.npk; i++) {
         Pickup *k = &G.pk[i];
         if (k->type != PK_UPGRADE || G.pl.upg_count[k->sub] == 0) continue;
@@ -181,7 +184,8 @@ void reward_drop(RewardType r, V2 pos) {
         for (int i = 0; i < n; i++) pickup_spawn(PK_BOMB, 0, pos, random_vel(100.0f, 250.0f));
     } break;
     case RW_HEART: {
-        int n = luck_adjust(2);
+        int n = luck_adjust(2) - malus(MAL_HEAL); /* HEAL malus: fewer hearts, at least one */
+        if (n < 1) n = 1;
         for (int i = 0; i < n; i++) pickup_spawn(PK_HEART, 0, pos, random_vel(100.0f, 250.0f));
     } break;
     case RW_UPGRADE: spawn_item_choices(pos); break;
@@ -480,14 +484,13 @@ void pickups_draw(void) {
             continue;
         }
         const char *name = UPGRADES[k->sub].name;
-        const char *desc = upgrade_desc(k->sub);
         if (k->type == PK_AUGMENT) {
             int hearts = UPGRADES[k->sub].tier;
             draw_text_centered(k->pos.x, k->pos.y - 74.0f, 2.0f, col_hex(0xff4d6a, 1), "-%d HEART%s", hearts, hearts > 1 ? "S" : "");
         }
         draw_text_centered(k->pos.x, k->pos.y + 56.0f, ls, pickup_glow_color(k), "%s", name);
-        /* Shops pack 5 items in a row: no room for descriptions there. */
-        if (k->price == 0) draw_desc(k->pos.x, k->pos.y + 60.0f + 10.0f * ls, 1.5f, col_a(COL_WHITE, 0.7f), desc);
+        /* Bonus, then malus in red; shops pack 5 items in a row: smaller text there. */
+        draw_upgrade_texts(k->pos.x, k->pos.y + 60.0f + 10.0f * ls, k->price > 0 ? 1.0f : 1.5f, 0.9f, k->sub);
     }
 }
 

@@ -181,9 +181,9 @@ void upgrade_menu_draw(void) {
         draw_desc(SCREEN_W * 0.5f, y + 42.0f, 2.0f, col_a(COL_WHITE, 0.8f), active_desc(a, p->act[a].level));
     } else {
         draw_text_centered(SCREEN_W * 0.5f, y, 3.0f, col_hex(UPGRADES[u].color, 1), "%s", UPGRADES[u].name);
-        draw_desc(SCREEN_W * 0.5f, y + 42.0f, 2.0f, col_a(COL_WHITE, 0.8f), upgrade_desc_at(u, p->upg_count[u]));
+        draw_upgrade_texts(SCREEN_W * 0.5f, y + 36.0f, 1.75f, 1.0f, u);
     }
     int nupg = n - nact;
-    draw_text_centered(SCREEN_W * 0.5f, y + 100.0f, 1.5f, col_a(COL_WHITE, 0.45f), "%d ACTIVE ITEM%s (ALL GO OFF TOGETHER), %d UPGRADE%s, %d TURNED OFF",
+    draw_text_centered(SCREEN_W * 0.5f, y + 134.0f, 1.5f, col_a(COL_WHITE, 0.45f), "%d ACTIVE ITEM%s (ALL GO OFF TOGETHER), %d UPGRADE%s, %d TURNED OFF",
                        nact, nact != 1 ? "S" : "", nupg, nupg != 1 ? "S" : "", off);
 }

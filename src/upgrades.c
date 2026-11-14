@@ -38,14 +38,14 @@ const UpgradeDef UPGRADES[UPG_COUNT] = {
     [UPG_TAIL_GUN] = {"TAIL GUN", "Also fires backwards", 0x7dd3ff},
     [UPG_FLANK] = {"FLANK CANNONS", "Periodic shots to both sides", 0x7dffc8},
     [UPG_CAPACITOR] = {"CAPACITOR", "Every 10th volley: a mega shot", 0x66e0ff},
-    [UPG_WIDE_LENS] = {"WIDE LENS", "+1 projectile, wider spread", 0x99ccff},
+    [UPG_WIDE_LENS] = {"WIDE LENS", "+1 projectile", 0x99ccff},
     [UPG_FOCUS_LENS] = {"FOCUS LENS", "Tighter spread, +10% damage", 0xa0ffea},
 
-    [UPG_GLASS_CANNON] = {"GLASS CANNON", "+60% damage, -1 heart container", 0xe0f4ff},
-    [UPG_TITAN_HULL] = {"TITAN HULL", "+2 heart containers, -8% speed", 0xff5577},
+    [UPG_GLASS_CANNON] = {"GLASS CANNON", "+60% damage", 0xe0f4ff},
+    [UPG_TITAN_HULL] = {"TITAN HULL", "+2 heart containers", 0xff5577},
     [UPG_FEATHER] = {"FEATHERWEIGHT", "+15% speed, smaller hitbox", 0xe6f0ff},
     [UPG_LONG_BARREL] = {"LONG BARREL", "+40% range, faster shots", 0xb4c8ff},
-    [UPG_HAIR_TRIGGER] = {"HAIR TRIGGER", "+30% fire rate, -10% damage", 0xff7a9a},
+    [UPG_HAIR_TRIGGER] = {"HAIR TRIGGER", "+30% fire rate", 0xff7a9a},
     [UPG_FOUR_LEAF] = {"FOUR-LEAF CHIP", "+2 luck", 0x5dff8a},
     [UPG_MICRO_HULL] = {"MICRO HULL", "-25% hitbox size", 0xd8d8ff},
 
@@ -69,7 +69,7 @@ const UpgradeDef UPGRADES[UPG_COUNT] = {
     [UPG_MINES] = {"MINE LAYER", "Drops mines as you move", 0xffaa33},
 
     /* '|' splits a description over two lines on pedestals (a space in banners). */
-    [UPG_DEFLECTOR] = {"DEFLECTOR SHELLS", "Huge slow shots, 1/3 fire rate|they reflect enemy bullets", 0x7dffef},
+    [UPG_DEFLECTOR] = {"DEFLECTOR SHELLS", "Huge shots that reflect|enemy bullets", 0x7dffef},
     [UPG_WOUNDED_FURY] = {"WOUNDED FURY", "+30% damage while not|at full health", 0xff4a4a},
     [UPG_SCAR_TISSUE] = {"SCAR TISSUE", "+25% fire rate while not|at full health", 0xff8a8a},
     [UPG_LAST_STAND] = {"LAST STAND", "Per missing heart: +10% damage|and +5% speed", 0xd02040},
@@ -93,26 +93,26 @@ const UpgradeDef UPGRADES[UPG_COUNT] = {
     [UPG_ORBITAL] = {"ORBITAL STRIKE", "A strike from orbit hits|an enemy every 3 s", 0x9fe8ff},
     [UPG_SPIKED_HULL] = {"SPIKED HULL", "Enemies touching your hull|take heavy damage", 0xd0d0e0},
     [UPG_ECHO] = {"ECHO", "Every volley is echoed|0.12 s later (50% damage)", 0xb0a0ff},
-    [UPG_MAGNUM] = {"MAGNUM ROUNDS", "+2 pierce, +15% damage,|-15% fire rate", 0xffc080},
-    [UPG_SPRAY] = {"SPRAY AND PRAY", "+45% fire rate,|+60% spread", 0xff8ad0},
-    [UPG_HEAVY_CALIBER] = {"HEAVY CALIBER", "+40% damage, bigger shots,|-20% shot speed", 0xc08a5a},
+    [UPG_MAGNUM] = {"MAGNUM ROUNDS", "+2 pierce, +15% damage", 0xffc080},
+    [UPG_SPRAY] = {"SPRAY AND PRAY", "+45% fire rate", 0xff8ad0},
+    [UPG_HEAVY_CALIBER] = {"HEAVY CALIBER", "+40% damage, bigger shots", 0xc08a5a},
     [UPG_EMERGENCY] = {"EMERGENCY SHIELD", "Once per room, the first|hit is blocked", 0x66d9ff},
     [UPG_RAMPAGE] = {"RAMPAGE", "+3% fire rate per kill in the|room (max +45%)", 0xff5a3a},
     [UPG_BLACK_HOLE] = {"BLACK HOLE", "Kills may open a vortex|that pulls enemies in", 0x8a5aff},
     [UPG_XRAY] = {"X-RAY VISOR", "Secret corners are|always visible", 0xb0ffb0},
 
     /* Weapon mods: they change the gun itself and stack with each other (weapons.c, gun_profile). */
-    [UPG_W_SCATTER] = {"SCATTER", "x8 pellets in a wide fan,|short range, slower fire", 0xffa94d},
-    [UPG_W_NEEDLER] = {"NEEDLER", "Double fire rate, half damage,|shots pierce 2 more enemies", 0xf28cff},
-    [UPG_W_SEEKER] = {"SEEKER", "Homing missiles: +1 shot,|slower but stronger", 0x9dff6a},
-    [UPG_W_BOUNCER] = {"BOUNCER", "Big orbs that bounce 4 times|and pierce, slower fire", 0xffe14d},
-    [UPG_W_RAILGUN] = {"RAILGUN", "Rails: x9 damage, pierce|everything, very slow fire", 0xe0f4ff},
-    [UPG_W_FLAMER] = {"FLAMER", "Short-range flames that|pierce and set enemies ablaze", 0xff7a1a},
-    [UPG_W_ROCKETS] = {"ROCKETS", "Accelerating rockets that|explode, slow fire", 0xffb04d},
+    [UPG_W_SCATTER] = {"SCATTER", "x8 pellets in a wide fan,|big knockback", 0xffa94d},
+    [UPG_W_NEEDLER] = {"NEEDLER", "Double fire rate, shots|pierce 2 more enemies", 0xf28cff},
+    [UPG_W_SEEKER] = {"SEEKER", "Homing missiles: +1 shot,|+60% damage", 0x9dff6a},
+    [UPG_W_BOUNCER] = {"BOUNCER", "Big orbs that bounce 4 times|and pierce, +45% damage", 0xffe14d},
+    [UPG_W_RAILGUN] = {"RAILGUN", "Rails: x9 damage, pierce|everything", 0xe0f4ff},
+    [UPG_W_FLAMER] = {"FLAMER", "Fast flames that pierce|and set enemies ablaze", 0xff7a1a},
+    [UPG_W_ROCKETS] = {"ROCKETS", "Accelerating rockets that|explode (x3.6 damage)", 0xffb04d},
     [UPG_W_CHAKRAM] = {"CHAKRAM", "Spinning blades that pierce|everything and fly back", 0xa8ff5a},
-    [UPG_W_CLUSTER] = {"CLUSTER", "Shells burst into 6|fragments, slower fire", 0xff5fd2},
-    [UPG_W_ARC] = {"ARC CASTER", "Hits chain lightning|through 3 more enemies", 0x9db8ff},
-    [UPG_W_VULCAN] = {"VULCAN", "Minigun: the fire rate climbs|while you hold the trigger", 0xffe08a},
+    [UPG_W_CLUSTER] = {"CLUSTER", "Shells burst into 6|fragments, +80% damage", 0xff5fd2},
+    [UPG_W_ARC] = {"ARC CASTER", "Hits chain lightning through|3 more enemies, +30% damage", 0x9db8ff},
+    [UPG_W_VULCAN] = {"VULCAN", "Minigun: the fire rate climbs|up to x4 while firing", 0xffe08a},
     [UPG_W_WAVE] = {"WAVE GUN", "Twin shots that weave|and pierce one more enemy", 0x5dffd8},
     [UPG_W_SWORD] = {"SWORD", "Replaces the gun: arc slashes|that cut enemy bullets", 0xc9d4ff},
 
@@ -246,16 +246,12 @@ static void stat_effect(Stats *p, int u) {
     case UPG_BIG_IRON:
         p->bullet_size *= 1.35f;
         p->dmg_mult *= 1.2f;
-        p->shot_speed_mult = fmaxf(0.4f, p->shot_speed_mult * 0.9f);
         break;
     case UPG_IMPACT: p->dmg_mult *= 1.1f; break;
-    case UPG_WIDE_LENS: p->extra_proj++; p->spread_mult = fminf(SPREAD_MAX, p->spread_mult * 1.4f); break;
+    case UPG_WIDE_LENS: p->extra_proj++; break;
     case UPG_FOCUS_LENS: p->spread_mult = fmaxf(SPREAD_MIN, p->spread_mult * 0.5f); p->dmg_mult *= 1.1f; break;
-    case UPG_GLASS_CANNON: p->dmg_mult *= 1.6f; p->max_hp -= 2; break;
-    case UPG_TITAN_HULL:
-        p->max_hp = p->max_hp + 4 > 24 ? 24 : p->max_hp + 4;
-        p->speed = fmaxf(330.0f, p->speed * 0.92f);
-        break;
+    case UPG_GLASS_CANNON: p->dmg_mult *= 1.6f; break;
+    case UPG_TITAN_HULL: p->max_hp = p->max_hp + 4 > 24 ? 24 : p->max_hp + 4; break;
     case UPG_FEATHER:
         p->speed = fminf(900.0f, p->speed * 1.15f);
         p->hit_radius = fmaxf(2.0f, p->hit_radius * 0.85f);
@@ -264,16 +260,15 @@ static void stat_effect(Stats *p, int u) {
         p->range_mult = fminf(3.0f, p->range_mult * 1.4f);
         p->shot_speed_mult *= 1.2f;
         break;
-    case UPG_HAIR_TRIGGER: p->rate_mult *= 1.3f; p->dmg_mult = fmaxf(0.3f, p->dmg_mult * 0.9f); break;
+    case UPG_HAIR_TRIGGER: p->rate_mult *= 1.3f; break;
     case UPG_FOUR_LEAF: p->luck = p->luck + 2 > 5 ? 5 : p->luck + 2; break;
     case UPG_MICRO_HULL: p->hit_radius = fmaxf(2.0f, p->hit_radius * 0.75f); break;
     case UPG_SMART_BOUNCE: p->bounce += 1; break;
-    case UPG_MAGNUM: p->pierce += 2; p->dmg_mult *= 1.15f; p->rate_mult = fmaxf(0.3f, p->rate_mult * 0.85f); break;
-    case UPG_SPRAY: p->rate_mult *= 1.45f; p->spread_mult = fminf(SPREAD_MAX, p->spread_mult * 1.6f); break;
+    case UPG_MAGNUM: p->pierce += 2; p->dmg_mult *= 1.15f; break;
+    case UPG_SPRAY: p->rate_mult *= 1.45f; break;
     case UPG_HEAVY_CALIBER:
         p->dmg_mult *= 1.4f;
         p->bullet_size *= 1.25f;
-        p->shot_speed_mult = fmaxf(0.4f, p->shot_speed_mult * 0.8f);
         break;
     case UPG_X_BLOOD_ROUNDS: p->dmg_mult *= 1.3f; break;
     case UPG_X_OVERDRIVE:
@@ -293,6 +288,7 @@ static void stat_effect(Stats *p, int u) {
         break;
     default: break; /* effect read through has() by the hooks below */
     }
+    malus_stat_effect(p, u); /* every upgrade's malus (only the stat ones do something here) */
 }
 
 /* The stat floors and caps (also those of the stat trades): they hold whatever is turned on. */
@@ -366,10 +362,8 @@ void upgrade_grant(int u) {
 void upgrade_apply(int u) {
     if (u < 0 || u >= UPG_COUNT || G.pl.upg_count[u] > 0) return;
     upgrade_grant(u);
-    char desc[96];
-    SDL_snprintf(desc, sizeof desc, "%s", upgrade_desc_at(u, G.pl.upg_count[u]));
-    for (char *c = desc; *c; c++)
-        if (*c == '|') *c = ' ';
+    char desc[200];
+    upgrade_banner_text(u, desc, sizeof desc);
     fx_banner(UPGRADES[u].name, desc, col_hex(UPGRADES[u].color, 1), 2.6f);
 }
 
@@ -408,6 +402,7 @@ float upg_fire_rate_mult(void) {
 }
 float upg_move_speed_mult(void) {
     float m = adrenaline_on() ? 1.15f : 1.0f;
+    if (G.in.fire) m *= fmaxf(0.4f, 1.0f - malus_pct(MAL_FIRE_SLOW));
     if (has(UPG_LAST_STAND)) m *= 1.0f + 0.05f * missing_hearts();
     return m;
 }
@@ -901,11 +896,13 @@ void upg_on_room_enter(void) {
     p->room_kills = 0;
     p->emergency_used = false;
     p->momentum = 0.0f;
+    malus_on_room_enter();
     int n = has(UPG_BARRIER);
     if (n && !G.room.cleared && p->shield < 2 * n) player_add_shield(2 * n - p->shield);
 }
 
 void upg_on_room_clear(void) {
+    malus_on_room_clear();
     if (has(UPG_GROWTH)) G.pl.growth++;
     if (has(UPG_PIGGY_BANK)) {
         G.pl.coins += 3;
@@ -913,7 +910,9 @@ void upg_on_room_clear(void) {
     }
 }
 
-float upg_enemy_bullet_speed(void) { return has(UPG_CHRONO) ? powf(0.85f, (float)has(UPG_CHRONO)) : 1.0f; }
+float upg_enemy_bullet_speed(void) {
+    return (has(UPG_CHRONO) ? powf(0.85f, (float)has(UPG_CHRONO)) : 1.0f) * (1.0f + malus_pct(MAL_ENEMY_BULLETS));
+}
 
 void upg_draw(void) {
     const Player *p = &G.pl;

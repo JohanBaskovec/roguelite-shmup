@@ -225,7 +225,7 @@ void workshop_draw(void) {
         } else {
             if (m->prize == PK_UPGRADE) {
                 draw_text_centered(p.x, ty - 4.0f, 1.75f, col_hex(UPGRADES[m->prize_sub].color, 1), "WIN: %s", UPGRADES[m->prize_sub].name);
-                draw_desc(p.x, ty + 18.0f, 1.25f, col_a(COL_WHITE, 0.75f), upgrade_desc(m->prize_sub));
+                draw_upgrade_texts(p.x, ty + 18.0f, 1.25f, 0.85f, m->prize_sub);
             } else if (m->prize == PK_STAT) {
                 draw_text_centered(p.x, ty - 4.0f, 1.75f, col_hex(COLOR_STATS, 1), "WIN: A STAT TRADE");
                 draw_text_centered(p.x, ty + 18.0f, 1.25f, col_hex(0x5dff8a, 1), "%s", STATS[stat_offer_up(m->prize_sub)].up_text);

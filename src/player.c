@@ -50,13 +50,14 @@ bool player_hurt(int dmg) {
     if (G.state != GS_PLAYING || G.transitioning) return false;
     if (p->invuln > 0.0f || p->dash_t > 0.0f || active_shield_on()) return false;
     if (upg_block_hit()) return true; /* EMERGENCY SHIELD: blocked, but it did land */
+    dmg += malus_on_hurt(); /* first hit of the room costs more, coins lost */
     if (G.god) dmg = 0;
     /* Shields (temporary hearts) soak damage before the hull. */
     bool shielded = p->shield > 0;
     int soak = dmg < p->shield ? dmg : p->shield;
     p->shield -= soak;
     p->hp -= dmg - soak;
-    p->invuln = 1.2f;
+    p->invuln = 1.2f * fmaxf(0.3f, 1.0f - malus_pct(MAL_INVULN));
     G.hurt_flash = shielded ? 0.4f : 1.0f;
     sfx_play_ex(SFX_PLAYER_HURT, 1.0f, shielded ? 1.6f : 1.0f, 0.0f);
     upg_on_hurt();
@@ -98,7 +99,9 @@ void player_update(void) {
         p->vel = v2_scale(p->dash_dir, p->speed * 3.4f);
         fx_particle(p->pos, v2(0, 0), 0.2f, 22.0f, col_hex(SHIP_COLOR, 0.45f), 0.0f, PT_GLOW);
     } else {
-        p->vel = v2_lerp(p->vel, v2_scale(mv, p->speed * upg_move_speed_mult()), smooth_k(24.0f));
+        /* DRIFT malus: a heavier ship, slower to start and stop */
+        float resp = 24.0f * fmaxf(0.25f, 1.0f - malus_pct(MAL_DRIFT));
+        p->vel = v2_lerp(p->vel, v2_scale(mv, p->speed * upg_move_speed_mult()), smooth_k(resp));
     }
 
     p->pos = v2_add(p->pos, v2_scale(p->vel, DT));

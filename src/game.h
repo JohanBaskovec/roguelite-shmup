@@ -296,6 +296,8 @@ typedef struct {
     int growth;                 /* GROWTH: rooms cleared while owning it */
     float missile_cd, orbital_cd, echo_t, echo_aim, echo_dmg;
     bool emergency_used;        /* EMERGENCY SHIELD: spent for this room */
+    bool room_hit;              /* hit in this room already (FIRST HIT malus) */
+    float heat, jam_t, trig_t, cold_t; /* maluses: overheat, jam left, trigger held, no-fire time at room start */
     float speed;
     int coins, keys, bombs;
     Stats base;                 /* before upgrades (see Stats) */
@@ -383,7 +385,7 @@ typedef struct {
     bool transitioning;
     float trans_t;
     int trans_door;
-    char banner[64], banner_sub[96];
+    char banner[64], banner_sub[200];
     float banner_t, banner_max;
     SDL_FColor banner_col;
     int rooms_cleared, kills;
@@ -450,6 +452,36 @@ int upgrade_roll(void);               /* not owned, never a weapon mod nor a wor
 void upgrade_apply(int u);            /* take it (with its banner); does nothing if already owned */
 void upgrade_grant(int u);            /* same, silently (starting weapon mod) */
 bool upgrade_capped(int u);           /* cannot be offered: owned, or useless right now */
+/* ---- Maluses (maluses.c): every upgrade has one, removed with it when turned off ---- */
+typedef enum {
+    MAL_NONE,
+    /* stat maluses (applied by stat_effect, so the stats stay derived) */
+    MAL_DAMAGE, MAL_RATE, MAL_RANGE, MAL_SPEED, MAL_SHOT_SPEED, MAL_HITBOX, MAL_SPREAD, MAL_RECHARGE, MAL_LUCK, MAL_MAX_HP,
+    /* behaviour maluses (read through malus()) */
+    MAL_RECOIL, MAL_FIRE_SLOW, MAL_ENEMY_BULLETS, MAL_INVULN, MAL_PRICES, MAL_TAX, MAL_OVERHEAT, MAL_SPINUP,
+    MAL_FIRST_HIT, MAL_CROWD, MAL_DRIFT, MAL_COLD_START, MAL_HIT_COINS, MAL_ACTIVE_TIME, MAL_HEAL,
+    MAL_CUSTOM, /* part of the upgrade's own effect (text) */
+    MAL_COUNT
+} MalusKind;
+typedef struct {
+    MalusKind kind;
+    int amount; /* % for most kinds, tenths of a second for OVERHEAT / SPINUP / COLD_START */
+    const char *text; /* MAL_CUSTOM only */
+} MalusDef;
+extern const MalusDef MALUSES[UPG_COUNT];
+#define OVERHEAT_AFTER 3.0f
+int malus(MalusKind k);                /* sum over upgrades owned and turned on (CHAOS loans carry none) */
+float malus_pct(MalusKind k);          /* malus(k) / 100 */
+bool malus_is_stat(MalusKind k);
+void malus_stat_effect(Stats *s, int u);
+const char *upgrade_malus_desc(int u); /* '|' splits it over two lines */
+float draw_upgrade_texts(float cx, float y, float scale, float alpha, int u); /* bonus + malus, returns height */
+void upgrade_banner_text(int u, char *out, int size);
+bool malus_fire_gate(bool trigger);    /* spin-up, overheat, room-start delay: may the gun fire now? */
+void malus_on_room_enter(void);
+void malus_on_room_clear(void);
+int malus_on_hurt(void);               /* a hit landed: extra damage (first hit of the room), coins lost */
+
 /* Upgrades menu: turn an owned upgrade off / back on (false for one-time ones, see upgrade_toggleable). */
 bool upgrade_toggle(int u);
 bool upgrade_toggleable(int u);

@@ -284,7 +284,10 @@ void overlay_draw(void) {
         float a = clampf(G.banner_t / 0.4f, 0.0f, 1.0f) * clampf(age / 0.08f, 0.0f, 1.0f);
         float scale = 5.0f + 1.5f * fmaxf(0.0f, 1.0f - age / 0.12f);
         draw_text_centered(SCREEN_W * 0.5f, 250.0f, scale, col_a(G.banner_col, a), "%s", G.banner);
-        if (G.banner_sub[0]) draw_text_centered(SCREEN_W * 0.5f, 310.0f, 2.5f, col_a(COL_WHITE, a * 0.85f), "%s", G.banner_sub);
+        if (G.banner_sub[0]) { /* upgrades: "bonus  /  malus", shrunk to fit */
+            float ss = draw_text_width(G.banner_sub, 2.5f) <= SCREEN_W - 120.0f ? 2.5f : 1.75f;
+            draw_text_centered(SCREEN_W * 0.5f, 310.0f, ss, col_a(COL_WHITE, a * 0.85f), "%s", G.banner_sub);
+        }
     }
 
     if (G.transitioning) {

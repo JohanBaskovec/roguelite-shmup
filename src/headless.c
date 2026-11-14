@@ -862,6 +862,64 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         for (int i = 0; i < G.npk; i++) once_ok = once_ok && G.pk[i].type == PK_STAT;
         G.npk = 0;
         names[nres] = "owned upgrades never come back", oks[nres++] = once_ok;
+
+        /* Every upgrade has a bonus AND a malus; a malus only applies while its upgrade is
+         * turned on, and CHAOS lends upgrades without theirs. */
+        bool mal_ok = true;
+        for (int u = 0; u < UPG_COUNT; u++)
+            mal_ok = mal_ok && MALUSES[u].kind > MAL_NONE && MALUSES[u].kind < MAL_COUNT &&
+                     (MALUSES[u].kind == MAL_CUSTOM ? MALUSES[u].text != NULL : MALUSES[u].amount > 0) && upgrade_malus_desc(u)[0];
+        FRESH();
+        float dmg0 = pl->dmg_mult;
+        int price0 = shop_price(PK_UPGRADE, UPG_RAPID);
+        upgrade_apply(UPG_HAIR_TRIGGER); /* +30% fire rate, -10% damage */
+        mal_ok = mal_ok && fabsf(pl->dmg_mult - dmg0 * 0.9f) < 1e-4f && stats_in_sync();
+        upgrade_toggle(UPG_HAIR_TRIGGER);
+        mal_ok = mal_ok && pl->dmg_mult == dmg0 && stats_in_sync();
+        upgrade_apply(UPG_FOUR_LEAF); /* prices +20% */
+        mal_ok = mal_ok && shop_price(PK_UPGRADE, UPG_RAPID) == (int)roundf((float)price0 * 1.2f);
+        pl->chaos[UPG_GUILLOTINE] = true;
+        mal_ok = mal_ok && malus(MAL_FIRST_HIT) == 0 && upg_has(UPG_GUILLOTINE) == 1;
+        pl->chaos[UPG_GUILLOTINE] = false;
+        /* first hit of the room: +1 half-heart, then normal */
+        upgrade_apply(UPG_GUILLOTINE);
+        G.god = false;
+        pl->invuln = 0.0f;
+        int hp_m = pl->hp;
+        player_hurt(1);
+        int first_hit = hp_m - pl->hp;
+        pl->invuln = 0.0f;
+        player_hurt(1);
+        mal_ok = mal_ok && first_hit == 2 && hp_m - pl->hp == 3;
+        G.god = true;
+        G.hitstop = 0.0f;
+        /* spin-up: no shot for 0.3 s after pulling the trigger */
+        FRESH();
+        upgrade_apply(UPG_MOMENTUM);
+        G.npb = 0;
+        pl->fire_cd = 0.0f;
+        in->fire = true;
+        for (int t = 0; t < 24; t++) TICK(); /* 0.2 s */
+        int early = G.npb;
+        for (int t = 0; t < 24; t++) TICK();
+        mal_ok = mal_ok && early == 0 && G.npb > 0;
+        /* overheat: OVERCLOCK jams the gun after 3 s of non-stop fire; turned off, it never does */
+        upgrade_apply(UPG_RAPID);
+        bool jammed = false;
+        for (int t = 0; t < (int)((OVERHEAT_AFTER + 0.5f) * TICK_RATE); t++) {
+            TICK();
+            if (pl->jam_t > 0.0f) {
+                int before = G.npb;
+                TICK();
+                jammed = G.npb <= before; /* nothing fired while jammed (shots only die) */
+                break;
+            }
+        }
+        upgrade_toggle(UPG_RAPID);
+        mal_ok = mal_ok && jammed && malus(MAL_OVERHEAT) == 0;
+        in->fire = false;
+        G.npb = 0;
+        names[nres] = "maluses", oks[nres++] = mal_ok;
 #undef DUMMY
 #undef FRESH
 #undef TICK

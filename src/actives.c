@@ -30,7 +30,7 @@ const ActiveDef ACTIVES[ACT_COUNT] = {
 
 static int lv(int level) { return (level < 1 ? 1 : level > MAX_ACTIVE_LEVEL ? MAX_ACTIVE_LEVEL : level) - 1; }
 
-float active_duration(int a, int level) {
+static float base_duration(int a, int level) {
     switch (a) {
     case ACT_DASH: return 0.13f + 0.02f * (float)lv(level);
     case ACT_SHIELD: return 2.5f + 0.5f * (float)lv(level);
@@ -43,6 +43,9 @@ float active_duration(int a, int level) {
     default: return 0.0f;
     }
 }
+
+/* ACTIVE TIME malus: every effect shorter. */
+float active_duration(int a, int level) { return base_duration(a, level) * fmaxf(0.3f, 1.0f - malus_pct(MAL_ACTIVE_TIME)); }
 
 int active_chaos_count(int level) { return 20 + 2 * lv(level); }
 static float shield_radius(int level) { return 34.0f + 5.0f * (float)lv(level); }

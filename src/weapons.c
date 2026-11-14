@@ -351,6 +351,8 @@ static void fire_volley(void) {
         p->vel = v2_sub(p->vel, v2_scale(fwd, 90.0f));
         fx_shake(0.04f);
     }
+    int kick = malus(MAL_RECOIL); /* recoil malus: a push back per volley, less for fast guns */
+    if (kick > 0) p->vel = v2_sub(p->vel, v2_scale(fwd, 70.0f * (float)kick * fminf(1.0f, g.cooldown / 0.08f)));
 }
 
 void weapon_echo(float aim, float dmg) {
@@ -410,7 +412,7 @@ void weapons_update(void) {
     /* VULCAN: spins up over ~1 s of firing, winds down when released. */
     bool spinning = G.in.fire && !sword && upg_has(UPG_W_VULCAN);
     p->spin = clampf(p->spin + (spinning ? DT / 1.0f : -DT / 0.6f), 0.0f, 1.0f);
-    if (G.in.fire) {
+    if (malus_fire_gate(G.in.fire)) {
         while (p->fire_cd <= 0.0f) {
             if (sword) sword_swing();
             else fire_volley();
