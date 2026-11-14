@@ -12,9 +12,12 @@ static void resource(PickupType t, float x, float y, int value) {
 static void draw_weapon_slots(void) {
     const Player *p = &G.pl;
     const float w = 112.0f, gap = 8.0f;
-    float x0 = SCREEN_W - 40.0f - (float)WPN_COUNT * (w + gap) + gap;
-    for (int i = 0; i < WPN_COUNT; i++) {
-        float x = x0 + (float)i * (w + gap), y = 14.0f;
+    int nslots = 0;
+    for (int i = 0; i < WPN_COUNT; i++) nslots += weapon_available(i);
+    float x0 = SCREEN_W - 40.0f - (float)nslots * (w + gap) + gap;
+    for (int i = 0, slot = 0; i < WPN_COUNT; i++) {
+        if (!weapon_available(i)) continue; /* the sword slot only exists for the Knight */
+        float x = x0 + (float)slot++ * (w + gap), y = 14.0f;
         bool owned = p->wlevel[i] > 0, cur = p->weapon == i;
         SDL_FColor c = col_hex(WEAPONS[i].color, 1);
         draw_rect(x, y, w, 60.0f, cur ? col_a(col_mul(c, 0.25f), 1.0f) : col_hex(0x0b0e18, 1));
@@ -253,8 +256,8 @@ void overlay_draw(void) {
             "MOUSE                  aim & shoot (hold)",
             "SPACE / SHIFT / RMB    dash (invulnerable)",
             "E                      bomb - clears every bullet",
-            "WHEEL / 1-5            switch weapon",
-            "ESC  pause      M  mute      F11  fullscreen",
+            "WHEEL / 1-6            switch weapon",
+            "ESC  pause   M  mute   F2  stats   F11  fullscreen",
         };
         for (int i = 0; i < ARRAY_LEN(lines); i++)
             draw_text_centered(SCREEN_W * 0.5f, 480.0f + (float)i * 34.0f, 2.0f, col_a(COL_WHITE, 0.8f), "%s", lines[i]);
@@ -264,7 +267,7 @@ void overlay_draw(void) {
         dim(0.75f);
         draw_text_centered(SCREEN_W * 0.5f, 280.0f, 8.0f, COL_WHITE, "PAUSED");
         draw_stats(420.0f);
-        draw_text_centered(SCREEN_W * 0.5f, 820.0f, 2.0f, col_a(COL_WHITE, 0.7f), "ESC resume    R restart    Q quit");
+        draw_text_centered(SCREEN_W * 0.5f, 820.0f, 2.0f, col_a(COL_WHITE, 0.7f), "ESC resume    R restart    C change ship    Q quit");
         break;
     case GS_GAMEOVER: {
         dim(fminf(G.gameover_t, 0.75f));
@@ -277,8 +280,12 @@ void overlay_draw(void) {
         if (G.gameover_t > 0.8f) {
             float pulse = 0.5f + 0.5f * sinf(G.time * 3.0f);
             draw_text_centered(SCREEN_W * 0.5f, 840.0f, 3.0f, col_a(COL_WHITE, 0.4f + 0.6f * pulse), "CLICK OR R TO RETRY");
+            draw_text_centered(SCREEN_W * 0.5f, 895.0f, 2.0f, col_a(COL_WHITE, 0.6f), "C   change ship");
         }
     } break;
+    case GS_CHAR_SELECT:
+        char_select_draw();
+        break;
     case GS_DEBUG:
         debug_menu_draw();
         break;

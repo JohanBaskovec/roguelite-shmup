@@ -22,6 +22,7 @@ typedef struct {
     int hp;            /* > 0: starting (max) hp in half-hearts, after upgrades */
     bool debug_rooms;  /* test the debug menu teleports instead of playing normal runs */
     bool god;
+    int character;     /* CharId used for every run */
     int expect_rooms;  /* fail if a run clears fewer rooms than this */
     const char *fail_shot; /* if set, render the failing frame offscreen into this BMP */
 } HeadlessOptions;

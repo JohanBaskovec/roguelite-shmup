@@ -19,20 +19,28 @@ void bot_input(void) {
     Input *in = &G.in;
     const Player *pl = &G.pl;
     in->up = in->down = in->left = in->right = false;
-    if (G.state == GS_TITLE) {
-        in->confirm_pressed = true;
+    if (G.state == GS_TITLE || G.state == GS_CHAR_SELECT) {
+        in->confirm_pressed = true; /* the character was chosen beforehand (G.character, --char) */
         return;
     }
     if (G.state == GS_DEBUG) return;
 
     /* Aim at the nearest enemy in line of sight, otherwise remember the nearest one. */
-    Enemy *t = NULL, *hidden = NULL, *over = NULL;
-    float best = 1e30f, best_hidden = 1e30f;
+    Enemy *t = NULL, *hidden = NULL, *over = NULL, *nearest = NULL;
+    float best = 1e30f, best_hidden = 1e30f, best_any = 1e30f;
+    /* Sword (Knight): melee - walk up to the nearest enemy, the blade ignores cover. The
+     * bot sticks to the sword even after picking up a gun, so simulations exercise it. */
+    if (pl->wlevel[WPN_SWORD] > 0 && pl->weapon != WPN_SWORD) in->weapon_select = WPN_SWORD;
+    const bool melee = pl->weapon == WPN_SWORD;
     bool overlapped = false;
     for (int i = 0; i < G.nen; i++) {
         Enemy *e = &G.en[i];
         if (e->hp <= 0.0f) continue;
         float d2 = v2_dist2(e->pos, pl->pos);
+        if (d2 < best_any) {
+            best_any = d2;
+            nearest = e;
+        }
         /* An enemy sitting on top of the ship cannot be aimed at: get out instead. */
         if (d2 < (e->radius + 24.0f) * (e->radius + 24.0f)) {
             overlapped = true;
@@ -47,7 +55,8 @@ void bot_input(void) {
         }
     }
     /* Point-blank shots still connect (enemy hits are resolved before walls). */
-    in->mouse = t ? t->pos : over ? over->pos : hidden ? hidden->pos : v2(ARENA_CX, ARENA_Y0 + 120.0f);
+    in->mouse = melee && nearest ? nearest->pos
+              : t ? t->pos : over ? over->pos : hidden ? hidden->pos : v2(ARENA_CX, ARENA_Y0 + 120.0f);
     in->fire = true;
 
     V2 goal;
@@ -103,6 +112,11 @@ void bot_input(void) {
             }
         }
         goal = G.room.clear_t < 1.2f ? v2(ARENA_CX, ARENA_CY) : door_position(G.room.doors[pick].side);
+    } else if (melee && nearest) {
+        /* Stand just inside the blade's reach, outside contact range. */
+        V2 to = v2_sub(nearest->pos, pl->pos);
+        float d = v2_len(to);
+        goal = d > 1.0f ? v2_sub(nearest->pos, v2_scale(to, (nearest->radius + 55.0f) / d)) : pl->pos;
     } else if (!t && hidden) {
         goal = hidden->pos; /* nothing visible: go hunt */
     } else {
@@ -115,6 +129,8 @@ void bot_input(void) {
     V2 avoid = v2(0, 0);
     int threats = 0;
     bool imminent = false;
+    const EBullet *closest_threat = NULL;
+    float closest_d = 1e30f;
     for (int i = 0; i < G.neb; i++) {
         const EBullet *b = &G.eb[i];
         V2 d = v2_sub(pl->pos, b->pos);
@@ -127,17 +143,25 @@ void bot_input(void) {
         if (miss > 40.0f) continue;
         threats++;
         if (dist < 50.0f) imminent = true;
+        if (dist < closest_d) {
+            closest_d = dist;
+            closest_threat = b;
+        }
         V2 away = miss > 0.5f ? v2_scale(lateral, 1.0f / miss) : v2_perp(bv);
         avoid = v2_add(avoid, v2_scale(away, 1.0f - dist / THREAT_RADIUS));
     }
     for (int i = 0; i < G.nen; i++) {
         const Enemy *e = &G.en[i];
         V2 d = v2_sub(pl->pos, e->pos);
-        float r = e->radius + 90.0f;
+        float r = e->radius + (melee ? 35.0f : 90.0f);
         float dist2 = v2_len2(d);
         if (dist2 < r * r && dist2 > 0.01f) avoid = v2_add(avoid, v2_scale(v2_norm(d), 1.5f));
     }
-    if (v2_len2(avoid) > 0.0f) dir = v2_norm(v2_add(v2_scale(dir, 0.4f), v2_scale(avoid, 3.0f)));
+    if (v2_len2(avoid) > 0.0f) dir = v2_norm(v2_add(v2_scale(dir, 0.4f), v2_scale(avoid, melee ? 1.5f : 3.0f)));
+    /* Nothing to slash within reach: cut the closest incoming bullet instead. */
+    if (melee && closest_threat && closest_d < 110.0f &&
+        (!nearest || sqrtf(best_any) > sword_reach() + nearest->radius))
+        in->mouse = closest_threat->pos;
 
     /* Get out from under an enemy: away from it, never into a wall (the centre may be behind cover). */
     if (overlapped) {

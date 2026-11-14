@@ -25,7 +25,8 @@ enum {
 
 /* ---- Weapons & upgrades -------------------------------------------------- */
 
-typedef enum { WPN_BLASTER, WPN_SCATTER, WPN_NEEDLER, WPN_SEEKER, WPN_BOUNCER, WPN_COUNT } WeaponId;
+/* WPN_SWORD is the Knight's melee weapon: never offered to the other characters (weapon_available). */
+typedef enum { WPN_BLASTER, WPN_SCATTER, WPN_NEEDLER, WPN_SEEKER, WPN_BOUNCER, WPN_SWORD, WPN_COUNT } WeaponId;
 
 typedef struct {
     const char *name;
@@ -123,6 +124,7 @@ typedef struct {
     int state, burst, spin_dir;
     float slow_t;                 /* chilled: moves and shoots slower */
     float poison_t, poison_dps, burn_t, burn_dps;
+    int sword_swing;              /* id of the last sword swing that hit it (one hit per swing) */
 } Enemy;
 
 typedef struct {
@@ -238,18 +240,40 @@ typedef struct {
     int volleys;                /* volleys fired (CAPACITOR / FLANK cadence) */
     int room_kills, leech_kills;
     float mine_cd;
+    /* Sword (Knight): one swing sweeps an arc from one side of the aim to the other. */
+    float swing_t, swing_len;   /* time left / total duration of the current swing */
+    float swing_a0, swing_half; /* centre angle and half-width of the arc */
+    float swing_reach, swing_prev; /* blade length, blade angle (relative to a0) last tick */
+    float swing_dmg;
+    int swing_dir, swing_id;
 } Player;
+
+/* ---- Characters ---------------------------------------------------------- */
+
+typedef enum { CHAR_NORMAL, CHAR_SHOTGUNNER, CHAR_KNIGHT, CHAR_COUNT } CharId;
+
+typedef struct {
+    const char *name;
+    const char *desc[3];  /* lines shown on the character select screen */
+    uint32_t color;
+    int hearts, armor;    /* armor = shields (temporary hearts) at the start */
+    float dmg_mult, speed_mult, hit_radius;
+    int weapon;           /* starting weapon */
+} CharDef;
+
+extern const CharDef CHARACTERS[CHAR_COUNT];
 
 #define MAX_SHIELD 12 /* half-hearts: 6 shields */
 
 /* ---- Game ---------------------------------------------------------------- */
 
-typedef enum { GS_TITLE, GS_PLAYING, GS_PAUSED, GS_GAMEOVER, GS_DEBUG } GameState;
+typedef enum { GS_TITLE, GS_CHAR_SELECT, GS_PLAYING, GS_PAUSED, GS_GAMEOVER, GS_DEBUG } GameState;
 
 typedef struct {
     bool up, down, left, right, fire;
     /* edge-triggered, cleared after each simulation tick */
     bool dash_pressed, bomb_pressed, pause_pressed, restart_pressed, confirm_pressed, debug_pressed;
+    bool char_pressed; /* C: back to the character select screen */
     int weapon_select; /* -1 = none */
     int weapon_cycle;
     V2 mouse;          /* logical coordinates */
@@ -293,6 +317,10 @@ typedef struct {
 
     bool quit, show_debug, god;
     bool show_stats; /* F2: semi-transparent stats overlay (hidden by default) */
+    int character;   /* CharId of the current / next run (kept across restarts) */
+    int char_hover;  /* character select screen: highlighted card */
+    bool sel_left, sel_right; /* character select: previous held state, for edge detection */
+    V2 sel_mouse;
     GameState debug_prev; /* state to return to when the debug menu closes */
     float fps;
 } Game;
@@ -398,12 +426,26 @@ void player_init(void);
 void player_update(void);
 void player_draw(void);
 void player_hurt(int dmg);
+/* Ship of a character, also used by the character select screen. */
+void draw_ship(int character, V2 pos, float angle, float scale, bool blink);
+
+/* characters.c */
+void character_apply(void); /* starting stats / weapon of G.character, after player_init's defaults */
+const char *character_option_name(int c); /* lowercase name for --char */
+void char_select_open(void);
+void char_select_update(void);
+void char_select_draw(void);
 
 /* weapons.c */
 void weapons_update(void);
 void drones_draw(void);
+void sword_draw(void);
 void weapon_give(int w);
 int weapon_roll(void);
+/* The sword only exists for the Knight. */
+bool weapon_available(int w);
+float sword_reach(void);
+#define SWORD_INNER 18.0f /* the blade starts this far from the ship's centre */
 
 /* bullets.c */
 PBullet *pbullet_spawn(V2 pos, V2 vel, float radius, float damage, SDL_FColor col);

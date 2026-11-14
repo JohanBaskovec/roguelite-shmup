@@ -33,6 +33,10 @@ static const char *check_invariants(float room_time) {
     if (p->hp < 0 || p->hp > p->max_hp) return "player hp out of range";
     if (p->coins < 0 || p->keys < 0 || p->bombs < 0) return "negative resource count";
     if (p->weapon < 0 || p->weapon >= WPN_COUNT || p->wlevel[p->weapon] <= 0) return "player holds a weapon it does not own";
+    for (int w = 0; w < WPN_COUNT; w++)
+        if (p->wlevel[w] > 0 && !weapon_available(w)) return "player owns a weapon its character cannot have (sword?)";
+    for (int i = 0; i < G.npk; i++)
+        if (G.pk[i].type == PK_WEAPON && !weapon_available(G.pk[i].sub)) return "weapon offered that this character cannot have";
     if (p->max_hp < 2 || p->max_hp > 24 || (p->max_hp & 1)) return "max hp out of range";
     if (!(p->dmg_mult >= 0.3f * 0.99f) || !(p->rate_mult >= 0.3f * 0.99f) || !(p->range_mult >= 0.35f * 0.99f) ||
         !(p->shot_speed_mult >= 0.4f * 0.99f))
@@ -157,7 +161,7 @@ static void save_failure_shot(const char *path) {
 static void clear_edges(void) {
     Input *in = &G.in;
     in->dash_pressed = in->bomb_pressed = in->pause_pressed = in->restart_pressed = in->confirm_pressed = false;
-    in->debug_pressed = false;
+    in->debug_pressed = in->char_pressed = false;
     in->weapon_select = -1;
     in->weapon_cycle = 0;
 }
@@ -264,6 +268,80 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         failures += !shield_ok + !wind_ok;
     }
 
+    /* Scripted: the character select screen, driven with the keyboard like a player. */
+    {
+        game_init(o->seed);
+        Input *k = &G.in;
+        k->confirm_pressed = true; /* title -> character select */
+        game_update();
+        clear_edges();
+        bool ok = G.state == GS_CHAR_SELECT && G.char_hover == CHAR_NORMAL;
+        for (int step = 0; step < 4; step++) { /* right, release, right, release: NORMAL -> KNIGHT */
+            k->right = step % 2 == 0;
+            game_update();
+            clear_edges();
+        }
+        ok = ok && G.char_hover == CHAR_KNIGHT && G.state == GS_CHAR_SELECT;
+        k->confirm_pressed = true;
+        game_update();
+        clear_edges();
+        const Player *pl = &G.pl;
+        ok = ok && G.state == GS_PLAYING && G.character == CHAR_KNIGHT && pl->weapon == WPN_SWORD && pl->shield == 6 &&
+             pl->hp == 6 && pl->speed < 540.0f && pl->wlevel[WPN_BLASTER] == 0;
+        /* Game over -> C -> character select -> 2 -> SHOTGUNNER. */
+        game_over();
+        G.gameover_t = 1.0f;
+        k->char_pressed = true;
+        game_update();
+        clear_edges();
+        ok = ok && G.state == GS_CHAR_SELECT;
+        k->weapon_select = 1;
+        game_update();
+        clear_edges();
+        k->confirm_pressed = true;
+        game_update();
+        clear_edges();
+        ok = ok && G.state == GS_PLAYING && G.character == CHAR_SHOTGUNNER && pl->weapon == WPN_SCATTER &&
+             pl->dmg_mult > 1.99f && pl->hit_radius > PLAYER_HIT_R && pl->shield == 0;
+        printf("character select: title, right x2, enter -> knight; game over, C, 2, enter -> shotgunner -> %s\n", ok ? "OK" : "FAILED");
+        failures += !ok;
+    }
+
+    /* Scripted: the Knight's sword cuts the enemy bullets in its arc (not those behind) and hurts enemies. */
+    {
+        game_init(o->seed);
+        G.character = CHAR_KNIGHT;
+        G.god = true;
+        game_new_run();
+        debug_teleport(ROOM_COMBAT, RW_COINS, 3, false);
+        G.state = GS_PLAYING;
+        Player *pl = &G.pl;
+        pl->pos = v2(ARENA_CX, ARENA_CY);
+        G.npk = 0;
+        G.in.mouse = v2_add(pl->pos, v2(300.0f, 0.0f));
+        int front = 0, behind = 0;
+        for (int k = 0; k < 8; k++) {
+            ebullet_spawn(v2_add(pl->pos, v2(50.0f + 8.0f * (float)k, -30.0f + 8.0f * (float)k)), 0.0f, 0.1f, 6.0f, COL_WHITE);
+            front++;
+        }
+        for (int k = 0; k < 4; k++) {
+            ebullet_spawn(v2_add(pl->pos, v2(-60.0f - 10.0f * (float)k, 0.0f)), PI_F, 0.1f, 6.0f, COL_WHITE);
+            behind++;
+        }
+        Enemy dummy = {.type = EN_TANK, .uid = ++G.next_uid, .pos = v2_add(pl->pos, v2(95.0f, 0.0f)), .radius = 30.0f,
+                       .hp = 5000.0f, .max_hp = 5000.0f};
+        G.en[G.nen++] = dummy;
+        G.in.fire = true;
+        for (int t = 0; t < 12; t++) { game_update(); clear_edges(); }
+        G.in.fire = false;
+        int left = G.neb;
+        float hp = G.nen > 0 ? G.en[0].hp : 5000.0f;
+        bool ok = left == behind && hp < 5000.0f && pl->swing_id >= 1;
+        printf("scripted: sword cuts %d/%d bullets in front, keeps %d behind, enemy hp %.0f -> %s\n", front - (left - behind > 0 ? left - behind : 0),
+               front, left < behind ? left : behind, (double)hp, ok ? "OK" : "FAILED");
+        failures += !ok;
+    }
+
     printf("debug teleports - %s\n", failures ? "FAILED" : "OK");
     return failures ? 1 : 0;
 }
@@ -281,7 +359,13 @@ int headless_run(const HeadlessOptions *o) {
         game_init(seed);
         G.god = o->god;
         G.force_secret = o->secret;
+        G.character = o->character;
         game_new_run();
+        const CharDef *cd = &CHARACTERS[G.character];
+        const char *start_err = G.pl.max_hp != cd->hearts * 2 || G.pl.hp != G.pl.max_hp || G.pl.shield != cd->armor * 2 ||
+                                        G.pl.weapon != cd->weapon || G.pl.wlevel[cd->weapon] != 1 || G.pl.hit_radius != cd->hit_radius ||
+                                        G.pl.dmg_mult != cd->dmg_mult
+                                    ? "run did not start with the character's stats / weapon" : NULL;
         G.pl.coins += o->coins;
         if (o->all_upgrades)
             for (int u = 0; u < UPG_COUNT; u++)
@@ -297,13 +381,16 @@ int headless_run(const HeadlessOptions *o) {
         bool was_cleared = G.room.cleared;
         int choices = 0; /* one-of-N pickups offered when the room was cleared */
         float room_time = 0.0f;
-        const char *err = G.room.cleared != G.room.peaceful
+        const char *err = start_err ? start_err
+                          : G.room.cleared != G.room.peaceful
                               ? "first room: only the launch bay / secret rooms start without enemies" : NULL;
-        int tick = 0;
+        int tick = 0, hits = 0, life = G.pl.hp + G.pl.shield;
         for (; !err && tick < o->max_ticks && G.state != GS_GAMEOVER; tick++) {
             bot_input();
             game_update();
             clear_edges();
+            hits += G.pl.hp + G.pl.shield < life; /* hull or shield damage taken this tick */
+            life = G.pl.hp + G.pl.shield;
             if (G.room.id != room_id) {
                 int from = room_id;
                 room_id = G.room.id;
@@ -350,12 +437,12 @@ int headless_run(const HeadlessOptions *o) {
         total_ticks += tick;
 
         const char *outcome = err ? "FAIL" : G.state == GS_GAMEOVER ? "died" : "time limit";
-        printf("run seed=%-6llu rooms=%-3d depth=%-3d kills=%-5d time=%5.0fs hp=%d/%d weapons=",
-               (unsigned long long)seed, G.rooms_cleared, G.room.depth, G.kills, (double)G.run_time, G.pl.hp, G.pl.max_hp);
+        printf("run %s seed=%-6llu rooms=%-3d depth=%-3d kills=%-5d time=%5.0fs hp=%d/%d weapons=",
+               character_option_name(G.character), (unsigned long long)seed, G.rooms_cleared, G.room.depth, G.kills, (double)G.run_time, G.pl.hp, G.pl.max_hp);
         for (int w = 0; w < WPN_COUNT; w++)
             if (G.pl.wlevel[w]) printf("%.3s%d ", WEAPONS[w].name, G.pl.wlevel[w]);
         const Player *p = &G.pl;
-        printf("coins=%d shops=%d bought=%d secrets=%d stats_rooms=%d", p->coins, shops, G.items_bought, secrets, stats_rooms);
+        printf("hits=%d coins=%d shops=%d bought=%d secrets=%d stats_rooms=%d", hits, p->coins, shops, G.items_bought, secrets, stats_rooms);
         if (start_revives > p->revives) printf(" second_winds=%d", start_revives - p->revives);
         if (stats_rooms)
             printf(" [dmg x%.2f rate x%.2f range x%.2f speed x%.2f dash %.2fs hitbox %.1f luck %+d]", (double)p->dmg_mult,

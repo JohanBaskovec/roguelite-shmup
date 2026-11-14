@@ -20,12 +20,25 @@ Preset `debug` disponible aussi (`build/debug`).
 | Viser & tirer | Souris (clic gauche maintenu) |
 | Dash (invulnérable) | Espace / Shift / clic droit |
 | Bombe (efface toutes les balles) | E |
-| Changer d'arme | Molette / 1-5 |
+| Changer d'arme | Molette / 1-6 |
 | Pause | Échap (R = restart, Q = quitter) |
 | Couper le son | M |
+| Changer de vaisseau (pause / game over) | C |
 | Plein écran | F11 |
 | Afficher / cacher les stats | F2 |
 | Menu de debug | F3 |
+
+## Personnages
+
+Après l'écran titre, on choisit son vaisseau (A / D, 1-3 ou souris, puis clic / Entrée ; Échap revient au titre). Le choix est gardé pour les parties suivantes ; C (en pause ou au game over) ramène à l'écran de sélection. Table `CHARACTERS` dans `src/characters.c`.
+
+| Vaisseau | Forme | PV | Particularités | Arme de départ |
+|---|---|---|---|---|
+| **Normal** | flèche | 3 | toutes les stats x1 | Blaster |
+| **Shotgunner** | rond | 3 | dégâts x2, hitbox plus grosse (7 px au lieu de 4) | Scatter |
+| **Knight** | carré | 3 + 3 armures | lent (vitesse x0.8) ; l'armure = 3 cœurs temporaires (boucliers) | Épée |
+
+**L'épée** (Knight uniquement, jamais proposée aux autres) : chaque coup balaie un arc de cercle devant le vaisseau, alternativement dans un sens puis dans l'autre. Tout ce que la lame traverse est touché : les ennemis (une fois par coup, gros recul) et les **balles ennemies, détruites**. Les niveaux allongent la lame, élargissent l'arc et accélèrent les coups. Les améliorations s'appliquent : dégâts, cadence (comptée en racine carrée, minimum 0,16 s entre deux coups), portée et taille des balles (longueur de la lame, plafonnée à 170 px), projectiles en plus (arc plus large), effets à l'impact (gel, poison, feu, éclair, explosion, fragments, guillotine), tirs supplémentaires (Tail Gun, Flank, Capacitor). Le Knight peut aussi ramasser des armes à feu et changer d'arme (touche 6 pour l'épée).
 
 ## Boucle de jeu
 
@@ -37,7 +50,7 @@ Preset `debug` disponible aussi (`build/debug`).
 - **Salles Stats** (porte turquoise, ~20 % des portes après un combat) : une fois les ennemis tués, 4 échanges apparaissent, on en prend un (ou aucun). Chaque échange augmente une stat et en baisse une autre. Stats : dégâts, cadence, portée, PV max, vitesse de déplacement, recharge du dash, vitesse des projectiles, taille de la hitbox, chance (quantité des récompenses de salle). Échange spécial **+3 boucliers** : 3 cœurs bleus temporaires (absorbent les dégâts avant les vrais cœurs, ne se régénèrent pas, max 6) contre une baisse de stat. Valeurs et bornes dans `src/stats.c`.
 - **Shops** (porte rose, à partir de la salle 2, jamais deux d'affilée) : une fois les ennemis tués, toujours 5 objets à vendre — au moins une arme, une amélioration et un échange de stats, plus 2 emplacements aléatoires. On achète en marchant dessus ; prix affiché en doré si on peut payer, en rouge sinon. Prix : `shop_price()` dans `src/pickups.c`.
 - **Salles secrètes** (~15 % des salles de combat, Stats et shops) : pendant le combat, un coin de la salle flashe très brièvement (petit carré presque invisible). Une bombe dans ce coin ouvre la porte du bas, vers la salle secrète : pas d'ennemis, le butin attend déjà — 1 arme ou amélioration (rarement 2) + pièces, bombes ou clefs. Variantes : 10 % de chance d'un **shop secret** (5 objets à vendre à la place de l'objet gratuit) et 10 % de chance d'une **embuscade** (une vague d'ennemis avant que le butin n'apparaisse). La sortie ramène dans la salle d'origine.
-- 5 armes (Blaster, Scatter, Needler, Seeker, Bouncer) avec 5 niveaux chacune.
+- 5 armes à feu (Blaster, Scatter, Needler, Seeker, Bouncer) + l'épée du Knight, avec 5 niveaux chacune. Le Scatter (shotgun) tire 12 plombs au niveau 1 (+4 par niveau).
 - **52 améliorations passives** qui s'appliquent à toutes les armes (table `UPGRADES` et effets dans `src/upgrades.c`) :
   - *Tir* : Overclock, Heavy Rounds, Split Shot, Piercer, Rubber Core, Smart Rounds, Accelerator, Big Iron, Wide Lens, Focus Lens, Long Barrel, Hair Trigger.
   - *Effets sur les balles* : Cryo Rounds (ralentit), Venom Tips (poison), Thermite (brûlure), Arc Emitter (éclair en chaîne), Payload (explosion), Shrapnel (fragments), Lucky Strike (coups x3), Guillotine (exécute sous 15 % PV), Return Vector (boomerang), Phase Rounds (traverse les obstacles), Impact Driver (recul).
@@ -67,6 +80,7 @@ Preset `debug` disponible aussi (`build/debug`).
 | `stats.c` | Stats échangeables des salles Stats (gains, pertes, bornes) |
 | `audio.c/h` | Synthèse procédurale des sons + mixeur (voix, panoramique, limitation de fréquence) |
 | `hud.c` | HUD, overlay des stats (F2), écrans (titre, pause, game over) |
+| `characters.c` | Personnages (stats de départ, arme) et écran de sélection |
 | `debug_menu.c` | Menu de debug F3 : téléportation dans chaque type de salle (avec / sans ennemis), cheats |
 
 Les types de salles `ROOM_TREASURE` et `ROOM_BOSS` sont déjà prévus (sur le modèle de `ROOM_STATS` / `ROOM_SHOP`) dans `RoomType` (`game.h`) : il suffit de les générer dans `gen_doors()` (`room.c`) et de leur donner un comportement dans `room_enter()`.
@@ -105,10 +119,13 @@ neon_breach --debug-menu                                # ouvrir le menu de debu
 neon_breach --secret                                    # chaque salle cache une salle secrète
 neon_breach --show-secret                               # affiche le coin secret (comme dans le menu F3)
 neon_breach --show-stats                                # démarre avec l'overlay des stats (F2) visible
+neon_breach --char knight --depth 3                     # joue un personnage (normal / shotgunner / knight)
+neon_breach --headless --char knight --runs 20          # simulations avec un personnage
+neon_breach --shot sel.bmp --char-select                # capture de l'écran de sélection
 neon_breach --headless --debug-rooms                    # teste les téléportations du menu de debug
 neon_breach --headless --god --all-upgrades             # démarre avec toutes les améliorations au max
 neon_breach --hp 1                                      # démarre avec 1 PV (tester boucliers / Second Wind)
 neon_breach --bot --god                                 # regarder l'autopilote jouer (ouvre une fenêtre)
 ```
 
-Options headless : `--ticks N` (durée max par partie, 120 ticks = 1 s, défaut 10 min), `--runs N`, `--expect-rooms N` (échec si moins de N salles nettoyées).
+Options headless : `--ticks N` (durée max par partie, 120 ticks = 1 s, défaut 10 min), `--runs N`, `--expect-rooms N` (échec si moins de N salles nettoyées). Le résumé de chaque partie indique le personnage et le nombre de coups encaissés (`hits=`).

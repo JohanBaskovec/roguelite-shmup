@@ -77,6 +77,8 @@ static const SfxInfo INFO[SFX_COUNT] = {
     [SFX_DOOR_ENTER] = {1.00f, 0.20f, 1, 0.00f},
     [SFX_UI_START] = {0.50f, 0.20f, 1, 0.00f},
     [SFX_PAUSE] = {0.40f, 0.10f, 1, 0.00f},
+    [SFX_SWORD] = {0.55f, 0.05f, 3, 0.10f},
+    [SFX_DEFLECT] = {0.45f, 0.04f, 3, 0.15f},
 };
 
 static Sample samples[SFX_COUNT];
@@ -234,6 +236,13 @@ static void generate_all(void) {
         {.wave = W_NOISE, .f0 = 3000, .f1 = 60, .dur = 1.4f, .decay = 1.5f, .lp0 = 5000, .lp1 = 100, .vol = 0.7f},
         {.wave = W_SAW, .f0 = 600, .f1 = 40, .dur = 1.2f, .lp0 = 3000, .lp1 = 300, .vol = 0.3f},
         {.wave = W_SINE, .f0 = 100, .f1 = 30, .dur = 0.8f, .vol = 0.6f});
+    /* Sword: an airy whoosh with a metallic edge; cutting a bullet rings like a small bell. */
+    SFX(SFX_SWORD,
+        {.wave = W_NOISE, .f0 = WHITE, .dur = 0.14f, .attack = 0.02f, .decay = 2, .lp0 = 1200, .lp1 = 7000, .vol = 0.55f},
+        {.wave = W_SAW, .f0 = 900, .f1 = 1500, .dur = 0.08f, .decay = 2, .lp0 = 3000, .vol = 0.12f});
+    SFX(SFX_DEFLECT,
+        {.wave = W_SINE, .f0 = 2400, .f1 = 2200, .dur = 0.12f, .decay = 2.5f, .vol = 0.35f},
+        {.wave = W_SQUARE, .f0 = 3600, .f1 = 3000, .dur = 0.03f, .duty = 0.25f, .vol = 0.12f});
     SFX(SFX_DASH,
         {.wave = W_NOISE, .f0 = WHITE, .dur = 0.16f, .attack = 0.03f, .decay = 2, .lp0 = 800, .lp1 = 6000, .vol = 0.6f},
         {.wave = W_SINE, .f0 = 300, .f1 = 700, .dur = 0.12f, .vol = 0.15f});
@@ -402,15 +411,17 @@ void audio_shutdown(void) {
 
 void audio_toggle_mute(void) { muted = !muted; }
 
-static const char *const SFX_NAMES[SFX_COUNT] = {
+static const char *const SFX_NAMES[] = {
     "shot_blaster", "shot_scatter", "shot_needler", "shot_seeker", "shot_bouncer", "drone_shot",
     "enemy_shot", "enemy_ring", "enemy_spiral", "sniper_charge", "sniper_fire", "tank_fire",
     "enemy_appear", "wave",
     "hit", "bounce", "explode_small", "explode_big",
     "player_hurt", "player_death", "dash", "bomb", "weapon_switch", "denied",
     "coin", "key", "bomb_pickup", "heart", "item",
-    "room_clear", "door_open", "unlock", "door_enter", "ui_start", "pause",
+    "room_clear", "door_open", "unlock", "secret", "door_enter", "ui_start", "pause",
+    "sword", "deflect",
 };
+_Static_assert(sizeof SFX_NAMES / sizeof SFX_NAMES[0] == SFX_COUNT, "one WAV name per SfxId, in enum order");
 
 static void put_u32(FILE *f, uint32_t v) { uint8_t b[4] = {(uint8_t)v, (uint8_t)(v >> 8), (uint8_t)(v >> 16), (uint8_t)(v >> 24)}; fwrite(b, 1, 4, f); }
 static void put_u16(FILE *f, uint16_t v) { uint8_t b[2] = {(uint8_t)v, (uint8_t)(v >> 8)}; fwrite(b, 1, 2, f); }

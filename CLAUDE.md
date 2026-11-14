@@ -59,7 +59,12 @@ invariants / a CTest entry in `CMakeLists.txt`.
 
 - Single global `Game G` (`src/game.h`), fixed 120 Hz update (`DT`), rendering separate from update.
 - Content lives in data tables: `WEAPONS` (`weapons.c`), `UPGRADES` (`upgrades.c`), `ENEMIES` (`enemies.c`),
-  `STATS` (`stats.c`), sound definitions (`audio.c`).
+  `STATS` (`stats.c`), `CHARACTERS` (`characters.c`), sound definitions (`audio.c`).
+- Characters (Normal / Shotgunner / Knight) only change the starting state (`character_apply`) and the
+  ship's look (`draw_ship`); `G.character` survives restarts. The sword (`WPN_SWORD`) is Knight-only:
+  everything that offers weapons goes through `weapon_roll`, which respects `weapon_available`
+  (headless checks no other character ever owns or is offered it). When adding a character: table
+  entry, ship drawing, bot support if it plays differently, and a `sim_<name>` CTest (`--char NAME`).
 - Upgrade effects live in `upgrades.c` as `upg_*` hooks called from bullets / enemies / player /
   room code; add new upgrades there (table entry + hook), and stat upgrades must clamp to the
   invariant floors. `--all-upgrades` tests them all at once.

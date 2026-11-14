@@ -7,6 +7,7 @@
 #include "game.h"
 #include "headless.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -22,6 +23,8 @@ typedef struct {
     bool debug_menu;       /* --debug-menu: open the F3 debug menu at startup */
     bool secret;           /* --secret: every eligible room hides a secret room */
     bool show_stats;       /* --show-stats: start with the F2 stats overlay visible */
+    int character;         /* --char NAME: normal / shotgunner / knight */
+    bool char_select;      /* --char-select: open the character select screen at startup */
     bool show_secret;      /* --show-secret: mark secret corners (debug menu: SHOW SECRET CORNER) */
     bool all_upgrades;     /* --all-upgrades: start with one of every upgrade */
     int hp;                /* --hp N (headless): starting max hp in half-hearts */
@@ -57,6 +60,17 @@ static void parse_args(int argc, char **argv, Options *o) {
         else if (!strcmp(a, "--secret")) o->secret = true;
         else if (!strcmp(a, "--show-secret")) o->show_secret = true;
         else if (!strcmp(a, "--show-stats")) o->show_stats = true;
+        else if (!strcmp(a, "--char-select")) o->char_select = true;
+        else if (!strcmp(a, "--char") && more) {
+            const char *name = argv[++i];
+            o->character = -1;
+            for (int c = 0; c < CHAR_COUNT; c++)
+                if (!strcmp(name, character_option_name(c))) o->character = c;
+            if (o->character < 0) {
+                fprintf(stderr, "unknown character '%s' (normal, shotgunner, knight)\n", name);
+                exit(2);
+            }
+        }
         else if (!strcmp(a, "--all-upgrades")) o->all_upgrades = true;
         else if (!strcmp(a, "--hp") && more) o->hp = atoi(argv[++i]);
         else if (!strcmp(a, "--coins") && more) o->coins = atoi(argv[++i]);
@@ -68,13 +82,13 @@ static void parse_args(int argc, char **argv, Options *o) {
         else if (!strcmp(a, "--god")) o->god = true;
         else if (!strcmp(a, "--novsync")) o->novsync = true;
     }
-    if (o->shot_path) o->bot = true;
+    if (o->shot_path && !o->char_select) o->bot = true; /* the bot would confirm the select screen at once */
 }
 
 static void clear_edges(void) {
     Input *in = &G.in;
     in->dash_pressed = in->bomb_pressed = in->pause_pressed = in->restart_pressed = in->confirm_pressed = false;
-    in->debug_pressed = false;
+    in->debug_pressed = in->char_pressed = false;
     in->weapon_select = -1;
     in->weapon_cycle = 0;
 }
@@ -123,6 +137,7 @@ static void handle_event(const SDL_Event *e, SDL_Window *win, bool bot) {
         /* Menu letters follow the keyboard layout. */
         if (e->key.key == SDLK_R) in->restart_pressed = true;
         if (e->key.key == SDLK_M) audio_toggle_mute();
+        if (e->key.key == SDLK_C) in->char_pressed = true;
         if (e->key.key == SDLK_Q && G.state == GS_PAUSED) G.quit = true;
         break;
     case SDL_EVENT_MOUSE_BUTTON_DOWN:
@@ -164,7 +179,7 @@ int main(int argc, char **argv) {
             .seed = opt.has_seed ? opt.seed : SDL_GetPerformanceCounter(),
             .runs = opt.runs, .max_ticks = opt.ticks, .depth = opt.depth, .stats_room = opt.stats_room,
             .shop_room = opt.shop_room, .coins = opt.coins, .debug_rooms = opt.debug_rooms, .secret = opt.secret,
-            .all_upgrades = opt.all_upgrades, .hp = opt.hp,
+            .all_upgrades = opt.all_upgrades, .hp = opt.hp, .character = opt.character,
             .god = opt.god, .expect_rooms = opt.expect_rooms, .fail_shot = opt.fail_shot,
         };
         return headless_run(&h);
@@ -202,6 +217,7 @@ int main(int argc, char **argv) {
     G.force_secret = opt.secret;
     G.reveal_secrets = opt.show_secret;
     G.show_stats = opt.show_stats;
+    G.character = opt.character;
     if (opt.stats_room || opt.shop_room || opt.depth > 0 || opt.coins > 0 || opt.debug_menu || opt.all_upgrades) {
         game_new_run();
         G.pl.coins += opt.coins;
@@ -214,6 +230,7 @@ int main(int argc, char **argv) {
         else if (opt.depth > 0) room_enter(ROOM_COMBAT, RW_UPGRADE, depth);
     }
 
+    if (opt.char_select) char_select_open();
     if (opt.debug_menu) debug_menu_open();
 
     const double freq = (double)SDL_GetPerformanceFrequency();

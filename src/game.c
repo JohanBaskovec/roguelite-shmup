@@ -47,7 +47,7 @@ void game_over(void) {
     G.gameover_t = 0.0f;
     G.hitstop = 0.0f;
     sfx_play(SFX_PLAYER_DEATH);
-    fx_explosion(G.pl.pos, 60.0f, col_hex(0x66f0ff, 1));
+    fx_explosion(G.pl.pos, 60.0f, col_hex(CHARACTERS[G.character].color, 1));
     fx_explosion(G.pl.pos, 30.0f, COL_WHITE);
     fx_shake(1.0f);
 }
@@ -116,7 +116,11 @@ void game_update(void) {
         break;
     case GS_TITLE:
         if (G.in.pause_pressed) G.quit = true;
-        else if (G.in.confirm_pressed) game_new_run();
+        else if (G.in.confirm_pressed) char_select_open();
+        fx_update();
+        break;
+    case GS_CHAR_SELECT:
+        char_select_update();
         fx_update();
         break;
     case GS_PAUSED:
@@ -125,6 +129,7 @@ void game_update(void) {
             sfx_play(SFX_PAUSE);
         }
         else if (G.in.restart_pressed) game_new_run();
+        else if (G.in.char_pressed) char_select_open();
         break;
     case GS_PLAYING:
         update_playing();
@@ -136,6 +141,7 @@ void game_update(void) {
         enemies_update();
         fx_update();
         if (G.gameover_t > 0.8f && (G.in.restart_pressed || G.in.confirm_pressed)) game_new_run();
+        else if (G.gameover_t > 0.8f && G.in.char_pressed) char_select_open();
         break;
     }
 }
@@ -155,6 +161,7 @@ void game_render(void) {
     bullets_draw_player();
     if (G.state != GS_GAMEOVER) {
         drones_draw();
+        sword_draw();
         upg_draw();
         player_draw();
     }
