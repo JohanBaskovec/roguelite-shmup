@@ -1,5 +1,6 @@
 #include "draw.h"
 #include "game.h"
+#include "audio.h"
 
 #define HUD_H (ARENA_Y0 - WALL_T)
 
@@ -66,6 +67,7 @@ void hud_draw(void) {
 
     draw_weapon_slots();
 
+    if (audio_muted()) draw_text(SCREEN_W - 120.0f, SCREEN_H - 24.0f, 2.0f, col_a(COL_WHITE, 0.5f), "MUTED");
     if (G.show_debug)
         draw_text(10.0f, SCREEN_H - 20.0f, 1.5f, col_hex(0x9dff6a, 1), "FPS %3.0f  EB %d  PB %d  EN %d  PT %d",
                   (double)G.fps, G.neb, G.npb, G.nen, G.npt);
@@ -152,7 +154,7 @@ void overlay_draw(void) {
             "SPACE / SHIFT / RMB    dash (invulnerable)",
             "E                      bomb - clears every bullet",
             "WHEEL / 1-5            switch weapon",
-            "ESC                    pause      F11 fullscreen",
+            "ESC  pause      M  mute      F11  fullscreen",
         };
         for (int i = 0; i < ARRAY_LEN(lines); i++)
             draw_text_centered(SCREEN_W * 0.5f, 480.0f + (float)i * 34.0f, 2.0f, col_a(COL_WHITE, 0.8f), "%s", lines[i]);

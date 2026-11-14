@@ -1,5 +1,6 @@
 #include "draw.h"
 #include "game.h"
+#include "audio.h"
 
 #include <string.h>
 
@@ -60,6 +61,150 @@ bool room_collide_circle(V2 *p, float r, V2 *normal) {
     }
     if (normal) *normal = v2_norm(n);
     return hit;
+}
+
+/* ---- Navigation ---------------------------------------------------------- */
+
+/* Liang-Barsky clipping of segment a->b against rectangle r.
+ * Returns the entry parameter in [0, 1], or -1 when the segment misses. */
+static float segment_entry(V2 a, V2 b, SDL_FRect r) {
+    float t0 = 0.0f, t1 = 1.0f, dx = b.x - a.x, dy = b.y - a.y;
+    float p[4] = {-dx, dx, -dy, dy};
+    float q[4] = {a.x - r.x, r.x + r.w - a.x, a.y - r.y, r.y + r.h - a.y};
+    for (int i = 0; i < 4; i++) {
+        if (p[i] == 0.0f) {
+            if (q[i] < 0.0f) return -1.0f;
+            continue;
+        }
+        float t = q[i] / p[i];
+        if (p[i] < 0.0f) t0 = fmaxf(t0, t);
+        else t1 = fminf(t1, t);
+        if (t0 > t1) return -1.0f;
+    }
+    return t0;
+}
+
+static SDL_FRect obs_inflated(int i, float m) {
+    SDL_FRect o = G.room.obs[i];
+    SDL_FRect r = {o.x - m, o.y - m, o.w + 2 * m, o.h + 2 * m};
+    return r;
+}
+
+static float dist_to_rect(V2 p, SDL_FRect r) {
+    float dx = fmaxf(fmaxf(r.x - p.x, 0.0f), p.x - (r.x + r.w));
+    float dy = fmaxf(fmaxf(r.y - p.y, 0.0f), p.y - (r.y + r.h));
+    return sqrtf(dx * dx + dy * dy);
+}
+
+/* Nearest obstacle crossed by the segment, or -1. When an endpoint already sits
+ * inside an obstacle's safety margin (a mover hugging it, or a target standing
+ * next to it), that margin is shrunk so the segment is not blocked forever. */
+static int nearest_blocker(V2 a, V2 b, float margin) {
+    int best = -1;
+    float best_t = 2.0f;
+    for (int i = 0; i < G.room.nobs; i++) {
+        SDL_FRect o = G.room.obs[i];
+        float m = fminf(margin, fmaxf(0.0f, fminf(dist_to_rect(a, o), dist_to_rect(b, o)) - 0.5f));
+        float t = segment_entry(a, b, obs_inflated(i, m));
+        if (t >= 0.0f && t < best_t) {
+            best_t = t;
+            best = i;
+        }
+    }
+    return best;
+}
+
+bool room_line_clear(V2 a, V2 b, float margin) { return nearest_blocker(a, b, margin) < 0; }
+
+/* Visibility graph between obstacle corners, built lazily per mover margin and
+ * cached until the next room. Shortest paths on it never oscillate. */
+#define NAV_MAX_NODES (MAX_OBSTACLES * 4)
+#define NAV_CACHE 8
+
+typedef struct {
+    float margin;
+    int n;
+    V2 pt[NAV_MAX_NODES];
+    uint8_t vis[NAV_MAX_NODES][NAV_MAX_NODES];
+} NavGraph;
+
+static NavGraph nav_graphs[NAV_CACHE];
+static int nav_count;
+
+static void nav_reset(void) { nav_count = 0; }
+
+static NavGraph *nav_graph(float margin) {
+    for (int i = 0; i < nav_count; i++)
+        if (nav_graphs[i].margin == margin) return &nav_graphs[i];
+    NavGraph *g = &nav_graphs[nav_count < NAV_CACHE ? nav_count++ : NAV_CACHE - 1];
+    g->margin = margin;
+    g->n = 0;
+    for (int i = 0; i < G.room.nobs; i++) {
+        SDL_FRect r = obs_inflated(i, margin + 6.0f);
+        V2 c[4] = {v2(r.x, r.y), v2(r.x + r.w, r.y), v2(r.x + r.w, r.y + r.h), v2(r.x, r.y + r.h)};
+        for (int k = 0; k < 4; k++) {
+            if (c[k].x < ARENA_X0 + margin || c[k].x > ARENA_X1 - margin || c[k].y < ARENA_Y0 + margin ||
+                c[k].y > ARENA_Y1 - margin)
+                continue;
+            bool inside = false;
+            for (int j = 0; j < G.room.nobs && !inside; j++) {
+                SDL_FRect q = obs_inflated(j, margin);
+                inside = c[k].x > q.x && c[k].x < q.x + q.w && c[k].y > q.y && c[k].y < q.y + q.h;
+            }
+            if (!inside) g->pt[g->n++] = c[k];
+        }
+    }
+    for (int i = 0; i < g->n; i++) {
+        g->vis[i][i] = 0;
+        for (int j = i + 1; j < g->n; j++)
+            g->vis[i][j] = g->vis[j][i] = (uint8_t)(nearest_blocker(g->pt[i], g->pt[j], margin) < 0);
+    }
+    return g;
+}
+
+V2 room_navigate(V2 from, V2 goal, float margin) {
+    if (nearest_blocker(from, goal, margin) < 0) return goal;
+    NavGraph *g = nav_graph(margin);
+    int n = g->n, goal_node = n;
+    float dist[NAV_MAX_NODES + 1];
+    int prev[NAV_MAX_NODES + 1];
+    bool done[NAV_MAX_NODES + 1], sees_goal[NAV_MAX_NODES];
+    for (int i = 0; i <= n; i++) {
+        dist[i] = 1e30f;
+        prev[i] = -1;
+        done[i] = false;
+    }
+    for (int i = 0; i < n; i++) {
+        if (nearest_blocker(from, g->pt[i], margin) < 0) dist[i] = v2_dist(from, g->pt[i]);
+        sees_goal[i] = nearest_blocker(g->pt[i], goal, margin) < 0;
+    }
+    /* Dijkstra (dense, O(n^2) with n <= ~100). */
+    for (;;) {
+        int u = -1;
+        for (int i = 0; i <= n; i++)
+            if (!done[i] && dist[i] < 1e29f && (u < 0 || dist[i] < dist[u])) u = i;
+        if (u < 0 || u == goal_node) break;
+        done[u] = true;
+        for (int v = 0; v < n; v++) {
+            if (done[v] || !g->vis[u][v]) continue;
+            float d = dist[u] + v2_dist(g->pt[u], g->pt[v]);
+            if (d < dist[v]) { dist[v] = d; prev[v] = u; }
+        }
+        if (sees_goal[u]) {
+            float d = dist[u] + v2_dist(g->pt[u], goal);
+            if (d < dist[goal_node]) { dist[goal_node] = d; prev[goal_node] = u; }
+        }
+    }
+    if (dist[goal_node] >= 1e29f) return goal; /* unreachable: push straight and slide along walls */
+
+    /* Walk back to find the first waypoints of the path. */
+    int path[NAV_MAX_NODES + 1], len = 0;
+    for (int node = prev[goal_node]; node >= 0 && len < NAV_MAX_NODES; node = prev[node]) path[len++] = node;
+    for (int i = len - 1; i >= 0; i--) {
+        V2 c = g->pt[path[i]];
+        if (v2_dist2(from, c) > 6.0f * 6.0f) return c; /* skip the corner we are standing on */
+    }
+    return goal;
 }
 
 /* ---- Generation ---------------------------------------------------------- */
@@ -184,6 +329,7 @@ void room_enter(RoomType type, RewardType reward, int depth) {
 
     G.npb = G.neb = G.nen = G.nsp = G.npk = 0;
     fx_clear();
+    nav_reset();
 
     G.pl.pos = v2(ARENA_CX, ARENA_Y1 - 80.0f);
     G.pl.vel = v2(0, -250.0f);
@@ -240,6 +386,7 @@ static void spawn_wave(void) {
         }
     }
     r->last_wave_size = queued;
+    sfx_play(SFX_WAVE);
     r->wave++;
     r->wave_t = 13.0f;
     r->since_wave = 0.0f;
@@ -250,6 +397,7 @@ static void room_clear(void) {
     r->cleared = true;
     r->clear_t = 0.0f;
     G.rooms_cleared++;
+    sfx_play(SFX_ROOM_CLEAR);
     ebullets_clear(true);
     if (r->reward != RW_NONE) reward_drop(r->reward, v2(ARENA_CX, ARENA_CY));
     fx_banner("ROOM CLEARED", "choose your next door", col_hex(0x66f0ff, 1), 1.4f);
@@ -278,7 +426,10 @@ void room_update(void) {
         r->since_wave += DT;
         int alive = G.nen + G.nsp;
         if (r->wave < r->nwaves) {
-            bool trigger = r->wave_t <= 0.0f ||
+            /* The timer only forces a new wave once half of the previous one is gone,
+             * so waves never pile up endlessly on a struggling player. */
+            int half = r->last_wave_size / 2 > 6 ? r->last_wave_size / 2 : 6;
+            bool trigger = (r->wave_t <= 0.0f && (r->wave == 0 || alive <= half)) ||
                            (r->wave > 0 && r->since_wave > 1.5f && alive <= r->last_wave_size / 4);
             if (trigger) spawn_wave();
         } else if (alive == 0) {
@@ -287,7 +438,9 @@ void room_update(void) {
         return;
     }
 
+    float prev_clear_t = r->clear_t;
     r->clear_t += DT;
+    if (prev_clear_t < 0.35f && r->clear_t >= 0.35f) sfx_play(SFX_DOOR_OPEN);
     for (int i = 0; i < r->ndoors; i++) {
         Door *d = &r->doors[i];
         if (!touching_door(d)) continue;
@@ -296,12 +449,14 @@ void room_update(void) {
                 G.pl.keys--;
                 d->locked = false;
                 d->anim = 0.3f;
+                sfx_play_at(SFX_UNLOCK, d->pos);
                 fx_popup(v2_add(d->pos, v2_scale(side_inward(d->side), 90)), col_hex(0xffe066, 1), "UNLOCKED");
                 fx_burst(d->pos, 30, 100, 400, 0.4f, 3, col_hex(0xffe066, 1));
                 fx_shake(0.2f);
             } else if (r->msg_cd <= 0.0f) {
                 fx_popup(v2_add(d->pos, v2_scale(side_inward(d->side), 90)), col_hex(0xff5f7e, 1), "NEED A KEY");
                 r->msg_cd = 1.0f;
+                sfx_play_at(SFX_DENIED, d->pos);
             }
             continue;
         }
@@ -420,17 +575,22 @@ static void draw_door(const Door *d, bool cleared, bool entry) {
 
     if (entry) return;
 
-    /* Reward preview, always visible so the player can plan mid-fight. */
+    if (d->locked) draw_padlock(v2_add(p, v2_scale(in, -WALL_T * 0.5f)), 16.0f);
+
+    /* Reward preview: hidden during combat so it never gets confused with bullets. */
+    if (!cleared) return;
+    float pop = clampf((G.room.clear_t - 0.35f) / 0.2f, 0.0f, 1.0f);
+    if (pop <= 0.0f) return;
+    float sc = pop * (1.0f + 0.3f * sinf(pop * PI_F));
     V2 ip = v2_add(p, v2_scale(in, 78.0f));
     ip.y += sinf(G.time * 3.0f + p.x) * 3.0f;
     draw_blend_add();
-    draw_glow(ip, 34.0f, col_a(rc, 0.35f));
+    draw_glow(ip, 34.0f * sc, col_a(rc, 0.35f));
     draw_blend_alpha();
-    draw_ngon(ip, 24.0f, 6, PI_F / 6.0f, col_hex(0x0a0c14, 0.85f));
-    draw_ngon_outline(ip, 24.0f, 6, PI_F / 6.0f, 2.0f, col_a(rc, 0.8f));
-    draw_pickup_icon(reward_icon(d->reward), -1, ip, 11.0f, G.time);
-    if (d->locked) draw_padlock(v2_add(p, v2_scale(in, -WALL_T * 0.5f)), 16.0f);
-    if (cleared) draw_text_centered(ip.x, ip.y + 34.0f, 1.5f, col_a(rc, 0.9f), "%s", reward_name(d->reward));
+    draw_ngon(ip, 24.0f * sc, 6, PI_F / 6.0f, col_hex(0x0a0c14, 0.85f));
+    draw_ngon_outline(ip, 24.0f * sc, 6, PI_F / 6.0f, 2.0f, col_a(rc, 0.8f));
+    draw_pickup_icon(reward_icon(d->reward), -1, ip, 11.0f * sc, G.time);
+    if (pop >= 1.0f) draw_text_centered(ip.x, ip.y + 34.0f, 1.5f, col_a(rc, 0.9f), "%s", reward_name(d->reward));
 }
 
 void room_draw_walls(void) {

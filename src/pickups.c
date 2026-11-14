@@ -1,5 +1,6 @@
 #include "draw.h"
 #include "game.h"
+#include "audio.h"
 
 void pickup_spawn(PickupType type, int sub, V2 pos, V2 vel) {
     if (G.npk >= MAX_PICKUPS) return;
@@ -68,21 +69,30 @@ static bool collect(const Pickup *k) {
     Player *p = &G.pl;
     V2 pop = v2_add(p->pos, v2(0, -36));
     switch (k->type) {
-    case PK_COIN:
+    case PK_COIN: {
+        /* Coins collected in quick succession climb in pitch. */
+        static float last_coin_t = -10.0f;
+        static int combo = 0;
+        combo = G.time - last_coin_t < 0.3f ? (combo < 12 ? combo + 1 : 12) : 0;
+        last_coin_t = G.time;
+        sfx_play_ex(SFX_COIN, 1.0f, 1.0f + 0.06f * (float)combo, 0.0f);
         p->coins += k->sub;
         fx_burst(k->pos, 5, 60.0f, 200.0f, 0.2f, 2.0f, col_hex(0xffd23f, 1));
-        break;
+    } break;
     case PK_KEY:
         p->keys++;
+        sfx_play(SFX_KEY);
         fx_popup(pop, col_hex(0xd9e3f0, 1), "+1 KEY");
         break;
     case PK_BOMB:
         p->bombs++;
+        sfx_play(SFX_BOMB_PICKUP);
         fx_popup(pop, col_hex(0xff8a3d, 1), "+1 BOMB");
         break;
     case PK_HEART:
         if (p->hp >= p->max_hp) return false;
         p->hp = p->hp + 2 > p->max_hp ? p->max_hp : p->hp + 2;
+        sfx_play(SFX_HEART);
         fx_popup(pop, col_hex(0xff3355, 1), "+HP");
         break;
     case PK_WEAPON:
@@ -95,6 +105,7 @@ static bool collect(const Pickup *k) {
         break;
     }
     if (is_pedestal(k->type)) {
+        sfx_play(SFX_ITEM);
         fx_particle(k->pos, v2(0, 0), 0.5f, 300.0f, COL_WHITE, 0.0f, PT_RING);
         fx_burst(k->pos, 40, 200.0f, 700.0f, 0.5f, 3.0f, COL_WHITE);
     }
@@ -125,7 +136,8 @@ void pickups_update(void) {
             }
             k->pos = v2_add(k->pos, v2_scale(k->vel, DT));
             V2 n;
-            if (room_collide_circle(&k->pos, 10.0f, &n)) {
+            /* Vacuumed pickups fly over obstacles so nothing stays stuck behind a pillar. */
+            if (!vacuum && room_collide_circle(&k->pos, 10.0f, &n)) {
                 float into = v2_dot(k->vel, n);
                 if (into < 0.0f) k->vel = v2_scale(v2_sub(k->vel, v2_scale(n, 2.0f * into)), 0.5f);
             }

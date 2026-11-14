@@ -1,14 +1,21 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 
+#include "audio.h"
+#include "bot.h"
 #include "draw.h"
 #include "game.h"
+#include "headless.h"
 
 #include <stdlib.h>
 #include <string.h>
 
 typedef struct {
-    const char *shot_path; /* --shot FILE: render N frames headless-friendly, save a BMP, exit */
+    const char *dump_dir;  /* --dump-sfx DIR: write every sound effect as WAV and exit */
+    const char *shot_path; /* --shot FILE: render N frames offscreen (no window), save a BMP, exit */
+    bool headless;         /* --headless: simulation only, no window / audio (see headless.h) */
+    int ticks, runs, expect_rooms;
+    const char *fail_shot;
     int frames;            /* --frames N (with --bot: quit after N frames) */
     bool frames_given;
     int depth;             /* --depth N: start directly in a combat room of that depth */
@@ -22,6 +29,8 @@ typedef struct {
 static void parse_args(int argc, char **argv, Options *o) {
     memset(o, 0, sizeof *o);
     o->frames = 300;
+    o->ticks = 120 * 600;
+    o->runs = 1;
     for (int i = 1; i < argc; i++) {
         const char *a = argv[i];
         bool more = i + 1 < argc;
@@ -29,6 +38,12 @@ static void parse_args(int argc, char **argv, Options *o) {
         else if (!strcmp(a, "--frames") && more) { o->frames = atoi(argv[++i]); o->frames_given = true; }
         else if (!strcmp(a, "--depth") && more) o->depth = atoi(argv[++i]);
         else if (!strcmp(a, "--seed") && more) { o->seed = strtoull(argv[++i], NULL, 10); o->has_seed = true; }
+        else if (!strcmp(a, "--dump-sfx") && more) o->dump_dir = argv[++i];
+        else if (!strcmp(a, "--headless")) o->headless = true;
+        else if (!strcmp(a, "--fail-shot") && more) o->fail_shot = argv[++i];
+        else if (!strcmp(a, "--ticks") && more) o->ticks = atoi(argv[++i]);
+        else if (!strcmp(a, "--runs") && more) o->runs = atoi(argv[++i]);
+        else if (!strcmp(a, "--expect-rooms") && more) o->expect_rooms = atoi(argv[++i]);
         else if (!strcmp(a, "--bot")) o->bot = true;
         else if (!strcmp(a, "--god")) o->god = true;
         else if (!strcmp(a, "--novsync")) o->novsync = true;
@@ -58,34 +73,6 @@ static void sample_held_input(SDL_Renderer *r) {
     in->fire = (buttons & SDL_BUTTON_LMASK) != 0;
 }
 
-/* Simple autopilot used for automated screenshots and smoke tests. */
-static void bot_input(void) {
-    Input *in = &G.in;
-    in->up = in->down = in->left = in->right = false;
-    if (G.state == GS_TITLE) {
-        in->confirm_pressed = true;
-        return;
-    }
-    Enemy *t = enemy_nearest(G.pl.pos, 1e9f);
-    in->mouse = t ? t->pos : v2(ARENA_CX, ARENA_Y0 + 120.0f);
-    in->fire = true;
-    V2 goal;
-    if (G.room.cleared) {
-        int pick = 0;
-        for (int i = 0; i < G.room.ndoors; i++)
-            if (!G.room.doors[i].locked || G.pl.keys > 0) { pick = i; break; }
-        goal = G.room.clear_t < 1.2f ? v2(ARENA_CX, ARENA_CY) : door_position(G.room.doors[pick].side);
-    } else {
-        float a = G.time * 1.2f;
-        goal = v2(ARENA_CX + cosf(a) * 450.0f, ARENA_CY + sinf(a) * 280.0f);
-    }
-    V2 d = v2_sub(goal, G.pl.pos);
-    in->right = d.x > 12.0f;
-    in->left = d.x < -12.0f;
-    in->down = d.y > 12.0f;
-    in->up = d.y < -12.0f;
-}
-
 static void handle_event(const SDL_Event *e, SDL_Window *win, bool bot) {
     Input *in = &G.in;
     switch (e->type) {
@@ -113,6 +100,7 @@ static void handle_event(const SDL_Event *e, SDL_Window *win, bool bot) {
         }
         /* Menu letters follow the keyboard layout. */
         if (e->key.key == SDLK_R) in->restart_pressed = true;
+        if (e->key.key == SDLK_M) audio_toggle_mute();
         if (e->key.key == SDLK_Q && G.state == GS_PAUSED) G.quit = true;
         break;
     case SDL_EVENT_MOUSE_BUTTON_DOWN:
@@ -143,8 +131,28 @@ int main(int argc, char **argv) {
     Options opt;
     parse_args(argc, argv, &opt);
 
+    if (opt.dump_dir) {
+        bool ok = audio_dump_wavs(opt.dump_dir);
+        SDL_Log(ok ? "Sound effects written to %s" : "Could not write to %s", opt.dump_dir);
+        return ok ? 0 : 1;
+    }
+
+    if (opt.headless) {
+        HeadlessOptions h = {
+            .seed = opt.has_seed ? opt.seed : SDL_GetPerformanceCounter(),
+            .runs = opt.runs, .max_ticks = opt.ticks, .depth = opt.depth,
+            .god = opt.god, .expect_rooms = opt.expect_rooms, .fail_shot = opt.fail_shot,
+        };
+        return headless_run(&h);
+    }
+
     SDL_SetAppMetadata("Neon Breach", "0.1.0", "dev.neonbreach.game");
-    if (opt.shot_path) SDL_SetHint(SDL_HINT_RENDER_DRIVER, "software");
+    if (opt.shot_path) {
+        /* Render into an offscreen surface: never opens a window. */
+        SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "offscreen");
+        SDL_SetHint(SDL_HINT_RENDER_DRIVER, "software");
+        SDL_SetHint(SDL_HINT_FRAMEBUFFER_ACCELERATION, "0"); /* plain surface, no EGL/GPU driver */
+    }
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         SDL_Log("SDL_Init failed: %s", SDL_GetError());
         return 1;
@@ -161,6 +169,7 @@ int main(int argc, char **argv) {
     if (!opt.shot_path && !opt.novsync) SDL_SetRenderVSync(ren, 1);
     SDL_HideCursor();
     draw_init(ren);
+    if (!opt.shot_path) audio_init();
 
     uint64_t seed = opt.has_seed ? opt.seed : SDL_GetPerformanceCounter();
     SDL_Log("Neon Breach - seed %llu (renderer: %s)", (unsigned long long)seed, SDL_GetRendererName(ren));
@@ -205,6 +214,7 @@ int main(int argc, char **argv) {
             acc -= DT;
         }
 
+        audio_flush();
         game_render();
         frame++;
         if (opt.shot_path && frame >= opt.frames) {
@@ -216,6 +226,7 @@ int main(int argc, char **argv) {
         SDL_RenderPresent(ren);
     }
 
+    audio_shutdown();
     SDL_DestroyRenderer(ren);
     SDL_DestroyWindow(win);
     SDL_Quit();

@@ -234,6 +234,7 @@ typedef struct {
     SDL_FColor banner_col;
     int rooms_cleared, kills;
     float gameover_t;
+    float last_enemy_damage_t; /* G.time of the last hit on an enemy (stall detection in tests) */
 
     bool quit, show_debug, god;
     float fps;
@@ -259,6 +260,10 @@ void room_update(void);
 void room_draw_floor(void);
 void room_draw_walls(void);
 bool room_collide_circle(V2 *pos, float r, V2 *normal);
+/* True when a circle of radius margin can travel from a to b without touching an obstacle. */
+bool room_line_clear(V2 a, V2 b, float margin);
+/* Next point to walk towards to reach goal, going around obstacles. */
+V2 room_navigate(V2 from, V2 goal, float margin);
 V2 door_position(Side side);
 
 /* player.c */

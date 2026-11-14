@@ -1,5 +1,6 @@
 #include "draw.h"
 #include "game.h"
+#include "audio.h"
 
 #include <string.h>
 
@@ -42,6 +43,7 @@ static void enemy_create(EnemyType type, V2 pos) {
     e->angle = frand(0.0f, TAU_F);
     e->spin_dir = chance(0.5f) ? 1 : -1;
     room_collide_circle(&e->pos, e->radius, NULL);
+    sfx_play_at(SFX_ENEMY_APPEAR, e->pos);
     fx_particle(e->pos, v2(0, 0), 0.25f, e->radius * 3.0f, col_hex(d->color, 1), 0.0f, PT_RING);
 }
 
@@ -64,6 +66,7 @@ void enemy_damage(Enemy *e, float dmg, V2 knock) {
     if (e->hp <= 0.0f) return;
     e->hp -= dmg;
     e->flash = 0.07f;
+    G.last_enemy_damage_t = G.time;
     float mass = e->radius / 16.0f;
     if (e->type == EN_TANK) mass *= 2.5f;
     e->vel = v2_add(e->vel, v2_scale(knock, 1.0f / mass));
@@ -86,12 +89,17 @@ static void move_towards(Enemy *e, V2 desired_vel, float responsiveness) {
     e->vel = v2_lerp(e->vel, desired_vel, smooth_k(responsiveness));
 }
 
+/* Direction towards goal that goes around obstacles instead of grinding into them. */
+static V2 nav_dir(const Enemy *e, V2 goal) {
+    return v2_norm(v2_sub(room_navigate(e->pos, goal, e->radius + 6.0f), e->pos));
+}
+
 static void wander(Enemy *e, float dmin, float dmax, float speed) {
     if (e->state_t <= 0.0f || v2_dist2(e->pos, e->target) < 30.0f * 30.0f) {
         e->target = random_point_around(G.pl.pos, dmin, dmax);
         e->state_t = frand(1.8f, 3.2f);
     }
-    move_towards(e, v2_scale(v2_norm(v2_sub(e->target, e->pos)), speed), 3.0f);
+    move_towards(e, v2_scale(nav_dir(e, e->target), speed), 3.0f);
 }
 
 static void fire_ring(V2 pos, int n, float speed, float radius, float offset, SDL_FColor col) {
@@ -121,8 +129,9 @@ static void update_enemy(Enemy *e) {
 
     switch (e->type) {
     case EN_CHASER: {
-        V2 side = v2_perp(dir);
-        V2 want = v2_add(dir, v2_scale(side, sinf(e->t * 5.0f + (float)e->uid) * 0.35f));
+        V2 chase = nav_dir(e, pl->pos);
+        V2 side = v2_perp(chase);
+        V2 want = v2_add(chase, v2_scale(side, sinf(e->t * 5.0f + (float)e->uid) * 0.35f));
         move_towards(e, v2_scale(want, d->speed), 3.5f);
         e->angle = v2_heading(e->vel);
     } break;
@@ -136,7 +145,7 @@ static void update_enemy(Enemy *e) {
             float l2 = v2_len2(dd);
             if (l2 < 34.0f * 34.0f && l2 > 0.01f) sep = v2_add(sep, v2_scale(dd, 30.0f / l2));
         }
-        V2 want = v2_norm(v2_add(dir, sep));
+        V2 want = v2_norm(v2_add(nav_dir(e, pl->pos), sep));
         move_towards(e, v2_scale(want, d->speed), 5.0f);
         e->angle = v2_heading(e->vel);
     } break;
@@ -147,6 +156,7 @@ static void update_enemy(Enemy *e) {
         if (e->fire_t <= 0.0f) {
             if (e->burst <= 0) e->burst = 3;
             fire_fan(v2_add(e->pos, v2_scale(dir, e->radius)), aim, 3, 0.36f, 390.0f * bs, 7.0f, col_hex(0xffa040, 1));
+            sfx_play_at(SFX_ENEMY_SHOT, e->pos);
             e->burst--;
             e->fire_t = e->burst > 0 ? 0.1f : frand(1.1f, 1.5f);
         }
@@ -160,6 +170,7 @@ static void update_enemy(Enemy *e) {
             if (n > 30) n = 30;
             e->spin += PI_F / (float)n;
             fire_ring(e->pos, n, 250.0f * bs, 8.0f, e->spin, col_hex(0xd070ff, 1));
+            sfx_play_at(SFX_ENEMY_RING, e->pos);
             if (e->state & 1) fire_ring(e->pos, n, 170.0f * bs, 8.0f, e->spin + PI_F / (float)n, col_hex(0xff70e0, 1));
             e->state++;
             e->fire_t = 1.9f;
@@ -169,7 +180,7 @@ static void update_enemy(Enemy *e) {
     case EN_SPINNER: {
         if (v2_dist2(e->pos, e->target) < 30.0f * 30.0f || e->t < DT * 2.0f)
             e->target = random_point_around(v2(ARENA_CX, ARENA_CY), 0.0f, 400.0f);
-        move_towards(e, v2_scale(v2_norm(v2_sub(e->target, e->pos)), d->speed), 2.0f);
+        move_towards(e, v2_scale(nav_dir(e, e->target), d->speed), 2.0f);
         if (e->state == 0) {
             e->spin += 1.9f * DT * (float)e->spin_dir;
             if (e->fire_t <= 0.0f) {
@@ -177,6 +188,7 @@ static void update_enemy(Enemy *e) {
                 for (int k = 0; k < arms; k++)
                     ebullet_spawn(e->pos, e->spin + TAU_F * (float)k / (float)arms, 230.0f * bs, 7.0f, col_hex(0xff4fd8, 1));
                 e->fire_t = 0.075f;
+                sfx_play_at(SFX_ENEMY_SPIRAL, e->pos);
             }
             if (e->state_t <= 0.0f) {
                 e->state = 1;
@@ -203,6 +215,7 @@ static void update_enemy(Enemy *e) {
             if (e->fire_t <= 0.0f) {
                 e->state = 1;
                 e->state_t = 0.7f;
+                sfx_play_at(SFX_SNIPER_CHARGE, e->pos);
             }
         } else {
             if (e->state_t > 0.25f) e->angle = aim; /* tracks, then locks just before firing */
@@ -211,6 +224,7 @@ static void update_enemy(Enemy *e) {
                 for (int k = 0; k < 6; k++)
                     ebullet_spawn(muzzle, e->angle, (620.0f + (float)k * 90.0f) * bs, 6.0f, col_hex(0x7dff7a, 1));
                 fx_particle(muzzle, v2(0, 0), 0.12f, 40.0f, col_hex(0x7dff7a, 0.9f), 0.0f, PT_GLOW);
+                sfx_play_at(SFX_SNIPER_FIRE, e->pos);
                 e->state = 0;
                 e->fire_t = frand(1.8f, 2.6f);
             }
@@ -218,7 +232,7 @@ static void update_enemy(Enemy *e) {
     } break;
 
     case EN_TANK: {
-        if (dist > 320.0f) move_towards(e, v2_scale(dir, d->speed), 1.5f);
+        if (dist > 320.0f || !room_line_clear(e->pos, pl->pos, 8.0f)) move_towards(e, v2_scale(nav_dir(e, pl->pos), d->speed), 1.5f);
         else move_towards(e, v2(0, 0), 2.0f);
         e->angle = aim;
         e->spin += 0.6f * DT;
@@ -228,9 +242,11 @@ static void update_enemy(Enemy *e) {
                 ebullet_spawn(muzzle, aim + frand(-0.5f, 0.5f), frand(220.0f, 470.0f) * bs, 9.0f, col_hex(0xff7a3d, 1));
             e->fire_t = frand(1.5f, 1.9f);
             fx_shake(0.05f);
+            sfx_play_at(SFX_TANK_FIRE, e->pos);
         }
         if (e->state_t <= 0.0f) {
             fire_ring(e->pos, 28, 160.0f * bs, 10.0f, frand(0.0f, TAU_F), col_hex(0xff4d3d, 1));
+            sfx_play_ex(SFX_ENEMY_RING, 1.2f, 0.6f, 0.0f);
             e->state_t = 4.5f;
         }
     } break;
@@ -265,6 +281,8 @@ static void separate_enemies(void) {
             b->pos = v2_add(b->pos, push);
         }
     }
+    /* Separation can push enemies into walls or obstacles: resolve again. */
+    for (int i = 0; i < G.nen; i++) room_collide_circle(&G.en[i].pos, G.en[i].radius, NULL);
 }
 
 static void on_death(Enemy *e) {
@@ -273,6 +291,9 @@ static void on_death(Enemy *e) {
     fx_shake(0.06f + e->radius * 0.004f);
     G.kills++;
     if (e->type == EN_TANK) G.hitstop = fmaxf(G.hitstop, 0.05f);
+    if (e->type == EN_TANK) sfx_play_at(SFX_EXPLODE_BIG, e->pos);
+    else if (e->type == EN_SWARM) sfx_play_ex(SFX_EXPLODE_SMALL, 0.7f, 1.5f, (e->pos.x - ARENA_CX) / (ARENA_X1 - ARENA_CX) * 0.7f);
+    else sfx_play_at(SFX_EXPLODE_SMALL, e->pos);
 
     int coins = e->type == EN_TANK ? irand(3, 5) : (chance(e->type == EN_SWARM ? 0.12f : 0.32f) ? 1 : 0);
     for (int i = 0; i < coins; i++)

@@ -1,5 +1,6 @@
 #include "draw.h"
 #include "game.h"
+#include "audio.h"
 
 #include <string.h>
 
@@ -22,6 +23,7 @@ void player_init(void) {
 static void player_bomb(void) {
     Player *p = &G.pl;
     p->bombs--;
+    sfx_play(SFX_BOMB);
     ebullets_clear(true);
     float scale = enemy_hp_scale();
     for (int i = 0; i < G.nen; i++) {
@@ -47,6 +49,7 @@ void player_hurt(int dmg) {
     p->hp -= dmg;
     p->invuln = 1.2f;
     G.hurt_flash = 1.0f;
+    sfx_play(SFX_PLAYER_HURT);
     G.hitstop = 0.08f;
     fx_shake(0.55f);
     /* Mercy: wipe bullets right around the ship. Marked dead, removed by the bullet loop. */
@@ -82,6 +85,7 @@ void player_update(void) {
         p->dash_dir = (mv.x != 0.0f || mv.y != 0.0f) ? mv : v2_angle(p->aim_angle);
         p->dash_t = 0.13f;
         p->dash_cd = p->dash_cooldown;
+        sfx_play_at(SFX_DASH, p->pos);
         fx_burst(p->pos, 12, 100.0f, 350.0f, 0.25f, 2.5f, col_hex(SHIP_COLOR, 1));
     }
 
@@ -102,9 +106,13 @@ void player_update(void) {
 
     if (in->bomb_pressed) {
         if (p->bombs > 0) player_bomb();
-        else fx_popup(v2_add(p->pos, v2(0, -40)), col_hex(0xff5f7e, 1), "NO BOMBS");
+        else {
+            fx_popup(v2_add(p->pos, v2(0, -40)), col_hex(0xff5f7e, 1), "NO BOMBS");
+            sfx_play(SFX_DENIED);
+        }
     }
 
+    int prev_weapon = p->weapon;
     if (in->weapon_select >= 0 && in->weapon_select < WPN_COUNT && p->wlevel[in->weapon_select] > 0)
         p->weapon = in->weapon_select;
     if (in->weapon_cycle != 0) {
@@ -117,6 +125,8 @@ void player_update(void) {
             }
         }
     }
+
+    if (p->weapon != prev_weapon) sfx_play(SFX_WEAPON_SWITCH);
 
     /* Engine exhaust, proportional to speed. */
     float spd = v2_len(p->vel);

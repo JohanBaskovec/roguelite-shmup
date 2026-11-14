@@ -18,6 +18,9 @@ include(cmake/Dependencies.cmake)
 
 add_executable(neon_breach
     src/main.c
+    src/audio.c
+    src/bot.c
+    src/headless.c
     src/game.c
     src/draw.c
     src/fx.c
@@ -36,4 +39,39 @@ if(MSVC)
 else()
     target_link_libraries(neon_breach PRIVATE m)
     target_compile_options(neon_breach PRIVATE -Wall -Wextra -Wno-missing-field-initializers)
+endif()
+
+option(SHMUP_SANITIZERS "Build with AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
+if(SHMUP_SANITIZERS AND NOT MSVC)
+    target_compile_options(neon_breach PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+    target_link_options(neon_breach PRIVATE -fsanitize=address,undefined)
+endif()
+
+# ---- Tests ------------------------------------------------------------------
+# Everything runs without opening a window: the simulation tests are pure CPU
+# (--headless), the render test draws into SDL's offscreen video driver.
+option(SHMUP_BUILD_TESTS "Register the headless tests with CTest" ON)
+if(SHMUP_BUILD_TESTS)
+    enable_testing()
+    set(_out ${CMAKE_CURRENT_BINARY_DIR}/test-output)
+    file(MAKE_DIRECTORY ${_out}/sfx)
+
+    # Invincible bot: checks progression and invariants over 10 min of game time.
+    foreach(seed 1 2 3)
+        add_test(NAME sim_god_seed${seed}
+                 COMMAND neon_breach --headless --god --seed ${seed} --ticks 72000 --expect-rooms 5
+                         --fail-shot ${_out}/fail_sim_god_seed${seed}.bmp)
+    endforeach()
+    # Mortal bot: 10 full runs until death or time limit.
+    add_test(NAME sim_mortal_runs
+             COMMAND neon_breach --headless --seed 100 --runs 10 --ticks 72000 --fail-shot ${_out}/fail_sim_mortal.bmp)
+    # Late-game rooms (dense waves, every enemy type).
+    add_test(NAME sim_deep_rooms
+             COMMAND neon_breach --headless --god --depth 15 --seed 7 --runs 3 --ticks 36000 --fail-shot ${_out}/fail_sim_deep.bmp)
+    add_test(NAME render_offscreen
+             COMMAND neon_breach --shot ${_out}/render.bmp --depth 4 --seed 4 --frames 30)
+    add_test(NAME sfx_synthesis COMMAND neon_breach --dump-sfx ${_out}/sfx)
+
+    set_tests_properties(sim_god_seed1 sim_god_seed2 sim_god_seed3 sim_mortal_runs sim_deep_rooms
+                         render_offscreen sfx_synthesis PROPERTIES TIMEOUT 600)
 endif()

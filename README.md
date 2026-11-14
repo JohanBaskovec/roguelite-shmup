@@ -1,6 +1,6 @@
 # Neon Breach
 
-Roguelite shmup ultra nerveux en vue de dessus — C17, SDL3, CMake. Tous les graphismes sont générés en code (triangles, polygones, cercles, glow additif).
+Roguelite shmup ultra nerveux en vue de dessus — C17, SDL3, CMake. Tous les graphismes sont générés en code (triangles, polygones, cercles, glow additif), et tous les sons sont synthétisés au démarrage (oscillateurs + bruit + filtres, façon sfxr).
 
 ## Build
 
@@ -22,6 +22,7 @@ Preset `debug` disponible aussi (`build/debug`).
 | Bombe (efface toutes les balles) | E |
 | Changer d'arme | Molette / 1-5 |
 | Pause | Échap (R = restart, Q = quitter) |
+| Couper le son | M |
 | Plein écran / debug FPS | F11 / F3 |
 
 ## Boucle de jeu
@@ -45,16 +46,38 @@ Preset `debug` disponible aussi (`build/debug`).
 | `bullets.c` | Balles joueur / ennemies, collisions |
 | `pickups.c` | Pièces, clefs, bombes, cœurs, objets sur piédestal, icônes |
 | `fx.c` | Particules, screen shake, popups, bannières |
+| `bot.c` | Autopilote (visée, esquive, navigation, choix de porte) pour les tests |
+| `headless.c` | Simulation sans fenêtre + vérification d'invariants |
+| `audio.c/h` | Synthèse procédurale des sons + mixeur (voix, panoramique, limitation de fréquence) |
 | `hud.c` | HUD et écrans (titre, pause, game over) |
 
 Les types de salles `ROOM_TREASURE`, `ROOM_SHOP` et `ROOM_BOSS` sont déjà prévus dans `RoomType` (`game.h`) : il suffit de les générer dans `gen_doors()` (`room.c`) et de leur donner un comportement dans `room_enter()`.
 
+## Tests (sans fenêtre)
+
+```sh
+ctest --preset release      # ~4 s
+ctest --preset asan         # même suite sous AddressSanitizer + UBSan (cmake --preset asan && cmake --build --preset asan)
+```
+
+Aucun test n'ouvre de fenêtre :
+
+- **Simulation headless** (`--headless`) : pas de vidéo ni d'audio, un autopilote (`bot.c`) joue aussi vite que le CPU le permet (~500x le temps réel). Des invariants sont vérifiés à chaque tick (positions finies et dans l'arène, PV cohérents, arme possédée, pas de salle bloquée — aucun ennemi touché pendant 60 s —, pas de salle nettoyée jamais quittée). En cas d'échec, `--fail-shot` enregistre l'image de l'instant fautif (rendue offscreen).
+- **Rendu** : `--shot` dessine dans le pilote vidéo `offscreen` de SDL et sauve un BMP.
+- **Audio** : `--dump-sfx` synthétise tous les sons en WAV.
+
+Les sorties des tests sont dans `build/<preset>/test-output/`.
+
 ## Options de dev
 
 ```sh
-neon_breach --seed 42             # run reproductible
-neon_breach --depth 8             # démarre directement en salle 8
-neon_breach --bot --god           # autopilote invincible
-neon_breach --bot --novsync --frames 5000   # bench (log FPS)
-SDL_VIDEO_DRIVER=offscreen neon_breach --depth 4 --frames 600 --shot out.bmp   # capture headless
+neon_breach --headless --god --seed 1 --runs 20         # 20 parties invincibles, résumé par partie
+neon_breach --headless --seed 100 --runs 20             # 20 parties normales (jusqu'à la mort)
+neon_breach --headless --depth 15 --god --fail-shot f.bmp   # démarre en salle 15, image si échec
+neon_breach --shot out.bmp --depth 4 --frames 600       # capture offscreen après 600 frames
+neon_breach --dump-sfx /tmp/sfx                         # exporte chaque son en WAV
+neon_breach --seed 42 --depth 8                         # jouer : run reproductible, démarrage en salle 8
+neon_breach --bot --god                                 # regarder l'autopilote jouer (ouvre une fenêtre)
 ```
+
+Options headless : `--ticks N` (durée max par partie, 120 ticks = 1 s, défaut 10 min), `--runs N`, `--expect-rooms N` (échec si moins de N salles nettoyées).

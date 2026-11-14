@@ -1,5 +1,6 @@
 #include "draw.h"
 #include "game.h"
+#include "audio.h"
 
 #include <stdio.h>
 
@@ -90,6 +91,11 @@ static void fire_volley(void) {
     }
 
     fx_particle(muzzle, v2(0, 0), 0.05f, 18.0f + (float)n * 2.0f, col_a(col, 0.8f), 0.0f, PT_GLOW);
+    static const SfxId shot_sfx[WPN_COUNT] = {
+        [WPN_BLASTER] = SFX_SHOT_BLASTER, [WPN_SCATTER] = SFX_SHOT_SCATTER, [WPN_NEEDLER] = SFX_SHOT_NEEDLER,
+        [WPN_SEEKER] = SFX_SHOT_SEEKER, [WPN_BOUNCER] = SFX_SHOT_BOUNCER,
+    };
+    sfx_play_at(shot_sfx[p->weapon], p->pos);
     if (p->weapon == WPN_SCATTER) {
         p->vel = v2_sub(p->vel, v2_scale(fwd, 90.0f));
         fx_shake(0.04f);
@@ -122,6 +128,7 @@ static void update_drones(void) {
         b->homing = p->homing;
         b->knockback = 20.0f;
         b->weapon = -1;
+        sfx_play_at(SFX_DRONE_SHOT, dp);
     }
 }
 

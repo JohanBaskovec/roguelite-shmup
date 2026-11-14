@@ -1,5 +1,6 @@
 #include "game.h"
 
+#include "audio.h"
 #include "draw.h"
 
 #include <string.h>
@@ -36,12 +37,14 @@ void game_new_run(void) {
     G.gameover_t = 0.0f;
     room_enter(ROOM_START, RW_NONE, 0);
     G.state = GS_PLAYING;
+    sfx_play(SFX_UI_START);
 }
 
 void game_over(void) {
     G.state = GS_GAMEOVER;
     G.gameover_t = 0.0f;
     G.hitstop = 0.0f;
+    sfx_play(SFX_PLAYER_DEATH);
     fx_explosion(G.pl.pos, 60.0f, col_hex(0x66f0ff, 1));
     fx_explosion(G.pl.pos, 30.0f, COL_WHITE);
     fx_shake(1.0f);
@@ -51,11 +54,13 @@ void game_start_transition(int door) {
     G.transitioning = true;
     G.trans_t = 0.0f;
     G.trans_door = door;
+    sfx_play(SFX_DOOR_ENTER);
 }
 
 static void update_playing(void) {
     if (G.in.pause_pressed) {
         G.state = GS_PAUSED;
+        sfx_play(SFX_PAUSE);
         return;
     }
     if (G.hitstop > 0.0f) {
@@ -97,7 +102,10 @@ void game_update(void) {
         fx_update();
         break;
     case GS_PAUSED:
-        if (G.in.pause_pressed) G.state = GS_PLAYING;
+        if (G.in.pause_pressed) {
+            G.state = GS_PLAYING;
+            sfx_play(SFX_PAUSE);
+        }
         else if (G.in.restart_pressed) game_new_run();
         break;
     case GS_PLAYING:

@@ -1,5 +1,6 @@
 #include "draw.h"
 #include "game.h"
+#include "audio.h"
 
 #include <string.h>
 
@@ -60,7 +61,8 @@ static void steer(PBullet *b) {
 static void update_player_bullets(void) {
     for (int i = 0; i < G.npb; i++) {
         PBullet *b = &G.pb[i];
-        bool dead = false;
+        bool dead = false, wall = false;
+        V2 n = v2(0, 0);
         b->life -= DT;
         if (b->life <= 0.0f) dead = true;
 
@@ -72,18 +74,7 @@ static void update_player_bullets(void) {
                     fx_particle(b->pos, v2(0, 0), 0.22f, 6.0f, col_a(b->col, 0.5f), 0.0f, PT_GLOW);
             }
             b->pos = v2_add(b->pos, v2_scale(b->vel, DT));
-
-            V2 n;
-            if (room_collide_circle(&b->pos, b->radius, &n)) {
-                if (b->bounces > 0) {
-                    b->bounces--;
-                    reflect(&b->vel, n);
-                    b->last_hit = -1;
-                } else {
-                    fx_burst(b->pos, 2, 60.0f, 220.0f, 0.15f, 2.0f, b->col);
-                    dead = true;
-                }
-            }
+            wall = room_collide_circle(&b->pos, b->radius, &n);
         }
 
         if (!dead) {
@@ -94,6 +85,7 @@ static void update_player_bullets(void) {
                 if (v2_dist2(b->pos, e->pos) >= rr * rr) continue;
                 V2 dir = v2_norm(b->vel);
                 enemy_damage(e, b->damage, v2_scale(dir, b->knockback));
+                sfx_play_at(SFX_HIT, e->pos);
                 fx_particle(b->pos, v2_scale(dir, -120.0f), 0.1f, b->radius * 3.0f, col_a(b->col, 0.8f), 0.0f, PT_GLOW);
                 if ((G.ticks + i) & 1)
                     fx_particle(b->pos, v2_scale(v2_rotate(dir, PI_F + frand(-0.7f, 0.7f)), frand(150, 400)), 0.15f, 2.0f, b->col, 4.0f, PT_SPARK);
@@ -101,6 +93,20 @@ static void update_player_bullets(void) {
                 if (b->pierce > 0) b->pierce--;
                 else dead = true;
                 break;
+            }
+        }
+
+        /* Walls are resolved after enemy hits, so point-blank shots at an enemy
+         * pressed against a wall still connect. */
+        if (!dead && wall) {
+            if (b->bounces > 0) {
+                b->bounces--;
+                reflect(&b->vel, n);
+                sfx_play_at(SFX_BOUNCE, b->pos);
+                b->last_hit = -1;
+            } else {
+                fx_burst(b->pos, 2, 60.0f, 220.0f, 0.15f, 2.0f, b->col);
+                dead = true;
             }
         }
 
