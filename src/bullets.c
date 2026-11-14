@@ -15,7 +15,6 @@ PBullet *pbullet_spawn(V2 pos, V2 vel, float radius, float damage, SDL_FColor co
     b->col = col;
     b->life = 1.0f;
     b->last_hit = -1;
-    b->weapon = -1;
     return b;
 }
 
@@ -80,27 +79,22 @@ static void update_player_bullets(void) {
         if (!dead) {
             if (b->homing > 0.0f && G.nen > 0 && !(b->flags & (PB_MINE | PB_VORTEX))) steer(b);
             upg_bullet_update(b);
-            switch (b->weapon) {
-            case WPN_FLAMER: /* the flame slows down and swells */
+            /* Weapon mods combine: each flag adds its own motion. */
+            if (b->flags & PB_FLAME) { /* the flame slows down and swells */
                 b->vel = v2_scale(b->vel, fmaxf(0.0f, 1.0f - 2.2f * DT));
                 b->radius += 22.0f * DT;
-                break;
-            case WPN_ROCKET:
-                if (v2_len2(b->vel) < 1700.0f * 1700.0f) b->vel = v2_scale(b->vel, 1.0f + 3.2f * DT);
-                if ((G.ticks + i) % 2 == 0)
+            }
+            if (b->flags & PB_ACCEL) { /* rockets, seekers */
+                if (v2_len2(b->vel) < 1700.0f * 1700.0f) b->vel = v2_scale(b->vel, 1.0f + 3.0f * DT);
+                if (b->style == BS_ROCKET && (G.ticks + i) % 2 == 0)
                     fx_particle(b->pos, v2_scale(b->vel, -0.15f), 0.25f, 9.0f, col_hex(0xff8a3d, 0.6f), 2.0f, PT_GLOW);
-                break;
-            case WPN_WAVE: { /* weaves around its line of fire: a sine offset, centred on the aim */
+                else if (b->style != BS_ROCKET && (G.ticks + i) % 3 == 0)
+                    fx_particle(b->pos, v2(0, 0), 0.22f, 6.0f, col_a(b->col, 0.5f), 0.0f, PT_GLOW);
+            }
+            if ((b->flags & PB_WAVE) && v2_len2(b->vel) > 1.0f) { /* weaves around its line of fire, centred on the aim */
                 float sgn = (b->flags & PB_FLIP) ? -1.0f : 1.0f;
                 float dy = 28.0f * (sinf(12.0f * b->age) - sinf(12.0f * (b->age - DT))) * sgn;
                 b->pos = v2_add(b->pos, v2_scale(v2_perp(v2_norm(b->vel)), dy));
-            } break;
-            default: break;
-            }
-            if (b->weapon == WPN_SEEKER) {
-                if (v2_len2(b->vel) < 1500.0f * 1500.0f) b->vel = v2_scale(b->vel, 1.0f + 2.4f * DT);
-                if ((G.ticks + i) % 3 == 0)
-                    fx_particle(b->pos, v2(0, 0), 0.22f, 6.0f, col_a(b->col, 0.5f), 0.0f, PT_GLOW);
             }
             b->pos = v2_add(b->pos, v2_scale(b->vel, DT));
             /* PHASE ROUNDS fly through obstacles; only the arena walls stop them. */
@@ -226,37 +220,37 @@ void bullets_draw_player(void) {
                          G.time * (6.0f - (float)r) + (float)r * 2.0f + 3.6f, col_a(b->col, 0.55f - 0.12f * (float)r));
             draw_glow(b->pos, 70.0f * k, col_hex(0x6a2bff, 0.35f));
             draw_circle(b->pos, 12.0f * k, col_hex(0x05000f, 0.9f));
-        } else if (b->weapon == WPN_FLAMER) {
+        } else if (b->style == BS_FLAME) {
             float t = clampf(b->age / (b->age + b->life), 0.0f, 1.0f); /* 0 fresh -> 1 dying */
             SDL_FColor c = col_lerp(col_hex(0xffe08a, 1), col_hex(0xff3a1a, 1), t);
             draw_glow(b->pos, b->radius * 2.2f, col_a(c, 0.35f * (1.0f - t)));
             draw_circle(b->pos, b->radius * 0.7f, col_a(c, 0.5f * (1.0f - t)));
-        } else if (b->weapon == WPN_ROCKET || (b->flags & PB_EXPLOSIVE)) {
+        } else if (b->style == BS_ROCKET || (b->flags & PB_EXPLOSIVE)) {
             V2 side = v2_perp(dir);
             draw_glow(b->pos, 22.0f, col_a(b->col, 0.35f));
             draw_tri(v2_add(b->pos, v2_scale(dir, 11.0f)), v2_add(b->pos, v2_scale(side, 4.5f)), v2_sub(b->pos, v2_scale(side, 4.5f)), col_hex(0xffe9c0, 1));
             draw_line(b->pos, v2_sub(b->pos, v2_scale(dir, 12.0f)), 6.0f, col_a(b->col, 0.95f));
             draw_line(v2_sub(b->pos, v2_scale(dir, 12.0f)), v2_sub(b->pos, v2_scale(dir, 22.0f + 6.0f * sinf(G.time * 60.0f))), 5.0f, col_hex(0xff6a1a, 0.8f));
-        } else if (b->weapon == WPN_CHAKRAM) {
+        } else if (b->style == BS_CHAKRAM) {
             float a = G.time * 22.0f + (float)i;
             draw_glow(b->pos, b->radius * 2.2f, col_a(b->col, 0.35f));
             draw_ngon(b->pos, b->radius, 4, a, col_a(b->col, 0.9f));
             draw_ngon(b->pos, b->radius, 4, a + PI_F * 0.25f, col_a(b->col, 0.6f));
             draw_circle(b->pos, b->radius * 0.3f, col_a(COL_WHITE, 0.9f));
-        } else if (b->weapon == WPN_RAILGUN) {
+        } else if (b->style == BS_RAIL) {
             V2 tail = v2_sub(b->pos, v2_scale(dir, 150.0f));
             draw_line(tail, b->pos, b->radius * 3.0f, col_a(b->col, 0.25f));
             draw_line(tail, b->pos, b->radius * 1.0f, col_a(COL_WHITE, 0.9f));
-        } else if (b->weapon == WPN_CLUSTER) {
+        } else if (b->style == BS_CLUSTER) {
             float pulse = 0.7f + 0.3f * sinf(G.time * 30.0f + (float)i);
             draw_glow(b->pos, b->radius * 3.0f, col_a(b->col, 0.4f));
             draw_ngon(b->pos, b->radius * 1.2f * pulse, 6, G.time * 8.0f, col_a(b->col, 0.9f));
             draw_circle(b->pos, b->radius * 0.4f, col_a(COL_WHITE, 0.85f));
-        } else if (b->weapon == WPN_WAVE) {
+        } else if (b->style == BS_WAVE) {
             draw_glow(b->pos, b->radius * 2.6f, col_a(b->col, 0.4f));
             draw_ring(b->pos, b->radius, 2.5f, col_a(b->col, 0.95f));
             draw_circle(b->pos, b->radius * 0.4f, col_a(COL_WHITE, 0.8f));
-        } else if (b->weapon == WPN_ARC) {
+        } else if (b->style == BS_ARC) {
             V2 side = v2_perp(dir);
             V2 a0 = v2_sub(b->pos, v2_scale(dir, 22.0f)), a1 = v2_add(v2_sub(b->pos, v2_scale(dir, 11.0f)), v2_scale(side, 5.0f));
             draw_line(a0, a1, 3.0f, col_a(b->col, 0.8f));
@@ -267,11 +261,11 @@ void bullets_draw_player(void) {
             draw_glow(b->pos, 26.0f, col_a(b->col, 0.2f + 0.25f * blink));
             draw_ngon(b->pos, b->radius, 6, G.time, col_a(b->col, 0.9f));
             draw_circle(b->pos, 3.5f, col_a(COL_WHITE, blink));
-        } else if (b->weapon == WPN_BOUNCER) {
+        } else if (b->style == BS_BOUNCER) {
             draw_glow(b->pos, b->radius * 2.6f, col_a(b->col, 0.45f));
             draw_circle(b->pos, b->radius * 0.9f, col_a(b->col, 0.85f));
             draw_circle(b->pos, b->radius * 0.45f, col_a(COL_WHITE, 0.8f));
-        } else if (b->weapon == WPN_SEEKER) {
+        } else if (b->style == BS_SEEKER) {
             draw_glow(b->pos, b->radius * 2.5f, col_a(b->col, 0.4f));
             draw_ngon(b->pos, b->radius * 1.2f, 3, v2_heading(b->vel), col_a(b->col, 0.9f));
         } else {

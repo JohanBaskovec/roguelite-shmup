@@ -15,7 +15,6 @@ enum {
     MAX_POPUPS = 48,
     MAX_DRONES = 6,
     MAX_DOORS = 3,
-    MAX_WEAPON_LEVEL = 5,
 };
 
 #define PLAYER_BODY_R 14.0f /* collision with walls / pickups */
@@ -25,34 +24,8 @@ enum {
 
 /* ---- Weapons & upgrades -------------------------------------------------- */
 
-/* WPN_SWORD is the Knight's melee weapon: never offered to the other characters (weapon_available). */
-typedef enum {
-    WPN_BLASTER, WPN_SCATTER, WPN_NEEDLER, WPN_SEEKER, WPN_BOUNCER,
-    WPN_RAILGUN, WPN_FLAMER, WPN_ROCKET, WPN_CHAKRAM, WPN_CLUSTER, WPN_ARC, WPN_VULCAN, WPN_WAVE,
-    WPN_SWORD, WPN_COUNT
-} WeaponId;
-
-typedef struct {
-    const char *name;
-    const char *desc;
-    float cooldown;      /* seconds between volleys at level 1 */
-    int count;           /* projectiles per volley at level 1 */
-    int count_per_level;
-    float spread;        /* base fan angle (radians) */
-    float spread_per;    /* extra fan angle per additional projectile */
-    float jitter;        /* random angle noise */
-    float parallel;      /* lateral spacing between projectiles */
-    float damage;
-    float speed, speed_var;
-    float life;
-    float radius;
-    int pierce, bounce;
-    float homing;        /* turn rate (rad/s) */
-    float knockback;
-    uint32_t color;
-    float level_rate;    /* cooldown multiplier per level */
-} WeaponDef;
-
+/* There is a single gun. Weapon mods are upgrades (UPG_W_*) that change how it fires and
+ * combine freely (weapons.c, gun_profile); the sword (Knight only) replaces the gun. */
 typedef enum {
     UPG_RAPID, UPG_DAMAGE, UPG_MULTI, UPG_PIERCE, UPG_BOUNCE, UPG_HOMING,
     UPG_THRUSTER, UPG_HULL, UPG_DRONE, UPG_MAGNET, UPG_VELOCITY,
@@ -68,14 +41,16 @@ typedef enum {
     /* defence, auras, triggers */
     UPG_REACTIVE, UPG_SECOND_WIND, UPG_BARRIER, UPG_ORB, UPG_TESLA, UPG_LEECH, UPG_ADRENALINE,
     UPG_BLOODLUST, UPG_RAM, UPG_DASH_NOVA, UPG_CHRONO, UPG_VOLATILE, UPG_MINES,
-    /* big slow shots that reflect enemy bullets; bonuses while hurt; luck; weapon rooms */
+    /* big slow shots that reflect enemy bullets; bonuses while hurt; luck */
     UPG_DEFLECTOR, UPG_WOUNDED_FURY, UPG_SCAR_TISSUE, UPG_LAST_STAND, UPG_BLOOD_SCENT, UPG_LOADED_DICE,
-    UPG_SIGNATURE,
     /* conditional damage, kill triggers, timed strikes, stat trades, utility */
     UPG_SCOPE, UPG_POINT_BLANK, UPG_BULLY, UPG_GIANT_SLAYER, UPG_MOMENTUM, UPG_SMART_BOUNCE,
     UPG_CHAIN_REACTION, UPG_GROWTH, UPG_TURRET_MODE, UPG_RUN_GUN, UPG_FROSTBITE, UPG_PYROMANIAC,
     UPG_TOXIC_CLOUD, UPG_OVERKILL, UPG_MISSILE_POD, UPG_ORBITAL, UPG_SPIKED_HULL, UPG_ECHO,
     UPG_MAGNUM, UPG_SPRAY, UPG_HEAVY_CALIBER, UPG_EMERGENCY, UPG_RAMPAGE, UPG_BLACK_HOLE, UPG_XRAY,
+    /* weapon mods (one stack each, offered by weapon rooms); UPG_W_SWORD is Knight-only */
+    UPG_W_SCATTER, UPG_W_NEEDLER, UPG_W_SEEKER, UPG_W_BOUNCER, UPG_W_RAILGUN, UPG_W_FLAMER, UPG_W_ROCKETS,
+    UPG_W_CHAKRAM, UPG_W_CLUSTER, UPG_W_ARC, UPG_W_VULCAN, UPG_W_WAVE, UPG_W_SWORD,
     /* workshop exclusives (UpgradeDef.tier = max hearts paid), never offered anywhere else */
     UPG_X_BLOOD_ROUNDS, UPG_X_OVERDRIVE, UPG_X_HELLFIRE, UPG_X_STORM, UPG_X_DEMON, UPG_X_GOD_CANNON,
     UPG_COUNT
@@ -109,8 +84,9 @@ typedef struct {
     int tier;       /* > 0: workshop exclusive, costs this many heart containers */
 } UpgradeDef;
 
-extern const WeaponDef WEAPONS[WPN_COUNT];
 extern const UpgradeDef UPGRADES[UPG_COUNT];
+
+static inline bool upgrade_is_weapon(int u) { return u >= UPG_W_SCATTER && u <= UPG_W_SWORD; }
 
 /* ---- Bullets ------------------------------------------------------------- */
 
@@ -119,7 +95,7 @@ typedef struct {
     float radius, damage, life, homing, knockback;
     int pierce, bounces;
     int last_hit;   /* uid of the last enemy hit, avoids multi-hits while piercing */
-    int weapon;     /* WeaponId, or -1 for drones */
+    int style;      /* BulletStyle: how it is drawn (BS_BOLT for drones, extra shots...) */
     int flags;      /* PB_* */
     float age;
     SDL_FColor col;
@@ -132,7 +108,14 @@ enum {
     PB_CLUSTER = 256,   /* bursts into fragments when it dies */
     PB_FLIP = 512,      /* wave gun: weaves the other way */
     PB_VORTEX = 1024,   /* BLACK HOLE: a still vortex that pulls and grinds enemies */
+    PB_FLAME = 2048,    /* flamer: slows down, swells, sets enemies on fire */
+    PB_ACCEL = 4096,    /* rockets, seeker: speeds up after launch */
+    PB_WAVE = 8192,     /* wave gun: weaves around its line of fire */
+    PB_ARC = 16384,     /* arc caster: hits chain lightning */
 };
+
+/* Look of a player shot: the most striking weapon mod owned decides (gun_profile). */
+typedef enum { BS_BOLT, BS_SEEKER, BS_BOUNCER, BS_RAIL, BS_FLAME, BS_ROCKET, BS_CHAKRAM, BS_CLUSTER, BS_ARC, BS_WAVE } BulletStyle;
 
 typedef struct {
     V2 pos, vel;
@@ -195,13 +178,14 @@ typedef struct {
 
 /* ---- Pickups ------------------------------------------------------------- */
 
+/* PK_UPGRADE: any upgrade, weapon mods included (upgrade_is_weapon). */
 /* PK_ACTIVE: an active item (sub = ActiveId), replaces the one held. */
 /* PK_AUGMENT: workshop pad, a tier-N exclusive upgrade paid with N heart containers. */
-typedef enum { PK_COIN, PK_KEY, PK_BOMB, PK_HEART, PK_WEAPON, PK_UPGRADE, PK_STAT, PK_AUGMENT, PK_ACTIVE } PickupType;
+typedef enum { PK_COIN, PK_KEY, PK_BOMB, PK_HEART, PK_UPGRADE, PK_STAT, PK_AUGMENT, PK_ACTIVE } PickupType;
 
 typedef struct {
     PickupType type;
-    int sub;        /* coin value, WeaponId, UpgradeId or encoded stat offer */
+    int sub;        /* coin value, UpgradeId or encoded stat offer */
     int price;      /* shop price in coins, 0 = free */
     bool choice;    /* one-of-N pick: taking it makes the other choice pickups vanish */
     V2 pos, vel;
@@ -218,7 +202,7 @@ typedef struct {
     int uses;          /* SUPPLY: payouts left before it breaks */
     bool broken;       /* SUPPLY: used up; GAMBLE: prize already won */
     bool inside;       /* the player stood on it last tick (a use needs a fresh step in) */
-    PickupType prize;  /* GAMBLE: PK_WEAPON or PK_UPGRADE */
+    PickupType prize;  /* GAMBLE: PK_UPGRADE (a weapon mod or another upgrade) */
     int prize_sub;
     float anim, spin;  /* feedback timers; GAMBLE: spin > 0 while the reels turn */
     int plays;
@@ -232,6 +216,7 @@ typedef struct {
 /* ---- Rooms --------------------------------------------------------------- */
 
 typedef enum { ROOM_START, ROOM_COMBAT, ROOM_STATS, ROOM_TREASURE, ROOM_SHOP, ROOM_BOSS, ROOM_SECRET, ROOM_WORKSHOP } RoomType;
+/* RW_WEAPON: a choice of 3 weapon mods (upgrades); RW_UPGRADE: 3 other upgrades. */
 typedef enum { RW_NONE, RW_COINS, RW_KEY, RW_BOMBS, RW_HEART, RW_WEAPON, RW_UPGRADE, RW_ACTIVE, RW_COUNT } RewardType;
 typedef enum { SIDE_LEFT, SIDE_TOP, SIDE_RIGHT, SIDE_BOTTOM } Side;
 
@@ -277,6 +262,15 @@ typedef struct {
 
 /* ---- Player -------------------------------------------------------------- */
 
+/* Stats that upgrades change. Player.base holds the character's values with stat trades and
+ * augment costs; the Player fields of the same name are base + every upgrade turned on,
+ * rebuilt by player_recompute() (the upgrades menu turns upgrades on and off). */
+typedef struct {
+    float dmg_mult, rate_mult, shot_speed_mult, speed, dash_cooldown, magnet, range_mult, hit_radius;
+    float spread_mult, bullet_size, homing;
+    int max_hp, extra_proj, pierce, bounce, drones, luck;
+} Stats;
+
 typedef struct {
     V2 pos, vel;
     float aim_angle;
@@ -299,8 +293,8 @@ typedef struct {
     bool emergency_used;        /* EMERGENCY SHIELD: spent for this room */
     float speed;
     int coins, keys, bombs;
-    int weapon;
-    int wlevel[WPN_COUNT];      /* 0 = not owned */
+    Stats base;                 /* before upgrades (see Stats) */
+    bool upg_off[UPG_COUNT];    /* turned off in the upgrades menu: no effect at all until turned back on */
     float dmg_mult, rate_mult, shot_speed_mult;
     int extra_proj, pierce, bounce;
     float homing;
@@ -335,7 +329,7 @@ typedef struct {
     uint32_t color;
     int hearts, armor;    /* armor = shields (temporary hearts) at the start */
     float dmg_mult, speed_mult, hit_radius;
-    int weapon;           /* starting weapon */
+    int start_upgrade;    /* weapon mod owned from the start (-1 = none: the plain blaster) */
 } CharDef;
 
 extern const CharDef CHARACTERS[CHAR_COUNT];
@@ -346,15 +340,18 @@ extern const CharDef CHARACTERS[CHAR_COUNT];
 
 /* ---- Game ---------------------------------------------------------------- */
 
-typedef enum { GS_TITLE, GS_CHAR_SELECT, GS_PLAYING, GS_PAUSED, GS_GAMEOVER, GS_DEBUG } GameState;
+/* GS_UPGRADES: the upgrades menu (TAB), the world is frozen behind it. */
+typedef enum { GS_TITLE, GS_CHAR_SELECT, GS_PLAYING, GS_PAUSED, GS_GAMEOVER, GS_DEBUG, GS_UPGRADES } GameState;
 
 typedef struct {
     bool up, down, left, right, fire;
     /* edge-triggered, cleared after each simulation tick */
     bool active_pressed, bomb_pressed, pause_pressed, restart_pressed, confirm_pressed, debug_pressed;
     bool char_pressed; /* C: back to the character select screen */
-    int weapon_select; /* -1 = none */
-    int weapon_cycle;
+    bool menu_pressed; /* TAB: upgrades menu */
+    bool click_pressed; /* left click (also sets confirm_pressed) */
+    int number;        /* number key pressed, 0-based (-1 = none) */
+    int wheel;         /* mouse wheel: -1 up, +1 down */
     V2 mouse;          /* logical coordinates */
 } Input;
 
@@ -387,7 +384,8 @@ typedef struct {
     int rooms_cleared, kills;
     int items_bought; /* shop purchases this run */
     int active_uses;  /* active items used this run */
-    int bot_weapon;   /* dev (--weapon): the bot always switches back to this weapon (-1 = none) */
+    bool bot_toggles; /* dev (--toggle-upgrades): the bot keeps turning random upgrades off and on */
+    int toggles;      /* upgrades turned on / off this run */
     int machine_uses, augments; /* workshop: supply press / slot machine uses, augments taken */
     int room_counter; /* source of Room.id */
     Room parent;      /* room the current secret room was found in, restored on exit */
@@ -443,9 +441,17 @@ static inline int stat_offer_up(int offer) { return offer / ST_COUNT; }
 static inline int stat_offer_down(int offer) { return offer % ST_COUNT; }
 
 /* upgrades.c - passive upgrades and their effects (hooks called by the systems they modify) */
-int upgrade_roll(void);
-void upgrade_apply(int u);
+int upgrade_roll(void);               /* never a weapon mod nor a workshop exclusive */
+void upgrade_apply(int u);            /* take one stack (with its banner) */
+void upgrade_grant(int u);            /* same, silently (starting weapon mod) */
 bool upgrade_capped(int u);
+bool upgrade_available(int u);        /* the sword is Knight-only */
+/* Upgrades menu: turn an owned upgrade off / back on (false for one-time ones, see upgrade_toggleable). */
+bool upgrade_toggle(int u);
+bool upgrade_toggleable(int u);
+/* Player.base + the upgrades turned on (all owned ones if ignore_off), clamped to the stat floors. */
+void stats_compute(Stats *out, bool ignore_off);
+void player_recompute(void);          /* derived Player stats from stats_compute(); clamps hp */
 void player_add_shield(int half_hearts);
 float upg_volley_damage_mult(void);   /* BLOODLUST, WOUNDED FURY, LAST STAND */
 float upg_fire_rate_mult(void);       /* ADRENALINE, SCAR TISSUE, DEFLECTOR */
@@ -554,18 +560,20 @@ void char_select_open(void);
 void char_select_update(void);
 void char_select_draw(void);
 
-/* weapons.c */
+/* weapons.c - the gun (shaped by the weapon mods turned on), the Knight's sword, drones */
 void weapons_update(void);
 void drones_draw(void);
 void sword_draw(void);
-void weapon_give(int w);
 void weapon_on_hit(PBullet *b, Enemy *e, float dmg); /* flamer burn, arc chains */
 void weapon_bullet_death(PBullet *b);  /* explosive / cluster shots */
-const char *weapon_option_name(int w); /* lowercase name for --weapon */
-int weapon_slot(int k);                 /* WeaponId of the k-th owned weapon (HUD order), or -1 */
-int weapon_roll(void);
-/* The sword only exists for the Knight. */
-bool weapon_available(int w);
+void weapon_echo(float aim, float dmg); /* ECHO: a weaker copy of the last volley */
+int weapon_mod_by_name(const char *name); /* --weapon NAME: UpgradeId of that weapon mod, or -1 */
+const char *weapon_option_name(int u);    /* lowercase name of a weapon mod */
+int weapon_roll(void);                    /* a weapon mod not owned yet (and available), or -1 */
+const char *gun_name(void);              /* BLASTER, or the main weapon mod turned on */
+int gun_main_mod(void);                  /* that weapon mod (UpgradeId), -1 for the plain blaster */
+bool sword_on(void);                     /* the sword replaces the gun */
+float gun_volley_shots(void);            /* projectiles per volley right now (HUD, tests) */
 float sword_reach(void);
 #define SWORD_INNER 18.0f /* the blade starts this far from the ship's centre */
 
@@ -638,5 +646,11 @@ float gamble_win_chance(void);
 /* hud.c */
 void hud_draw(void);
 void overlay_draw(void);
+
+/* upgrade_menu.c - TAB: every upgrade found, each one can be turned off and back on */
+void upgrade_menu_open(void);
+void upgrade_menu_update(void);
+void upgrade_menu_draw(void);
+int upgrade_menu_list(int *out);         /* owned upgrades, in menu order */
 
 #endif

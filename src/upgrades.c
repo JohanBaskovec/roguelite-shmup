@@ -3,9 +3,11 @@
 #include "game.h"
 
 /*
- * Passive upgrades. Simple stat upgrades are applied once in upgrade_apply();
- * everything else is read from G.pl.upg_count[] by the hooks below, which the
- * systems they modify call (weapons.c, bullets.c, enemies.c, player.c, room.c).
+ * Passive upgrades. Stat upgrades change Player.base through stat_effect() when the
+ * stats are rebuilt (player_recompute); everything else is read through has() by the
+ * hooks below, which the systems they modify call (weapons.c, bullets.c, enemies.c,
+ * player.c, room.c). Any upgrade can be turned off in the upgrades menu (Player.upg_off):
+ * has() then returns 0 and its stat effect is left out.
  */
 
 const UpgradeDef UPGRADES[UPG_COUNT] = {
@@ -73,7 +75,6 @@ const UpgradeDef UPGRADES[UPG_COUNT] = {
     [UPG_LAST_STAND] = {"LAST STAND", "Per missing heart: +10% damage|and +5% speed", 0xd02040, 1},
     [UPG_BLOOD_SCENT] = {"BLOOD SCENT", "Shots home in on enemies|while not at full health", 0xff6060, 1},
     [UPG_LOADED_DICE] = {"LOADED DICE", "Doubles the chance of every|upgrade effect", 0xe6ff66, 1},
-    [UPG_SIGNATURE] = {"SIGNATURE WEAPON", "Weapon rooms always offer|your highest-level weapon", 0x66f0ff, 1},
     [UPG_SCOPE] = {"SNIPER SCOPE", "Shots gain up to +60% damage|the longer they fly", 0xd8f6ff, 2},
     [UPG_POINT_BLANK] = {"POINT BLANK", "+50% damage to enemies|close to you", 0xff9a5a, 2},
     [UPG_BULLY] = {"BULLY", "+40% damage to enemies|under half health", 0xff6a8a, 2},
@@ -100,6 +101,21 @@ const UpgradeDef UPGRADES[UPG_COUNT] = {
     [UPG_BLACK_HOLE] = {"BLACK HOLE", "Kills may open a vortex|that pulls enemies in", 0x8a5aff, 2},
     [UPG_XRAY] = {"X-RAY VISOR", "Secret corners are|always visible", 0xb0ffb0, 1},
 
+    /* Weapon mods: they change the gun itself and stack with each other (weapons.c, gun_profile). */
+    [UPG_W_SCATTER] = {"SCATTER", "x8 pellets in a wide fan,|short range, slower fire", 0xffa94d, 1},
+    [UPG_W_NEEDLER] = {"NEEDLER", "Double fire rate, half damage,|shots pierce 2 more enemies", 0xf28cff, 1},
+    [UPG_W_SEEKER] = {"SEEKER", "Homing missiles: +1 shot,|slower but stronger", 0x9dff6a, 1},
+    [UPG_W_BOUNCER] = {"BOUNCER", "Big orbs that bounce 4 times|and pierce, slower fire", 0xffe14d, 1},
+    [UPG_W_RAILGUN] = {"RAILGUN", "Rails: x9 damage, pierce|everything, very slow fire", 0xe0f4ff, 1},
+    [UPG_W_FLAMER] = {"FLAMER", "Short-range flames that|pierce and set enemies ablaze", 0xff7a1a, 1},
+    [UPG_W_ROCKETS] = {"ROCKETS", "Accelerating rockets that|explode, slow fire", 0xffb04d, 1},
+    [UPG_W_CHAKRAM] = {"CHAKRAM", "Spinning blades that pierce|everything and fly back", 0xa8ff5a, 1},
+    [UPG_W_CLUSTER] = {"CLUSTER", "Shells burst into 6|fragments, slower fire", 0xff5fd2, 1},
+    [UPG_W_ARC] = {"ARC CASTER", "Hits chain lightning|through 3 more enemies", 0x9db8ff, 1},
+    [UPG_W_VULCAN] = {"VULCAN", "Minigun: the fire rate climbs|while you hold the trigger", 0xffe08a, 1},
+    [UPG_W_WAVE] = {"WAVE GUN", "Twin shots that weave|and pierce one more enemy", 0x5dffd8, 1},
+    [UPG_W_SWORD] = {"SWORD", "Replaces the gun: arc slashes|that cut enemy bullets", 0xc9d4ff, 1},
+
     /* Workshop exclusives: tier = heart containers paid at the augment machine. */
     [UPG_X_BLOOD_ROUNDS] = {"BLOOD ROUNDS", "+30% damage; every hit makes|enemies bleed (40%/s, 3 s)", 0xff2050, 1, 1},
     [UPG_X_OVERDRIVE] = {"OVERDRIVE CORE", "+30% fire rate, +15% speed,|active item recharges 30% faster", 0xff9f1c, 1, 1},
@@ -109,8 +125,8 @@ const UpgradeDef UPGRADES[UPG_COUNT] = {
     [UPG_X_GOD_CANNON] = {"GOD CANNON", "+50% dmg, +25% rate, +1 shot,|+2 pierce, shots home", 0xfff5c0, 1, 3},
 };
 
-/* Stacks owned, +1 while CHAOS lends it (only lent when not owned). */
-static int has(UpgradeId u) { return G.pl.upg_count[u] + (G.pl.chaos[u] ? 1 : 0); }
+/* Stacks owned (0 while turned off), +1 while CHAOS lends it (only lent when not owned). */
+static int has(UpgradeId u) { return (G.pl.upg_off[u] ? 0 : G.pl.upg_count[u]) + (G.pl.chaos[u] ? 1 : 0); }
 int upg_has(int u) { return has((UpgradeId)u); }
 
 /* Flat damage of auras / explosions follows the player's damage (enemies never scale). */
@@ -170,18 +186,24 @@ const char *upgrade_desc(int u) {
 
 /* ---- Rolling & applying -------------------------------------------------- */
 
+bool upgrade_available(int u) { return u != UPG_W_SWORD || G.character == CHAR_KNIGHT; }
+
 bool upgrade_capped(int u) {
     const Player *p = &G.pl;
+    if (!upgrade_available(u)) return true;
     if (UPGRADES[u].max > 0 && p->upg_count[u] >= UPGRADES[u].max) return true;
+    /* Caps count every upgrade owned, even those turned off for now. */
+    Stats all;
+    stats_compute(&all, true);
     switch (u) {
-    case UPG_DRONE: return p->drones >= MAX_DRONES;
-    case UPG_HULL: return p->max_hp >= 24;
-    case UPG_TITAN_HULL: return p->max_hp > 20;
+    case UPG_DRONE: return all.drones >= MAX_DRONES;
+    case UPG_HULL: return all.max_hp >= 24;
+    case UPG_TITAN_HULL: return all.max_hp > 20;
     case UPG_MULTI:
-    case UPG_WIDE_LENS: return p->extra_proj >= 4;
-    case UPG_GLASS_CANNON: return p->max_hp < 4;
-    case UPG_FOUR_LEAF: return p->luck >= 4;
-    case UPG_MICRO_HULL: return p->hit_radius * 0.75f < 2.0f;
+    case UPG_WIDE_LENS: return all.extra_proj >= 4;
+    case UPG_GLASS_CANNON: return all.max_hp < 4;
+    case UPG_FOUR_LEAF: return all.luck >= 4;
+    case UPG_MICRO_HULL: return all.hit_radius * 0.75f < 2.0f;
     /* Useless without an active item that triggers them. */
     case UPG_DASH_NOVA: return p->active == ACT_NONE;
     case UPG_RAM: return p->active != ACT_DASH && p->active != ACT_SHIELD;
@@ -192,7 +214,8 @@ bool upgrade_capped(int u) {
 int upgrade_roll(void) {
     for (int tries = 0; tries < 64; tries++) {
         int u = irand(0, UPG_COUNT - 1);
-        if (UPGRADES[u].tier == 0 && !upgrade_capped(u)) return u; /* exclusives: workshop only */
+        /* exclusives: workshop only; weapon mods: weapon rooms (weapon_roll) */
+        if (UPGRADES[u].tier == 0 && !upgrade_is_weapon(u) && !upgrade_capped(u)) return u;
     }
     return UPG_DAMAGE;
 }
@@ -209,8 +232,8 @@ void player_add_shield(int half_hearts) {
     p->shield = p->shield + half_hearts > MAX_SHIELD ? MAX_SHIELD : p->shield + half_hearts;
 }
 
-void upgrade_apply(int u) {
-    Player *p = &G.pl;
+/* What one stack of u does to the stats (nothing for hook-only upgrades). */
+static void stat_effect(Stats *p, int u) {
     switch (u) {
     case UPG_RAPID: p->rate_mult *= 1.18f; break;
     case UPG_DAMAGE: p->dmg_mult += 0.22f; break;
@@ -219,7 +242,7 @@ void upgrade_apply(int u) {
     case UPG_BOUNCE: p->bounce += 2; break;
     case UPG_HOMING: p->homing += 3.0f; break;
     case UPG_THRUSTER: p->speed *= 1.1f; p->dash_cooldown = fmaxf(0.15f, p->dash_cooldown * 0.85f); break;
-    case UPG_HULL: p->max_hp += 2; p->hp += 2; break;
+    case UPG_HULL: p->max_hp += 2; break;
     case UPG_DRONE: p->drones++; break;
     case UPG_MAGNET: p->magnet += 120.0f; break;
     case UPG_VELOCITY: p->shot_speed_mult *= 1.2f; p->dmg_mult += 0.08f; break;
@@ -231,14 +254,9 @@ void upgrade_apply(int u) {
     case UPG_IMPACT: p->dmg_mult *= 1.1f; break;
     case UPG_WIDE_LENS: p->extra_proj++; p->spread_mult = fminf(SPREAD_MAX, p->spread_mult * 1.4f); break;
     case UPG_FOCUS_LENS: p->spread_mult = fmaxf(SPREAD_MIN, p->spread_mult * 0.5f); p->dmg_mult *= 1.1f; break;
-    case UPG_GLASS_CANNON:
-        p->dmg_mult *= 1.6f;
-        p->max_hp -= 2;
-        if (p->hp > p->max_hp) p->hp = p->max_hp;
-        break;
+    case UPG_GLASS_CANNON: p->dmg_mult *= 1.6f; p->max_hp -= 2; break;
     case UPG_TITAN_HULL:
         p->max_hp = p->max_hp + 4 > 24 ? 24 : p->max_hp + 4;
-        p->hp = p->hp + 4 > p->max_hp ? p->max_hp : p->hp + 4;
         p->speed = fmaxf(330.0f, p->speed * 0.92f);
         break;
     case UPG_FEATHER:
@@ -252,11 +270,6 @@ void upgrade_apply(int u) {
     case UPG_HAIR_TRIGGER: p->rate_mult *= 1.3f; p->dmg_mult = fmaxf(0.3f, p->dmg_mult * 0.9f); break;
     case UPG_FOUR_LEAF: p->luck = p->luck + 2 > 5 ? 5 : p->luck + 2; break;
     case UPG_MICRO_HULL: p->hit_radius = fmaxf(2.0f, p->hit_radius * 0.75f); break;
-    case UPG_PIGGY_BANK: p->coins += 12; break;
-    case UPG_BOMB_BELT: p->bombs += 3; break;
-    case UPG_SKELETON_KEY: p->keys += 3; break;
-    case UPG_SECOND_WIND: p->revives++; break;
-    case UPG_BARRIER: player_add_shield(2); break;
     case UPG_SMART_BOUNCE: p->bounce += 1; break;
     case UPG_MAGNUM: p->pierce += 2; p->dmg_mult *= 1.15f; p->rate_mult = fmaxf(0.3f, p->rate_mult * 0.85f); break;
     case UPG_SPRAY: p->rate_mult *= 1.45f; p->spread_mult = fminf(SPREAD_MAX, p->spread_mult * 1.6f); break;
@@ -281,15 +294,96 @@ void upgrade_apply(int u) {
         p->pierce += 2;
         p->homing += 3.0f;
         break;
-    default: break; /* effect read from upg_count by the hooks below */
+    default: break; /* effect read through has() by the hooks below */
     }
+}
+
+/* The stat floors and caps (also those of the stat trades): they hold whatever is turned on. */
+static void stats_clamp(Stats *s) {
+    s->dmg_mult = fmaxf(s->dmg_mult, 0.3f);
+    s->rate_mult = fmaxf(s->rate_mult, 0.3f);
+    s->range_mult = clampf(s->range_mult, 0.35f, 3.0f * 1.3f);
+    s->shot_speed_mult = fmaxf(s->shot_speed_mult, 0.4f);
+    s->speed = clampf(s->speed, 330.0f, 900.0f);
+    s->dash_cooldown = clampf(s->dash_cooldown, 0.15f, 2.0f);
+    s->hit_radius = clampf(s->hit_radius, 2.0f, 9.0f);
+    s->luck = s->luck < -3 ? -3 : s->luck > 5 ? 5 : s->luck;
+    s->spread_mult = clampf(s->spread_mult, SPREAD_MIN, SPREAD_MAX);
+    s->max_hp = s->max_hp < 2 ? 2 : s->max_hp > 24 ? 24 : s->max_hp;
+    if (s->drones > MAX_DRONES) s->drones = MAX_DRONES;
+}
+
+void stats_compute(Stats *out, bool ignore_off) {
+    const Player *p = &G.pl;
+    *out = p->base;
+    for (int u = 0; u < UPG_COUNT; u++) {
+        int n = ignore_off || !p->upg_off[u] ? p->upg_count[u] : 0;
+        for (int k = 0; k < n; k++) stat_effect(out, u);
+    }
+    stats_clamp(out);
+}
+
+void player_recompute(void) {
+    Player *p = &G.pl;
+    Stats s;
+    stats_compute(&s, false);
+    p->dmg_mult = s.dmg_mult;
+    p->rate_mult = s.rate_mult;
+    p->shot_speed_mult = s.shot_speed_mult;
+    p->speed = s.speed;
+    p->dash_cooldown = s.dash_cooldown;
+    p->magnet = s.magnet;
+    p->range_mult = s.range_mult;
+    p->hit_radius = s.hit_radius;
+    p->spread_mult = s.spread_mult;
+    p->bullet_size = s.bullet_size;
+    p->homing = s.homing;
+    p->max_hp = s.max_hp;
+    p->extra_proj = s.extra_proj;
+    p->pierce = s.pierce;
+    p->bounce = s.bounce;
+    p->drones = s.drones;
+    p->luck = s.luck;
+    if (p->hp > p->max_hp) p->hp = p->max_hp; /* turning a heart container back on never heals */
+}
+
+void upgrade_grant(int u) {
+    Player *p = &G.pl;
     p->chaos[u] = false; /* owned for real now: CHAOS no longer lends it */
     p->upg_count[u]++;
+    p->upg_off[u] = false; /* taking another stack turns it back on */
+    player_recompute();
+    /* One-time effects of taking it. */
+    switch (u) {
+    case UPG_HULL: p->hp = p->hp + 2 > p->max_hp ? p->max_hp : p->hp + 2; break;
+    case UPG_TITAN_HULL: p->hp = p->hp + 4 > p->max_hp ? p->max_hp : p->hp + 4; break;
+    case UPG_PIGGY_BANK: p->coins += 12; break;
+    case UPG_BOMB_BELT: p->bombs += 3; break;
+    case UPG_SKELETON_KEY: p->keys += 3; break;
+    case UPG_SECOND_WIND: p->revives++; break;
+    case UPG_BARRIER: player_add_shield(2); break;
+    default: break;
+    }
+}
+
+void upgrade_apply(int u) {
+    upgrade_grant(u);
     char desc[96];
-    SDL_snprintf(desc, sizeof desc, "%s", upgrade_desc_at(u, p->upg_count[u]));
+    SDL_snprintf(desc, sizeof desc, "%s", upgrade_desc_at(u, G.pl.upg_count[u]));
     for (char *c = desc; *c; c++)
         if (*c == '|') *c = ' ';
     fx_banner(UPGRADES[u].name, desc, col_hex(UPGRADES[u].color, 1), 2.6f);
+}
+
+/* Only the purely one-time ones cannot be turned off (their effect is already spent). */
+bool upgrade_toggleable(int u) { return u >= 0 && u < UPG_COUNT && G.pl.upg_count[u] > 0 && u != UPG_SKELETON_KEY; }
+
+bool upgrade_toggle(int u) {
+    if (!upgrade_toggleable(u)) return false;
+    G.pl.upg_off[u] = !G.pl.upg_off[u];
+    player_recompute();
+    G.toggles++;
+    return true;
 }
 
 /* ---- Firing --------------------------------------------------------------- */
@@ -628,7 +722,6 @@ void upg_reflect(PBullet *b) {
         if (!nb) break;
         nb->life = 1.2f;
         nb->knockback = 40.0f;
-        nb->weapon = -1;
         nb->flags = PB_REFLECTED;
         turned++;
     }
@@ -642,7 +735,7 @@ void upg_reflect(PBullet *b) {
 
 bool upg_on_lethal_hit(void) {
     Player *p = &G.pl;
-    if (p->revives <= 0) return false;
+    if (p->revives <= 0 || !has(UPG_SECOND_WIND)) return false; /* turned off: the charge waits */
     p->revives--;
     p->hp = 2;
     p->invuln = 2.0f;
@@ -727,14 +820,7 @@ void upg_update(void) {
     /* ECHO: the last volley again, weaker, a beat later. */
     if (p->echo_t > 0.0f) {
         p->echo_t -= DT;
-        if (p->echo_t <= 0.0f && has(UPG_ECHO) && p->weapon != WPN_SWORD) {
-            const WeaponDef *w = &WEAPONS[p->weapon];
-            int count = w->count + w->count_per_level * (p->wlevel[p->weapon] - 1);
-            count = count < 1 ? 1 : count > 4 ? 4 : count;
-            for (int k = 0; k < count; k++)
-                extra_shot(p->pos, p->echo_aim + ((float)k - (float)(count - 1) * 0.5f) * 0.08f, w->speed > 0.0f ? w->speed : 1200.0f,
-                           4.0f, p->echo_dmg, fmaxf(w->life, 0.4f), col_hex(0xb0a0ff, 1));
-        }
+        if (p->echo_t <= 0.0f && has(UPG_ECHO) && !sword_on()) weapon_echo(p->echo_aim, p->echo_dmg);
     }
     bool fighting = G.nen > 0 && !G.room.cleared;
     /* MISSILE POD: a homing missile at the nearest enemy. */

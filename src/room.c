@@ -511,7 +511,7 @@ static void spawn_stat_offers(void) {
     }
 }
 
-/* Shop: always SHOP_ITEMS priced items - a weapon, upgrades and stat trades. */
+/* Shop: always SHOP_ITEMS priced items - a weapon mod, upgrades and stat trades. */
 static bool shop_has(PickupType type, int sub) {
     for (int i = 0; i < G.npk; i++)
         if (G.pk[i].price > 0 && G.pk[i].type == type && G.pk[i].sub == sub) return true;
@@ -519,13 +519,13 @@ static bool shop_has(PickupType type, int sub) {
 }
 
 static void spawn_shop_items(void) {
-    /* One of each category, plus two random slots so shops vary. */
-    static const PickupType extra[] = {PK_WEAPON, PK_UPGRADE, PK_UPGRADE, PK_STAT, PK_STAT};
-    PickupType kinds[SHOP_ITEMS] = {PK_WEAPON, PK_UPGRADE, PK_STAT, extra[irand(0, 4)], extra[irand(0, 4)]};
-    /* Sorted left to right: weapons, upgrades, stat trades. */
+    /* One of each category, plus two random slots so shops vary. Sorted left to right. */
+    enum { K_WEAPON, K_UPGRADE, K_STAT };
+    static const int extra[] = {K_WEAPON, K_UPGRADE, K_UPGRADE, K_STAT, K_STAT};
+    int kinds[SHOP_ITEMS] = {K_WEAPON, K_UPGRADE, K_STAT, extra[irand(0, 4)], extra[irand(0, 4)]};
     for (int i = 1; i < SHOP_ITEMS; i++)
         for (int j = i; j > 0 && kinds[j - 1] > kinds[j]; j--) {
-            PickupType t = kinds[j];
+            int t = kinds[j];
             kinds[j] = kinds[j - 1];
             kinds[j - 1] = t;
         }
@@ -533,17 +533,17 @@ static void spawn_shop_items(void) {
     int nstat = stats_roll_offers(stat_offers, SHOP_ITEMS), used_stat = 0;
 
     for (int i = 0; i < SHOP_ITEMS; i++) {
-        PickupType type = kinds[i];
+        PickupType type = PK_UPGRADE;
         int sub = -1;
-        if (type == PK_WEAPON) {
+        if (kinds[i] == K_WEAPON) {
             for (int tries = 0; tries < 12 && sub < 0; tries++) {
                 int w = weapon_roll();
-                if (w >= 0 && !shop_has(PK_WEAPON, w)) sub = w;
+                if (w >= 0 && !shop_has(PK_UPGRADE, w)) sub = w;
             }
-            if (sub < 0) type = PK_UPGRADE; /* every weapon maxed out */
-        } else if (type == PK_STAT) {
-            if (used_stat < nstat) sub = stat_offers[used_stat++];
-            else type = PK_UPGRADE;
+            /* every weapon mod owned: an upgrade instead */
+        } else if (kinds[i] == K_STAT && used_stat < nstat) {
+            type = PK_STAT;
+            sub = stat_offers[used_stat++];
         }
         if (type == PK_UPGRADE) {
             for (int tries = 0; tries < 24 && sub < 0; tries++) {
@@ -787,7 +787,7 @@ void room_draw_floor(void) {
         draw_text_centered(ARENA_CX, y, 2.0f, c, "WASD / ZQSD / ARROWS - MOVE");
         draw_text_centered(ARENA_CX, y + 30, 2.0f, c, "MOUSE - AIM & SHOOT");
         draw_text_centered(ARENA_CX, y + 60, 2.0f, c, "SPACE / SHIFT / RIGHT CLICK - ACTIVE ITEM");
-        draw_text_centered(ARENA_CX, y + 90, 2.0f, c, "E - BOMB    WHEEL / 1-9 - SWITCH WEAPON");
+        draw_text_centered(ARENA_CX, y + 90, 2.0f, c, "E - BOMB    TAB - UPGRADES (TURN THEM ON / OFF)");
         draw_text_centered(ARENA_CX, y + 140, 2.0f, col_a(col_hex(0xffe066, 1), 0.5f), "LOCKED DOORS COST A KEY BUT HIDE BETTER LOOT");
     }
 }
@@ -898,7 +898,7 @@ static void draw_door(const Door *d, bool cleared, bool entry) {
     if (d->type == ROOM_SHOP) draw_shop_icon(ip, 11.0f * sc);
     else if (d->type == ROOM_WORKSHOP) draw_workshop_icon(ip, 11.0f * sc);
     else if (d->type == ROOM_SECRET) draw_text_centered(ip.x + 1.0f, ip.y - 12.0f * sc, 3.0f * sc, col_hex(COLOR_SECRET, 1), "%s", G.room.type == ROOM_SECRET ? "v" : "?");
-    else draw_pickup_icon(d->type == ROOM_STATS ? PK_STAT : reward_icon(d->reward), -1, ip, 11.0f * sc, G.time);
+    else draw_pickup_icon(d->type == ROOM_STATS ? PK_STAT : reward_icon(d->reward), d->reward == RW_WEAPON ? -2 : -1, ip, 11.0f * sc, G.time);
     if (pop >= 1.0f) draw_text_centered(ip.x, ip.y + 34.0f, 1.5f, col_a(rc, 0.9f), "%s", door_label(d));
 }
 

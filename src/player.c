@@ -9,21 +9,19 @@
 void player_init(void) {
     Player *p = &G.pl;
     memset(p, 0, sizeof *p);
-    p->hp = p->max_hp = 6;
-    p->speed = 540.0f;
     p->keys = 1;
     p->bombs = 2;
-    p->weapon = WPN_BLASTER;
-    p->wlevel[WPN_BLASTER] = 1;
-    p->dmg_mult = p->rate_mult = p->shot_speed_mult = 1.0f;
-    p->magnet = 140.0f;
-    p->dash_cooldown = DASH_BASE_CD;
     p->active = ACT_NONE; /* active items are found in active rooms */
-    p->range_mult = 1.0f;
-    p->hit_radius = PLAYER_HIT_R;
-    p->luck = 0;
-    p->spread_mult = p->bullet_size = 1.0f;
-    character_apply();
+    Stats *b = &p->base;
+    b->max_hp = 6;
+    b->speed = 540.0f;
+    b->dmg_mult = b->rate_mult = b->shot_speed_mult = 1.0f;
+    b->magnet = 140.0f;
+    b->dash_cooldown = DASH_BASE_CD;
+    b->range_mult = 1.0f;
+    b->hit_radius = PLAYER_HIT_R;
+    b->spread_mult = b->bullet_size = 1.0f;
+    character_apply(); /* also derives the Player stats from base */
 }
 
 static void player_bomb(void) {
@@ -34,7 +32,7 @@ static void player_bomb(void) {
     for (int i = 0; i < G.nen; i++) {
         Enemy *e = &G.en[i];
         float d = v2_dist(e->pos, p->pos);
-        float dmg = (d < 650.0f ? 90.0f : 35.0f) * (1.0f + 0.6f * (float)p->upg_count[UPG_BOMB_BELT]);
+        float dmg = (d < 650.0f ? 90.0f : 35.0f) * (1.0f + 0.6f * (float)upg_has(UPG_BOMB_BELT));
         enemy_damage(e, dmg, v2_scale(v2_norm(v2_sub(e->pos, p->pos)), 700.0f));
     }
     p->invuln = fmaxf(p->invuln, 0.7f);
@@ -116,22 +114,6 @@ void player_update(void) {
             sfx_play(SFX_DENIED);
         }
     }
-
-    int prev_weapon = p->weapon;
-    if (in->weapon_select >= 0 && in->weapon_select < WPN_COUNT && p->wlevel[in->weapon_select] > 0)
-        p->weapon = in->weapon_select;
-    if (in->weapon_cycle != 0) {
-        int dir = in->weapon_cycle > 0 ? 1 : -1;
-        for (int k = 1; k < WPN_COUNT; k++) {
-            int w = ((p->weapon + dir * k) % WPN_COUNT + WPN_COUNT) % WPN_COUNT;
-            if (p->wlevel[w] > 0) {
-                p->weapon = w;
-                break;
-            }
-        }
-    }
-
-    if (p->weapon != prev_weapon) sfx_play(SFX_WEAPON_SWITCH);
 
     /* Engine exhaust, proportional to speed. */
     float spd = v2_len(p->vel);

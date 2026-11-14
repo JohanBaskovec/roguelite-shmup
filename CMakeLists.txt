@@ -28,6 +28,7 @@ add_executable(neon_breach
     src/room.c
     src/player.c
     src/weapons.c
+    src/upgrade_menu.c
     src/bullets.c
     src/enemies.c
     src/pickups.c
@@ -157,6 +158,19 @@ if(SHMUP_BUILD_TESTS)
     add_test(NAME sim_weapon_wave
              COMMAND neon_breach --headless --god --weapon wave --seed 200 --runs 2 --ticks 24000 --expect-rooms 3
                      --fail-shot ${_out}/fail_sim_weapon_wave.bmp)
+    foreach(_w scatter needler seeker bouncer)
+        add_test(NAME sim_weapon_${_w}
+                 COMMAND neon_breach --headless --god --weapon ${_w} --seed 200 --runs 2 --ticks 24000 --expect-rooms 3
+                         --fail-shot ${_out}/fail_sim_weapon_${_w}.bmp)
+    endforeach()
+    add_test(NAME sim_toggle_upgrades
+             COMMAND neon_breach --headless --god --toggle-upgrades --seed 500 --runs 4 --ticks 36000 --expect-rooms 3
+                     --fail-shot ${_out}/fail_sim_toggle.bmp)
+    add_test(NAME sim_toggle_all_upgrades
+             COMMAND neon_breach --headless --god --all-upgrades --toggle-upgrades --seed 510 --runs 2 --ticks 24000 --expect-rooms 2
+                     --fail-shot ${_out}/fail_sim_toggle_all.bmp)
+    add_test(NAME render_upgrades_menu
+             COMMAND neon_breach --shot ${_out}/render_upgrades_menu.bmp --all-upgrades --upgrades-menu --seed 13 --frames 30)
     add_test(NAME sim_active_reversal
              COMMAND neon_breach --headless --god --active reversal --seed 200 --runs 2 --ticks 24000 --expect-rooms 3
                      --fail-shot ${_out}/fail_sim_active_reversal.bmp)
@@ -205,6 +219,7 @@ if(SHMUP_BUILD_TESTS)
                          sim_weapon_railgun sim_weapon_flamer sim_weapon_rockets sim_weapon_chakram sim_weapon_cluster
                          sim_weapon_arc sim_weapon_vulcan sim_weapon_wave sim_active_reversal sim_active_turret
                          sim_active_blink sim_active_nova sim_active_timestop sim_active_blades render_rockets
-                         render_chakram
+                         render_chakram sim_weapon_scatter sim_weapon_needler sim_weapon_seeker sim_weapon_bouncer
+                         sim_toggle_upgrades sim_toggle_all_upgrades render_upgrades_menu
                          sim_debug_teleports render_debug_menu render_stats_room render_stats_overlay render_offscreen sfx_synthesis PROPERTIES TIMEOUT 600)
 endif()

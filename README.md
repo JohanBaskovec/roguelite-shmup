@@ -20,7 +20,7 @@ Preset `debug` disponible aussi (`build/debug`).
 | Viser & tirer | Souris (clic gauche maintenu) |
 | Objet activable (dash, bouclier...) | Espace / Shift / clic droit |
 | Bombe (efface toutes les balles) | E |
-| Changer d'arme | Molette / 1-9 (N-ième arme possédée) |
+| Menu des améliorations (activer / désactiver) | Tab |
 | Pause | Échap (R = restart, Q = quitter) |
 | Couper le son | M |
 | Changer de vaisseau (pause / game over) | C |
@@ -32,20 +32,21 @@ Preset `debug` disponible aussi (`build/debug`).
 
 Après l'écran titre, on choisit son vaisseau (A / D, 1-3 ou souris, puis clic / Entrée ; Échap revient au titre). Le choix est gardé pour les parties suivantes ; C (en pause ou au game over) ramène à l'écran de sélection. Table `CHARACTERS` dans `src/characters.c`.
 
-| Vaisseau | Forme | PV | Particularités | Arme de départ |
+| Vaisseau | Forme | PV | Particularités | Arme au départ |
 |---|---|---|---|---|
-| **Normal** | flèche | 3 | toutes les stats x1 | Blaster |
-| **Shotgunner** | rond | 3 | dégâts x2, hitbox plus grosse (7 px au lieu de 4) | Scatter |
-| **Knight** | carré | 3 + 3 armures | lent (vitesse x0.8) ; l'armure = 3 cœurs temporaires (boucliers) | Épée |
+| **Normal** | flèche | 3 | toutes les stats x1 | Blaster (aucun mod) |
+| **Shotgunner** | rond | 3 | dégâts x2, hitbox plus grosse (7 px au lieu de 4) | mod Scatter |
+| **Knight** | carré | 3 + 3 armures | lent (vitesse x0.8) ; l'armure = 3 cœurs temporaires (boucliers) | mod Sword (épée) |
 
-**L'épée** (Knight uniquement, jamais proposée aux autres) : chaque coup balaie un arc de cercle devant le vaisseau, alternativement dans un sens puis dans l'autre. Tout ce que la lame traverse est touché : les ennemis (une fois par coup, gros recul) et les **balles ennemies, détruites**. Les niveaux allongent la lame, élargissent l'arc et accélèrent les coups. Les améliorations s'appliquent : dégâts, cadence (comptée en racine carrée, minimum 0,16 s entre deux coups), portée et taille des balles (longueur de la lame, plafonnée à 170 px), projectiles en plus (arc plus large), effets à l'impact (gel, poison, feu, éclair, explosion, fragments, guillotine), tirs supplémentaires (Tail Gun, Flank, Capacitor). Le Knight peut aussi ramasser des armes à feu et changer d'arme (molette ou touches 1-9).
+**L'épée** (mod Sword, Knight uniquement, jamais proposée aux autres) : elle remplace le canon. Chaque coup balaie un arc de cercle devant le vaisseau, alternativement dans un sens puis dans l'autre. Tout ce que la lame traverse est touché : les ennemis (une fois par coup, gros recul) et les **balles ennemies, détruites**. Les améliorations s'appliquent : dégâts, cadence (comptée en racine carrée, minimum 0,16 s entre deux coups), portée et taille des balles (longueur de la lame, plafonnée à 170 px), projectiles en plus (arc plus large), effets à l'impact (gel, poison, feu, éclair, explosion, fragments, guillotine), tirs supplémentaires (Tail Gun, Flank, Capacitor) ; les mods Flamer et Arc Caster donnent à la lame leur brûlure / leurs éclairs. Si le Knight désactive l'épée (Tab), il tire avec le canon et ses autres mods.
 
 ## Boucle de jeu
 
 - **Toutes les salles démarrent pleines d'ennemis**, sauf deux exceptions : la *Launch Bay* (première salle, portes ouvertes tout de suite) et les salles secrètes (sauf leur variante « embuscade »). Ce qui rend une salle spéciale n'apparaît qu'une fois tous les ennemis morts.
-- Une fois la salle nettoyée : 3 portes (gauche / haut / droite). Chaque porte affiche la récompense de la salle suivante, et **les 3 portes sont toujours différentes** (jamais deux fois la même récompense ou le même type de salle). Une porte peut être verrouillée (coûte 1 clef) et contient toujours une arme ou une amélioration.
-- **Salles d'arme et d'amélioration : toujours 3 objets au choix** (avec leur description), on en prend un et les deux autres disparaissent. S'il reste moins de 3 armes à obtenir, une salle d'arme complète avec des améliorations.
-- **Objets activables** : un seul emplacement (HUD en haut à gauche), utilisé avec Espace / Shift / clic droit, puis il se recharge (temps réduit par la stat RECHARGE, Thrusters, Overdrive Core). **On commence sans** : on les trouve dans les **salles Active** (récompense de porte « ACTIVE », éclair jaune), qui proposent 3 objets au choix une fois les ennemis tués ; c'est une porte comme une autre (pas de garantie). Prendre un autre objet remplace celui qu'on tient ; **reprendre le même le fait monter de niveau** (comme les armes, jusqu'au niveau 5 ; « LEVEL UP -> N » au-dessus du piédestal, niveaux affichés dans le HUD) : effets plus longs, explosions plus grosses et plus fortes, recharge -12 % par niveau. Un objet au niveau max n'est plus proposé. Table `ACTIVES` et effets dans `src/actives.c` :
+- Une fois la salle nettoyée : 3 portes (gauche / haut / droite). Chaque porte affiche la récompense de la salle suivante, et **les 3 portes sont toujours différentes** (jamais deux fois la même récompense ou le même type de salle). Une porte peut être verrouillée (coûte 1 clef) et contient toujours des mods d'arme ou des améliorations.
+- **Salles d'arme et d'amélioration : toujours 3 objets au choix** (avec leur description), on en prend un et les deux autres disparaissent. Les salles d'arme proposent des **mods d'arme** (voir plus bas) ; s'il en reste moins de 3 à obtenir, elles complètent avec d'autres améliorations. Les salles d'amélioration ne proposent jamais de mod d'arme.
+- **Menu des améliorations (Tab)**, en jeu ou depuis la pause : la liste de toutes les améliorations trouvées (mods d'arme en premier), chacune **activable / désactivable une par une** (clic, Entrée ou Espace ; flèches / molette pour naviguer ; Tab ou Échap pour revenir). Le jeu est figé pendant ce temps. Une amélioration désactivée n'a plus aucun effet (stats comprises) jusqu'à ce qu'on la réactive ; réactiver un cœur ne soigne pas ; les échanges de stats restent acquis. Seule Skeleton Key (+3 clefs, effet déjà dépensé) n'est pas désactivable. Le HUD (en haut à droite) affiche l'arme actuelle, ses mods actifs et le nombre d'améliorations désactivées.
+- **Objets activables** : un seul emplacement (HUD en haut à gauche), utilisé avec Espace / Shift / clic droit, puis il se recharge (temps réduit par la stat RECHARGE, Thrusters, Overdrive Core). **On commence sans** : on les trouve dans les **salles Active** (récompense de porte « ACTIVE », éclair jaune), qui proposent 3 objets au choix une fois les ennemis tués ; c'est une porte comme une autre (pas de garantie). Prendre un autre objet remplace celui qu'on tient ; **reprendre le même le fait monter de niveau** (jusqu'au niveau 5 ; « LEVEL UP -> N » au-dessus du piédestal, niveaux affichés dans le HUD) : effets plus longs, explosions plus grosses et plus fortes, recharge -12 % par niveau. Un objet au niveau max n'est plus proposé. Table `ACTIVES` et effets dans `src/actives.c` :
   - **Dash** : petit bond invulnérable, 0,13 s (+0,02 s par niveau) (recharge 0,6 s).
   - **Shield** : invincible 2,5 s (+0,5 s par niveau), la bulle (qui grossit avec le niveau) détruit les balles qui la touchent (recharge 10 s).
   - **Boom** : toutes tes balles en vol explosent d'un coup, et continuent leur route ; rayon +15 % et dégâts +25 % par niveau (recharge 6 s ; avec l'épée ou sans balles, c'est le vaisseau qui explose).
@@ -62,24 +63,29 @@ Après l'écran titre, on choisit son vaisseau (A / D, 1-3 ou souris, puis clic 
 - **Fin de salle** : dès que le dernier ennemi meurt, le vaisseau est replacé en bas de l'arène, devant la porte d'entrée, pour ne pas ramasser un objet par accident.
 - **Stats du vaisseau** (F2, cachées par défaut) : panneau semi-transparent en haut à gauche de l'arène, avec dégâts, cadence, portée, vitesse des tirs, dispersion (spread), vitesse, recharge, hitbox, chance, projectiles, perçage, rebonds, drones. Valeurs effectives (bonus situationnels de Bloodlust / Adrenaline inclus), en vert au-dessus de la base et en rouge en dessous ; une stat qui vient de changer clignote.
 - Ressources : pièces, clefs, bombes (+ cœurs). **Les ennemis ne lâchent jamais rien** : les ressources sont uniquement des récompenses de salle, aspirées automatiquement une fois la salle nettoyée.
-- **Salles Stats** (porte turquoise, ~20 % des portes après un combat) : une fois les ennemis tués, 4 échanges apparaissent, on en prend un (ou aucun). Chaque échange augmente une stat et en baisse une autre. Stats : dégâts, cadence, portée, PV max, vitesse de déplacement, **recharge** (de l'objet activable), vitesse des projectiles, taille de la hitbox, chance (quantité des récompenses de salle), **dispersion** (spread : -25 % = tirs plus groupés, +30 % = plus écartés, bornée entre x0.2 et x3). Échange spécial **+3 boucliers** : 3 cœurs bleus temporaires (absorbent les dégâts avant les vrais cœurs, ne se régénèrent pas, max 6) contre une baisse de stat. Valeurs et bornes dans `src/stats.c`.
-- **Shops** (porte rose, à partir de la salle 2, jamais deux d'affilée) : une fois les ennemis tués, toujours 5 objets à vendre — au moins une arme, une amélioration et un échange de stats, plus 2 emplacements aléatoires. On achète en marchant dessus ; prix affiché en doré si on peut payer, en rouge sinon. Prix : `shop_price()` dans `src/pickups.c`.
-- **Salles secrètes** (~15 % des salles de combat, Stats et shops) : pendant le combat, un coin de la salle flashe très brièvement (petit carré presque invisible). Une bombe dans ce coin ouvre la porte du bas, vers la salle secrète : pas d'ennemis, le butin attend déjà — 1 arme ou amélioration (rarement 2) + pièces, bombes ou clefs. Variantes : 10 % de chance d'un **shop secret** (5 objets à vendre à la place de l'objet gratuit) et 10 % de chance d'une **embuscade** (une vague d'ennemis avant que le butin n'apparaisse). La sortie ramène dans la salle d'origine.
+- **Salles Stats** (porte turquoise, ~20 % des portes après un combat) : une fois les ennemis tués, 4 échanges apparaissent, on en prend un (ou aucun). Chaque échange augmente une stat et en baisse une autre (il modifie les stats de base, avant les améliorations). Stats : dégâts, cadence, portée, PV max, vitesse de déplacement, **recharge** (de l'objet activable), vitesse des projectiles, taille de la hitbox, chance (quantité des récompenses de salle), **dispersion** (spread : -25 % = tirs plus groupés, +30 % = plus écartés, bornée entre x0.2 et x3). Échange spécial **+3 boucliers** : 3 cœurs bleus temporaires (absorbent les dégâts avant les vrais cœurs, ne se régénèrent pas, max 6) contre une baisse de stat. Valeurs et bornes dans `src/stats.c`.
+- **Shops** (porte rose, à partir de la salle 2, jamais deux d'affilée) : une fois les ennemis tués, toujours 5 objets à vendre — au moins un mod d'arme, une amélioration et un échange de stats, plus 2 emplacements aléatoires. On achète en marchant dessus ; prix affiché en doré si on peut payer, en rouge sinon. Prix : `shop_price()` dans `src/pickups.c`.
+- **Salles secrètes** (~15 % des salles de combat, Stats et shops) : pendant le combat, un coin de la salle flashe très brièvement (petit carré presque invisible). Une bombe dans ce coin ouvre la porte du bas, vers la salle secrète : pas d'ennemis, le butin attend déjà — 1 mod d'arme ou amélioration (rarement 2) + pièces, bombes ou clefs. Variantes : 10 % de chance d'un **shop secret** (5 objets à vendre à la place de l'objet gratuit) et 10 % de chance d'une **embuscade** (une vague d'ennemis avant que le butin n'apparaisse). La sortie ramène dans la salle d'origine.
 - **Workshop** (porte vert-jaune, à partir de la salle 2, ~14 % des portes, jamais deux d'affilée) : démarre plein d'ennemis comme les autres ; une fois nettoyé, des machines apparaissent. On utilise une machine en marchant sur son cercle :
   - **Supply Press** (en bas à gauche) : 1/2 cœur de dégâts (bouclier d'abord) contre des pièces (45 %, 5-8), une bombe (30 %) ou une clef (25 %). 3 à 5 utilisations, refusée s'il ne reste qu'un demi-cœur.
   - **Augments** (au centre) : bonus **exclusifs** au workshop, très puissants (stats + effet), payés en **PV max** : 1 cœur (Blood Rounds, Overdrive Core), 2 cœurs (Hellfire Engine, Storm Core) ou 3 cœurs (Demon Heart, God Cannon). Un emplacement par palier abordable (il faut garder au moins 1 cœur max), on en prend un seul.
-  - **Slot Machine** (en bas à droite) : affiche le nom et l'effet du lot (arme ou amélioration) ; chaque mise coûte 5 pièces, `30 % + 3 % x chance` de gagner (entre 15 et 50 %). Le lot gagné tombe devant la machine.
-- 13 armes à feu + l'épée du Knight, avec 5 niveaux chacune. Le HUD (en haut à droite) n'affiche que les armes possédées ; les touches 1-9 choisissent la 1re, 2e... arme possédée.
-  - Blaster, Scatter (shotgun : 12 plombs au niveau 1, +4 par niveau), Needler, Seeker, Bouncer.
-  - **Railgun** : tir lent, très rapide et perçant, gros dégâts.
-  - **Flamer** : jet de flammes à courte portée qui ralentissent et grossissent, et enflamment (brûlure).
-  - **Rockets** : roquettes qui accélèrent et explosent à l'impact (rayon selon la taille des tirs).
-  - **Chakram** : disque perçant qui revient vers le vaisseau.
-  - **Cluster** : obus qui éclatent en 6 fragments à leur mort.
-  - **Arc Caster** : chaque touche lance un éclair en chaîne (plus de rebonds avec les niveaux).
-  - **Vulcan** : minigun qui monte en cadence (jusqu'à x4 en 1 s de tir continu) et ralentit quand on arrête.
-  - **Wave Gun** : deux tirs en sinusoïdes miroir.
-- **84 améliorations passives** (+ 6 exclusives du workshop) qui s'appliquent à toutes les armes (table `UPGRADES` et effets dans `src/upgrades.c`) :
+  - **Slot Machine** (en bas à droite) : affiche le nom et l'effet du lot (mod d'arme ou amélioration) ; chaque mise coûte 5 pièces, `30 % + 3 % x chance` de gagner (entre 15 et 50 %). Le lot gagné tombe devant la machine.
+- **Une seule arme, des mods d'arme** : le vaisseau n'a qu'un canon (le Blaster : tirs rapides, un projectile par salve). Les anciennes armes sont devenues des **améliorations « mod d'arme »** (13, une seule fois chacune, icône hexagonale, mention WEAPON MOD) qui transforment le tir et **se combinent toutes entre elles** (`gun_profile()` dans `src/weapons.c` : chaque mod multiplie ou ajoute à la cadence, aux dégâts, au nombre de projectiles, à la vitesse, à la portée...). Plus de changement d'arme ni de niveaux d'arme.
+  - **Scatter** : projectiles x8 en éventail large, portée courte, cadence plus lente (recul).
+  - **Needler** : cadence x2, dégâts /2, +2 perçage.
+  - **Seeker** : missiles à tête chercheuse (+1 tir, lents puis accélèrent, plus forts).
+  - **Bouncer** : grosses sphères, +4 rebonds, +1 perçage.
+  - **Railgun** : dégâts x9, traverse tout, cadence très lente.
+  - **Flamer** : flammes à courte portée qui ralentissent, grossissent, percent et enflamment.
+  - **Rockets** : roquettes qui accélèrent et explosent (rayon selon la taille des tirs).
+  - **Chakram** : lames qui traversent tout et reviennent vers le vaisseau.
+  - **Cluster** : obus qui éclatent en 6 fragments.
+  - **Arc Caster** : chaque touche lance un éclair en chaîne (3 rebonds).
+  - **Vulcan** : la cadence monte jusqu'à x4 en 1 s de tir continu.
+  - **Wave Gun** : deux tirs en sinusoïdes miroir, +1 perçage.
+  - **Sword** : l'épée du Knight (voir Personnages), remplace le canon.
+  - Combinaisons bornées pour rester jouables : entre 0,03 et 0,7 s entre deux salves (les dégâts compensent), 40 projectiles par salve au plus (plus forts au-delà), une portée minimale (320 px, le double pour les tirs qui reviennent). L'apparence, la couleur et le son viennent du mod le plus marquant (Railgun > Rockets > Chakram > Flamer > Cluster > Arc > Wave > ...). Un mod qui ne va pas avec les autres se désactive dans le menu Tab.
+- **83 améliorations passives** (+ 13 mods d'arme et 6 exclusives du workshop) (table `UPGRADES` et effets dans `src/upgrades.c`) :
   - *Tir* : Overclock, Heavy Rounds, Split Shot, Piercer, Rubber Core, Smart Rounds, Accelerator, Big Iron, Wide Lens, Focus Lens, Long Barrel, Hair Trigger, Magnum Rounds (+2 perçage, +15 % dégâts, -15 % cadence), Spray and Pray (+45 % cadence, +60 % dispersion), Heavy Caliber (+40 % dégâts, gros tirs, -20 % vitesse des tirs), Smart Bounce (+1 rebond, chaque rebond vise l'ennemi le plus proche).
   - *Dégâts conditionnels* : Sniper Scope (jusqu'à +60 % selon la distance parcourue), Point Blank (+50 % de près), Bully (+40 % sous la moitié des PV), Giant Slayer (+60 % contre les gros ennemis), Momentum (+1 % par touche, max +40 %, perdu après 1 s sans toucher), Growth (+3 % par salle nettoyée, max +60 %), Turret Mode (+40 % cadence immobile), Run and Gun (+20 % dégâts en mouvement), Rampage (+3 % cadence par kill dans la salle, max +45 %), Overkill (les dégâts en trop passent à l'ennemi le plus proche).
   - *Effets sur les balles* : Cryo Rounds (ralentit), Venom Tips (poison), Thermite (brûlure), Arc Emitter (éclair en chaîne), Payload (explosion), Shrapnel (fragments), Lucky Strike (coups x3), Guillotine (exécute sous 15 % PV), Return Vector (boomerang), Phase Rounds (traverse les obstacles), Impact Driver (recul), Frostbite (gèle parfois, +35 % dégâts sur les ennemis gelés), Pyromaniac (enflamme parfois, les ennemis en feu explosent en mourant), Toxic Cloud (empoisonne parfois, le poison se propage à la mort), Chain Reaction (6 tirs à chaque kill), Black Hole (un kill ouvre parfois un vortex qui aspire les ennemis).
@@ -88,7 +94,7 @@ Après l'écran titre, on choisit son vaisseau (A / D, 1-3 ou souris, puis clic 
   - *Économie* : Piggy Bank, Bomb Belt, Skeleton Key, Coupon (shop -30 %).
   - *Défense / déclencheurs* : Reactive Armor, Second Wind (survit à un coup mortel), Barrier Cell (bouclier rechargé à chaque salle), Guardian Orb, Tesla Field, Leech Core, Adrenaline, Bloodlust, Ram Plating, Chrono Field, Volatile Targets, Emergency Shield (le premier coup de chaque salle est bloqué), Spiked Hull (gros dégâts aux ennemis qui touchent la coque).
   - *Blessé* (actives quand il manque au moins un demi-cœur rouge) : Wounded Fury (+30 % dégâts), Scar Tissue (+25 % cadence), Last Stand (+10 % dégâts et +5 % vitesse par cœur manquant), Blood Scent (tirs à tête chercheuse).
-  - *Spéciales* : Deflector Shells (tirs énormes et très lents, cadence / 3, mais ils renvoient les balles ennemies touchées comme des tirs du joueur), Loaded Dice (double la probabilité de déclenchement de tous les effets), Signature Weapon (les salles d'arme proposent toujours l'arme de plus haut niveau), X-Ray Visor (les coins secrets sont toujours visibles).
+  - *Spéciales* : Deflector Shells (tirs énormes et très lents, cadence / 3, mais ils renvoient les balles ennemies touchées comme des tirs du joueur), Loaded Dice (double la probabilité de déclenchement de tous les effets), X-Ray Visor (les coins secrets sont toujours visibles).
   - Les descriptions des effets aléatoires affichent la **probabilité exacte** (en tenant compte du nombre d'exemplaires et de Loaded Dice), calculée par `upgrade_desc()`. Un `|` dans une description la coupe sur deux lignes.
 - **Les ennemis gardent toujours les mêmes attributs** (PV, vitesse, cadence, patterns) quelle que soit la profondeur. La difficulté vient du nombre : budget de vague `5 + 1.8 x profondeur^1.2 + 1.5 x vague` (plafond `30 + 2.5 x profondeur` ennemis par vague), `2 + min(profondeur / 3, 5)` vagues par salle, et de nouveaux ennemis plus durs débloqués au fil des salles : burster (salle 3), spinner (4), sniper (5), tank (7), **warden** (9 : croix tournante de 4 flux + éventail visé), **hunter** (11 : traque, s'annonce par une ligne, fonce puis tire un anneau), **hive** (13 : pond des essaims et tire des anneaux).
 
@@ -101,8 +107,9 @@ Après l'écran titre, on choisit son vaisseau (A / D, 1-3 ou souris, puis clic 
 | `draw.c/h` | Renderer de formes batché (`SDL_RenderGeometry`) + texte |
 | `room.c` | Génération des salles, obstacles, vagues, portes, collisions |
 | `player.c` | Vaisseau, déplacement, bombe, dégâts |
-| `weapons.c` | Définitions des armes, tir, effets propres aux armes (`weapon_on_hit`, `weapon_bullet_death`), drones |
-| `upgrades.c` | Table des 90 améliorations (dont 6 exclusives du workshop) et leurs effets (hooks appelés par les balles, ennemis, joueur, salles) |
+| `weapons.c` | Le canon façonné par les mods d'arme (`gun_profile`), l'épée, effets des mods (`weapon_on_hit`, `weapon_bullet_death`), drones |
+| `upgrades.c` | Table des 102 améliorations (dont 13 mods d'arme et 6 exclusives du workshop), leurs effets (hooks appelés par les balles, ennemis, joueur, salles), stats recalculées depuis la base + les améliorations actives (`stats_compute`, `player_recompute`), activation / désactivation |
+| `upgrade_menu.c` | Menu Tab : améliorations trouvées, activer / désactiver |
 | `actives.c` | Objets activables (11), niveaux, tourelle et lames, icônes, choix des salles Active |
 | `workshop.c` | Machines du workshop (Supply Press, Slot Machine) et emplacements des augments |
 | `enemies.c` | 10 types d'ennemis et leurs patterns de balles |
@@ -122,13 +129,13 @@ Les types de salles `ROOM_TREASURE` et `ROOM_BOSS` sont déjà prévus (sur le m
 ## Tests (sans fenêtre)
 
 ```sh
-ctest --preset release      # ~25 s
+ctest --preset release      # ~50 s
 ctest --preset asan         # même suite sous AddressSanitizer + UBSan (cmake --preset asan && cmake --build --preset asan)
 ```
 
 Aucun test n'ouvre de fenêtre :
 
-- **Simulation headless** (`--headless`) : pas de vidéo ni d'audio, un autopilote (`bot.c`) joue aussi vite que le CPU le permet (~500x le temps réel). Des invariants sont vérifiés à chaque tick (positions finies et dans l'arène, PV cohérents, arme possédée, aucun objet au sol avant la fin d'une salle (pas de drop d'ennemi), shop à 5 objets, portes toujours uniques, objets activables (aucun au départ, 3 objets distincts, celui qu'on tient seulement s'il peut encore monter de niveau, Chaos ne prête que des améliorations non possédées et les retire toutes), machines et augments du workshop, ennemis toujours aux PV de leur type, vaisseau replacé en fin de salle, 3 choix dans les salles d'arme / d'amélioration, butin et retour des salles secrètes, pas de salle bloquée — aucun ennemi touché pendant 60 s —, pas de salle nettoyée jamais quittée). En cas d'échec, `--fail-shot` enregistre l'image de l'instant fautif (rendue offscreen).
+- **Simulation headless** (`--headless`) : pas de vidéo ni d'audio, un autopilote (`bot.c`) joue aussi vite que le CPU le permet (~500x le temps réel). Des invariants sont vérifiés à chaque tick (positions finies et dans l'arène, PV cohérents, stats toujours égales à la base + les améliorations actives, amélioration désactivée sans aucun effet, épée réservée au Knight, mods d'arme dans les salles d'arme seulement, aucun objet au sol avant la fin d'une salle (pas de drop d'ennemi), shop à 5 objets, portes toujours uniques, objets activables (aucun au départ, 3 objets distincts, celui qu'on tient seulement s'il peut encore monter de niveau, Chaos ne prête que des améliorations non possédées et les retire toutes), machines et augments du workshop, ennemis toujours aux PV de leur type, vaisseau replacé en fin de salle, 3 choix dans les salles d'arme / d'amélioration, butin et retour des salles secrètes, pas de salle bloquée — aucun ennemi touché pendant 60 s —, pas de salle nettoyée jamais quittée). Comme un joueur dans le menu Tab, le bot désactive un de ses mods d'arme quand ses tirs n'ont rien touché depuis 10 s (combinaison inadaptée). En cas d'échec, `--fail-shot` enregistre l'image de l'instant fautif (rendue offscreen).
 - **Rendu** : `--shot` dessine dans le pilote vidéo `offscreen` de SDL et sauve un BMP.
 - **Audio** : `--dump-sfx` synthétise tous les sons en WAV.
 
@@ -154,8 +161,10 @@ neon_breach --workshop --coins 30                       # démarrer dans un work
 neon_breach --shot w.bmp --workshop --cleared --no-bot  # capture du workshop déjà nettoyé, sans autopilote
 neon_breach --active shield                             # démarrer avec un objet activable (dash / shield / boom / strength / chaos /
                                                         #   reversal / turret / blink / nova / timestop / blades)
-neon_breach --weapon rockets                            # démarrer avec une arme (railgun / flamer / rockets / chakram / cluster /
-                                                        #   arc / vulcan / wave ...) ; en headless le bot la garde
+neon_breach --weapon rockets                            # démarrer avec un mod d'arme (scatter / needler / seeker / bouncer / railgun /
+                                                        #   flamer / rockets / chakram / cluster / arc / vulcan / wave / sword)
+neon_breach --shot u.bmp --all-upgrades --upgrades-menu # capture du menu Tab
+neon_breach --headless --toggle-upgrades --runs 10      # le bot désactive / réactive une amélioration au hasard toutes les 4 s
 neon_breach --active-room --cleared --no-bot            # salle Active nettoyée (3 objets au choix)
 neon_breach --secret                                    # chaque salle cache une salle secrète
 neon_breach --show-secret                               # affiche le coin secret (comme dans le menu F3)

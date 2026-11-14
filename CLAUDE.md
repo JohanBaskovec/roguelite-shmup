@@ -14,8 +14,16 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   secret room's 10% ambush variant (`Room.peaceful` false: one wave, loot after it).
 - **Enemies never drop anything.** Resources (coins, keys, bombs, hearts) only come from room
   rewards, after the room is cleared. Luck affects reward quantities, not drops.
+- **There is a single gun; weapons are upgrades.** Weapon mods (`UPG_W_*`, `upgrade_is_weapon`) are
+  upgrades taken once each that reshape the gun and all combine (`gun_profile` in `weapons.c`); no
+  weapon switching, no weapon levels. Weapon rooms (`RW_WEAPON`) offer weapon mods (`weapon_roll`),
+  upgrade rooms never do (`upgrade_roll` excludes them).
 - **Weapon and upgrade rooms always offer a choice of 3 items** (take one, the other two vanish).
-  A weapon room tops up with upgrades when fewer than 3 weapons can still be gained.
+  A weapon room tops up with other upgrades when fewer than 3 weapon mods can still be gained.
+- **Every upgrade found can be turned off and back on, one by one** (TAB menu, `src/upgrade_menu.c`,
+  `upgrade_toggle`; only purely one-time ones like SKELETON KEY cannot, `upgrade_toggleable`). Turned
+  off = no effect at all (`Player.upg_off`, `has()` returns 0, stats left out); turning a heart
+  container back on never heals; stat trades stay.
 - **Secret rooms**: some rooms (combat / stats / shop) hide one. During the fight one corner flashes
   very briefly (small, faint square); a bomb in that corner opens the bottom door to the secret room.
   The secret room has no enemies (exception above): 1 item (rarely 2) plus coins / bombs / keys
@@ -51,7 +59,7 @@ the `--debug-rooms` test too.
 
 ```sh
 cmake --preset release && cmake --build --preset release -j
-ctest --preset release            # ~25 s
+ctest --preset release            # ~50 s
 cmake --preset asan && cmake --build --preset asan -j && ctest --preset asan   # ASan + UBSan
 ```
 
@@ -64,7 +72,8 @@ Do not launch the game in a real window to test it. Use:
 
 - `neon_breach --headless [--god] [--seed N] [--runs N] [--depth N] [--stats]` — simulation only,
   driven by the autopilot in `src/bot.c`, invariants checked every tick. Add `--fail-shot f.bmp`
-  to get an offscreen render of the failing frame.
+  to get an offscreen render of the failing frame. `--toggle-upgrades` makes the bot turn random
+  upgrades off / on (the bot also turns a weapon mod off by itself when its shots hit nothing for 10 s).
 - `neon_breach --shot out.bmp --frames N [...]` — offscreen render (SDL offscreen driver).
 - `neon_breach --dump-sfx DIR` — writes every synthesized sound as WAV.
 
@@ -74,16 +83,21 @@ invariants / a CTest entry in `CMakeLists.txt`.
 ## Code conventions
 
 - Single global `Game G` (`src/game.h`), fixed 120 Hz update (`DT`), rendering separate from update.
-- Content lives in data tables: `WEAPONS` (`weapons.c`), `UPGRADES` (`upgrades.c`), `ENEMIES` (`enemies.c`),
+- Content lives in data tables: `UPGRADES` (`upgrades.c`, weapon mods included), `ENEMIES` (`enemies.c`),
   `STATS` (`stats.c`), `CHARACTERS` (`characters.c`), sound definitions (`audio.c`).
 - Characters (Normal / Shotgunner / Knight) only change the starting state (`character_apply`) and the
-  ship's look (`draw_ship`); `G.character` survives restarts. The sword (`WPN_SWORD`) is Knight-only:
-  everything that offers weapons goes through `weapon_roll`, which respects `weapon_available`
-  (headless checks no other character ever owns or is offered it). When adding a character: table
+  ship's look (`draw_ship`); `G.character` survives restarts; `CharDef.start_upgrade` is the weapon mod
+  owned from the start. The sword (`UPG_W_SWORD`) is Knight-only: `upgrade_capped` respects
+  `upgrade_available`, so `weapon_roll` never offers it to others (headless checks nobody else owns or
+  is offered it). When adding a character: table
   entry, ship drawing, bot support if it plays differently, and a `sim_<name>` CTest (`--char NAME`).
 - Upgrade effects live in `upgrades.c` as `upg_*` hooks called from bullets / enemies / player /
-  room code; add new upgrades there (table entry + hook), and stat upgrades must clamp to the
-  invariant floors. `--all-upgrades` tests them all at once.
+  room code; add new upgrades there (table entry + hook). **Stats are derived**: the Player stat fields
+  (`dmg_mult`, `max_hp`, `extra_proj`...) are always `Player.base` + the stat effects of every upgrade
+  turned on (`stat_effect`), rebuilt by `player_recompute()`. Never write them directly: change
+  `Player.base` (character, stat trades, augment costs) and call `player_recompute()`; stat upgrades go
+  in `stat_effect`, one-time effects of taking an upgrade (coins, heal...) in `upgrade_grant`. Floors /
+  caps live in `stats_clamp` (headless checks the stats stay in sync). `--all-upgrades` tests them all at once.
 - Hooks can run inside an entity loop (e.g. `upg_on_lethal_hit` runs inside the enemy bullet loop):
   never clear or compact an array from there, mark entities dead (`life = -1`) instead.
 - Upgrade hooks read stacks through `has()` (upgrades.c) / `upg_has()` elsewhere, never `upg_count[]`
@@ -92,11 +106,13 @@ invariants / a CTest entry in `CMakeLists.txt`.
   and a `sim_active_<name>` CTest. CHAOS may only lend upgrades listed in `CHAOS_POOL` (hook-only, so
   removal is exact). TIME STOP (`active_time_stop_on()`) freezes enemies and enemy bullets: new enemy
   or enemy-bullet behaviour must respect it.
-- Weapons: `WEAPONS` table entry, option name (`--weapon NAME`), per-weapon movement in `bullets.c`,
-  on-hit / on-death effects in `weapon_on_hit` / `weapon_bullet_death` (called for every bullet death,
-  so `PB_*` flags like explosive / cluster also work for upgrades), drawing, and a `sim_weapon_<name>`
-  CTest (the bot keeps `G.bot_weapon`). Number keys pick the Nth *owned* weapon (`weapon_slot`);
-  `Input.weapon_select` stays a `WeaponId`. Reuse `explode_at` / `chain_lightning` for area effects.
+- Weapon mods: `UPG_W_*` entry (between `UPG_W_SCATTER` and `UPG_W_SWORD`), its block in `gun_profile`
+  (multiply / add to the gun's numbers so it combines with every other mod; the look comes from the
+  most striking mod, the order there and in `gun_main_mod`), option name (`--weapon NAME`), behaviour as
+  `PB_*` flags (motion in `bullets.c`, effects in `weapon_on_hit` / `weapon_bullet_death`, called for
+  every bullet death so the flags also work for upgrades), a `BulletStyle` if it looks different, and a
+  `sim_weapon_<name>` CTest. `gun_profile` clamps combos (cadence, shots per volley, reach): keep any
+  mix playable. Reuse `explode_at` / `chain_lightning` for area effects.
 - Upgrade descriptions with a random effect must show the exact chance: build them in `upgrade_desc_at`
   (respects stacks and `proc()`, i.e. LOADED DICE). A `|` splits a description over two lines (`draw_desc`).
 - Shields (`Player.shield`, half-hearts, max `MAX_SHIELD`) absorb damage before hearts.

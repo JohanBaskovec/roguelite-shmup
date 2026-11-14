@@ -23,18 +23,29 @@ void bot_input(void) {
         in->confirm_pressed = true; /* the character was chosen beforehand (G.character, --char) */
         return;
     }
-    if (G.state == GS_DEBUG) return;
+    if (G.state == GS_DEBUG || G.state == GS_UPGRADES) return;
+    /* --toggle-upgrades: every 4 s, turn a random upgrade off (or back on), like the TAB menu. */
+    if (G.bot_toggles && G.state == GS_PLAYING && G.ticks % (4 * TICK_RATE) == 0) {
+        int list[UPG_COUNT];
+        int n = upgrade_menu_list(list);
+        if (n > 0) upgrade_toggle(list[irand(0, n - 1)]);
+    }
+    /* Like a player in the TAB menu: when its shots have hit nothing for a while (a weapon mod
+     * combo that does not work here), turn one of its weapon mods off, every 10 s. */
+    if (G.state == GS_PLAYING && !G.room.cleared && G.nen > 0 && G.room.type != ROOM_START &&
+        G.time - G.last_enemy_damage_t > 10.0f && G.ticks % (10 * TICK_RATE) == 0) {
+        int mods[UPG_COUNT], n = 0;
+        for (int u = UPG_W_SCATTER; u < UPG_W_SWORD; u++)
+            if (upg_has(u) && !pl->upg_off[u] && pl->upg_count[u] > 0) mods[n++] = u;
+        if (n > 0) upgrade_toggle(mods[irand(0, n - 1)]);
+    }
 
     /* Aim at the nearest enemy in line of sight, otherwise remember the nearest one. */
     Enemy *t = NULL, *hidden = NULL, *over = NULL, *nearest = NULL;
     float best = 1e30f, best_hidden = 1e30f, best_any = 1e30f;
-    /* Sword (Knight): melee - walk up to the nearest enemy, the blade ignores cover. The
-     * bot sticks to the sword even after picking up a gun, so simulations exercise it. */
-    if (pl->wlevel[WPN_SWORD] > 0 && pl->weapon != WPN_SWORD) in->weapon_select = WPN_SWORD;
-    /* --weapon: same idea, the simulations keep using the weapon under test. */
-    else if (G.bot_weapon >= 0 && pl->wlevel[G.bot_weapon] > 0 && pl->weapon != G.bot_weapon) in->weapon_select = G.bot_weapon;
-    const bool melee = pl->weapon == WPN_SWORD;
-    const bool short_range = pl->weapon == WPN_FLAMER; /* closes in, but not to contact */
+    /* Sword (Knight): melee - walk up to the nearest enemy, the blade ignores cover. */
+    const bool melee = sword_on();
+    const bool short_range = !melee && upg_has(UPG_W_FLAMER); /* closes in, but not to contact */
     bool overlapped = false;
     for (int i = 0; i < G.nen; i++) {
         Enemy *e = &G.en[i];
@@ -72,12 +83,12 @@ void bot_input(void) {
     for (int i = 0, k = 0; i < G.npk && noffers > 0; i++)
         if (ELIGIBLE(&G.pk[i]) && k++ == G.room.depth % noffers) offer = &G.pk[i];
 #undef ELIGIBLE
-    /* Shop: buy the best affordable item (weapons, then upgrades, then trades; cheaper first). */
+    /* Shop: buy the best affordable item (weapon mods, then upgrades, then trades; cheaper first). */
     int best_rank = 1 << 30;
     for (int i = 0; i < G.npk; i++) {
         const Pickup *k = &G.pk[i];
         if (k->price <= 0 || k->price > pl->coins) continue;
-        int rank = (k->type == PK_WEAPON ? 0 : k->type == PK_UPGRADE ? 1 : 2) * 1000 + k->price;
+        int rank = (k->type == PK_UPGRADE ? (upgrade_is_weapon(k->sub) ? 0 : 1) : 2) * 1000 + k->price;
         if (rank < best_rank) {
             best_rank = rank;
             offer = k;
@@ -87,7 +98,7 @@ void bot_input(void) {
     /* Free pedestals that are not a choice (secret room loot): take them all. */
     for (int i = 0; i < G.npk && !offer; i++) {
         const Pickup *k = &G.pk[i];
-        if (k->price == 0 && !k->choice && (k->type == PK_WEAPON || k->type == PK_UPGRADE)) offer = k;
+        if (k->price == 0 && !k->choice && k->type == PK_UPGRADE) offer = k;
     }
     /* Secret room: once it has seen the corner flash, bomb it after the fight, then go in. */
     const Room *r = &G.room;
@@ -205,7 +216,7 @@ void bot_input(void) {
         case ACT_DASH: in->active_pressed = imminent || overlapped; break;
         case ACT_SHIELD: in->active_pressed = imminent || overlapped || threats >= 4; break;
         case ACT_BOOM: /* plenty of shots out near enemies, or (sword) enemies right around */
-            in->active_pressed = alive > 0 && (melee ? nearest && best_any < 220.0f * 220.0f : G.npb >= 25);
+            in->active_pressed = alive > 0 && (melee ? nearest && best_any < 220.0f * 220.0f : G.npb >= 10);
             break;
         case ACT_STRENGTH: in->active_pressed = alive >= 3 && (t || melee); break;
         case ACT_CHAOS: in->active_pressed = alive >= 5; break;

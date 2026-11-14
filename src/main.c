@@ -28,9 +28,11 @@ typedef struct {
     bool no_bot;           /* --no-bot: screenshots without the autopilot (the ship stays put) */
     int character;         /* --char NAME: normal / shotgunner / knight */
     int active;            /* --active NAME: start with this active item */
-    int weapon;            /* --weapon NAME: start with this weapon too (-1 = none) */
+    int weapon;            /* --weapon NAME: start with this weapon mod too (UpgradeId, -1 = none) */
+    bool toggle_upgrades;  /* --toggle-upgrades (headless): the bot keeps turning upgrades off and on */
     bool active_room;      /* --active-room: start in an active room (choice of 3 active items) */
     bool char_select;      /* --char-select: open the character select screen at startup */
+    bool upgrades_menu;    /* --upgrades-menu: open the upgrades menu (TAB) at startup */
     bool show_secret;      /* --show-secret: mark secret corners (debug menu: SHOW SECRET CORNER) */
     bool all_upgrades;     /* --all-upgrades: start with one of every upgrade */
     int hp;                /* --hp N (headless): starting max hp in half-hearts */
@@ -71,6 +73,7 @@ static void parse_args(int argc, char **argv, Options *o) {
         else if (!strcmp(a, "--show-secret")) o->show_secret = true;
         else if (!strcmp(a, "--show-stats")) o->show_stats = true;
         else if (!strcmp(a, "--char-select")) o->char_select = true;
+        else if (!strcmp(a, "--upgrades-menu")) o->upgrades_menu = true;
         else if (!strcmp(a, "--char") && more) {
             const char *name = argv[++i];
             o->character = -1;
@@ -87,20 +90,22 @@ static void parse_args(int argc, char **argv, Options *o) {
             for (int c = ACT_NONE + 1; c < ACT_COUNT; c++)
                 if (!strcmp(name, active_option_name(c))) o->active = c;
             if (o->active < 0) {
-                fprintf(stderr, "unknown active item '%s' (dash, shield, boom, strength, chaos)\n", name);
+                fprintf(stderr, "unknown active item '%s' (dash, shield, boom, strength, chaos, reversal, turret,\n"
+                                "blink, nova, timestop, blades)\n", name);
                 exit(2);
             }
         }
         else if (!strcmp(a, "--active-room")) o->active_room = true;
         else if (!strcmp(a, "--weapon") && more) {
             const char *name = argv[++i];
-            for (int w = 0; w < WPN_COUNT; w++)
-                if (!strcmp(name, weapon_option_name(w))) o->weapon = w;
+            o->weapon = weapon_mod_by_name(name);
             if (o->weapon < 0) {
-                fprintf(stderr, "unknown weapon '%s'\n", name);
+                fprintf(stderr, "unknown weapon mod '%s' (scatter, needler, seeker, bouncer, railgun, flamer, rockets,\n"
+                                "chakram, cluster, arc, vulcan, wave, sword)\n", name);
                 exit(2);
             }
         }
+        else if (!strcmp(a, "--toggle-upgrades")) o->toggle_upgrades = true;
         else if (!strcmp(a, "--all-upgrades")) o->all_upgrades = true;
         else if (!strcmp(a, "--hp") && more) o->hp = atoi(argv[++i]);
         else if (!strcmp(a, "--coins") && more) o->coins = atoi(argv[++i]);
@@ -118,9 +123,9 @@ static void parse_args(int argc, char **argv, Options *o) {
 static void clear_edges(void) {
     Input *in = &G.in;
     in->active_pressed = in->bomb_pressed = in->pause_pressed = in->restart_pressed = in->confirm_pressed = false;
-    in->debug_pressed = in->char_pressed = false;
-    in->weapon_select = -1;
-    in->weapon_cycle = 0;
+    in->debug_pressed = in->char_pressed = in->menu_pressed = in->click_pressed = false;
+    in->number = -1;
+    in->wheel = 0;
 }
 
 static void sample_held_input(SDL_Renderer *r) {
@@ -154,17 +159,15 @@ static void handle_event(const SDL_Event *e, SDL_Window *win, bool bot) {
         case SDL_SCANCODE_E: in->bomb_pressed = true; break;
         case SDL_SCANCODE_RETURN:
         case SDL_SCANCODE_KP_ENTER: in->confirm_pressed = true; break;
+        case SDL_SCANCODE_TAB: in->menu_pressed = true; break;
         case SDL_SCANCODE_F2: G.show_stats = !G.show_stats; break;
         case SDL_SCANCODE_F3: in->debug_pressed = true; break;
         case SDL_SCANCODE_F11:
             SDL_SetWindowFullscreen(win, (SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN) == 0);
             break;
         default:
-            if (e->key.scancode >= SDL_SCANCODE_1 && e->key.scancode <= SDL_SCANCODE_9) {
-                int k = (int)(e->key.scancode - SDL_SCANCODE_1);
-                /* In a run, N = the Nth weapon owned (HUD order); on menus, the raw number. */
-                in->weapon_select = G.state == GS_PLAYING || G.state == GS_PAUSED ? weapon_slot(k) : k;
-            }
+            if (e->key.scancode >= SDL_SCANCODE_1 && e->key.scancode <= SDL_SCANCODE_9)
+                in->number = (int)(e->key.scancode - SDL_SCANCODE_1);
             break;
         }
         /* Menu letters follow the keyboard layout. */
@@ -174,12 +177,12 @@ static void handle_event(const SDL_Event *e, SDL_Window *win, bool bot) {
         if (e->key.key == SDLK_Q && G.state == GS_PAUSED) G.quit = true;
         break;
     case SDL_EVENT_MOUSE_BUTTON_DOWN:
-        if (e->button.button == SDL_BUTTON_LEFT) in->confirm_pressed = true;
+        if (e->button.button == SDL_BUTTON_LEFT) in->confirm_pressed = in->click_pressed = true;
         else if (e->button.button == SDL_BUTTON_RIGHT) in->active_pressed = true;
         break;
     case SDL_EVENT_MOUSE_WHEEL:
-        if (e->wheel.y > 0) in->weapon_cycle = -1;
-        else if (e->wheel.y < 0) in->weapon_cycle = 1;
+        if (e->wheel.y > 0) in->wheel = -1;
+        else if (e->wheel.y < 0) in->wheel = 1;
         break;
     case SDL_EVENT_WINDOW_FOCUS_LOST:
         if (G.state == GS_PLAYING && !bot) G.state = GS_PAUSED;
@@ -213,7 +216,7 @@ int main(int argc, char **argv) {
             .runs = opt.runs, .max_ticks = opt.ticks, .depth = opt.depth, .stats_room = opt.stats_room,
             .shop_room = opt.shop_room, .coins = opt.coins, .debug_rooms = opt.debug_rooms, .secret = opt.secret,
             .all_upgrades = opt.all_upgrades, .hp = opt.hp, .character = opt.character, .workshop_room = opt.workshop_room,
-            .active = opt.active, .active_room = opt.active_room, .weapon = opt.weapon, .god = opt.god, .expect_rooms = opt.expect_rooms, .fail_shot = opt.fail_shot,
+            .active = opt.active, .active_room = opt.active_room, .weapon = opt.weapon, .toggle_upgrades = opt.toggle_upgrades, .god = opt.god, .expect_rooms = opt.expect_rooms, .fail_shot = opt.fail_shot,
         };
         return headless_run(&h);
     }
@@ -252,11 +255,11 @@ int main(int argc, char **argv) {
     G.show_stats = opt.show_stats;
     G.character = opt.character;
     if (opt.stats_room || opt.shop_room || opt.workshop_room || opt.active_room || opt.active || opt.weapon >= 0 || opt.cleared || opt.depth > 0 ||
-        opt.coins > 0 || opt.debug_menu || opt.all_upgrades) {
+        opt.coins > 0 || opt.debug_menu || opt.all_upgrades || opt.upgrades_menu) {
         game_new_run();
         G.pl.coins += opt.coins;
         if (opt.active) active_give(opt.active);
-        if (opt.weapon >= 0 && weapon_available(opt.weapon)) weapon_give(opt.weapon);
+        if (opt.weapon >= 0 && !upgrade_capped(opt.weapon)) upgrade_apply(opt.weapon);
         if (opt.all_upgrades)
             for (int u = 0; u < UPG_COUNT; u++)
                 if (!upgrade_capped(u)) upgrade_apply(u);
@@ -270,6 +273,7 @@ int main(int argc, char **argv) {
     }
 
     if (opt.char_select) char_select_open();
+    if (opt.upgrades_menu) upgrade_menu_open();
     if (opt.debug_menu) debug_menu_open();
 
     const double freq = (double)SDL_GetPerformanceFrequency();

@@ -108,7 +108,7 @@ void debug_menu_close(void) {
 
 static void teleport_from_menu(int row, bool with_enemies) {
     /* No run in progress (title / game over): start one first. */
-    if (G.debug_prev != GS_PLAYING && G.debug_prev != GS_PAUSED) game_new_run();
+    if (G.debug_prev != GS_PLAYING && G.debug_prev != GS_PAUSED && G.debug_prev != GS_UPGRADES) game_new_run();
     RewardType rw = M.reward == 0 ? RW_NONE : (RewardType)(RW_COINS + M.reward - 1);
     G.secret_shop_override = M.secret_content - 1; /* -1 random, 0 item, 1 shop */
     debug_teleport(ROOM_ROWS[row].type, rw, M.depth, with_enemies);
@@ -311,7 +311,7 @@ void debug_menu_draw(void) {
     }
 
     const char *names[] = {"LAUNCH BAY", "COMBAT", "STATS", "TREASURE", "SHOP", "BOSS", "SECRET", "WORKSHOP"};
-    bool in_run = G.debug_prev == GS_PLAYING || G.debug_prev == GS_PAUSED;
+    bool in_run = G.debug_prev == GS_PLAYING || G.debug_prev == GS_PAUSED || G.debug_prev == GS_UPGRADES;
     if (in_run)
         draw_text_centered(SCREEN_W * 0.5f, bottom - 46.0f, 1.5f, col_a(COL_WHITE, 0.5f),
                            "NOW: ROOM %d - %s - %s - %d ENEMIES - %d COINS%s", G.room.depth, names[G.room.type],

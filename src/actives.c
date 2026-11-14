@@ -186,7 +186,7 @@ static void use_boom(void) {
         }
     }
     /* No shots out (sword, or not firing): the ship itself goes off. */
-    if (n == 0 || p->weapon == WPN_SWORD) {
+    if (n == 0 || sword_on()) {
         float big = 240.0f * (1.0f + 0.1f * (float)lv(p->act_level));
         for (int j = 0; j < G.nen; j++) {
             Enemy *e = &G.en[j];

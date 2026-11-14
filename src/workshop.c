@@ -40,8 +40,8 @@ void workshop_spawn(void) {
     memset(g, 0, sizeof *g);
     g->type = MC_GAMBLE;
     g->pos = workshop_machine_spot(1);
-    int w = chance(0.4f) ? weapon_roll() : -1;
-    g->prize = w >= 0 ? PK_WEAPON : PK_UPGRADE;
+    int w = chance(0.4f) ? weapon_roll() : -1; /* a weapon mod, sometimes */
+    g->prize = PK_UPGRADE;
     g->prize_sub = w >= 0 ? w : upgrade_roll();
 
     /* One pad per tier the player can pay for (never the last heart container), centred. */
@@ -206,10 +206,9 @@ void workshop_draw(void) {
         } else if (m->broken) {
             draw_text_centered(p.x, ty, 2.0f, c, "PRIZE WON");
         } else {
-            bool weapon = m->prize == PK_WEAPON;
-            uint32_t pc = weapon ? WEAPONS[m->prize_sub].color : UPGRADES[m->prize_sub].color;
-            const char *name = weapon ? WEAPONS[m->prize_sub].name : UPGRADES[m->prize_sub].name;
-            const char *desc = weapon ? (G.pl.wlevel[m->prize_sub] > 0 ? "LEVEL UP" : WEAPONS[m->prize_sub].desc) : upgrade_desc(m->prize_sub);
+            uint32_t pc = UPGRADES[m->prize_sub].color;
+            const char *name = UPGRADES[m->prize_sub].name;
+            const char *desc = upgrade_desc(m->prize_sub);
             draw_text_centered(p.x, ty - 4.0f, 1.75f, col_hex(pc, 1), "WIN: %s", name);
             draw_desc(p.x, ty + 18.0f, 1.25f, col_a(COL_WHITE, 0.75f), desc);
             draw_text_centered(p.x, ty + 52.0f, 1.5f, c, "%d COINS - %d%% TO WIN", GAMBLE_COST, (int)roundf(gamble_win_chance() * 100.0f));

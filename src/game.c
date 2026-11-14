@@ -19,9 +19,8 @@ void game_init(uint64_t seed) {
     memset(&G, 0, sizeof G);
     rng_seed(&G.rng, seed);
     rng_seed(&vis_rng, seed ^ 0xA5A5A5A5ull);
-    G.in.weapon_select = -1;
+    G.in.number = -1;
     G.secret_shop_override = G.secret_ambush_override = -1; /* random */
-    G.bot_weapon = -1;
     G.state = GS_TITLE;
     player_init();
     room_enter(ROOM_START, RW_NONE, 0);
@@ -33,7 +32,7 @@ void game_new_run(void) {
     G.rooms_cleared = 0;
     G.kills = 0;
     G.items_bought = 0;
-    G.machine_uses = G.augments = G.active_uses = 0;
+    G.machine_uses = G.augments = G.active_uses = G.toggles = 0;
     G.run_time = 0.0f;
     G.shake = G.hitstop = G.hurt_flash = G.bomb_flash = 0.0f;
     G.banner_t = 0.0f;
@@ -65,6 +64,10 @@ static void update_playing(void) {
     if (G.in.pause_pressed) {
         G.state = GS_PAUSED;
         sfx_play(SFX_PAUSE);
+        return;
+    }
+    if (G.in.menu_pressed && !G.transitioning) {
+        upgrade_menu_open();
         return;
     }
     if (G.hitstop > 0.0f) {
@@ -126,8 +129,12 @@ void game_update(void) {
         char_select_update();
         fx_update();
         break;
+    case GS_UPGRADES:
+        upgrade_menu_update(); /* the world stays frozen behind the menu */
+        break;
     case GS_PAUSED:
-        if (G.in.pause_pressed) {
+        if (G.in.menu_pressed) upgrade_menu_open();
+        else if (G.in.pause_pressed) {
             G.state = GS_PLAYING;
             sfx_play(SFX_PAUSE);
         }

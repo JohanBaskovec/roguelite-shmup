@@ -26,7 +26,8 @@ typedef struct {
     int character;     /* CharId used for every run */
     int active;        /* ActiveId given at the start (0 = none, the normal start); fail if never used */
     bool active_room;  /* start in an active room */
-    int weapon;        /* WeaponId given at the start and kept by the bot (-1 = none) */
+    int weapon;        /* weapon mod (UpgradeId) given at the start (-1 = none) */
+    bool toggle_upgrades; /* the bot keeps turning random upgrades off and on; fail if it never does */
     int expect_rooms;  /* fail if a run clears fewer rooms than this */
     const char *fail_shot; /* if set, render the failing frame offscreen into this BMP */
 } HeadlessOptions;

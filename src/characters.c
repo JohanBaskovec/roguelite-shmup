@@ -4,7 +4,7 @@
 
 /*
  * Playable characters and the character select screen shown before a run.
- * A character only changes the starting state (stats, hearts, armor, weapon)
+ * A character only changes the starting state (stats, hearts, armor, weapon mod)
  * and the ship's look; everything else is shared.
  */
 
@@ -12,17 +12,17 @@ const CharDef CHARACTERS[CHAR_COUNT] = {
     [CHAR_NORMAL] = {
         .name = "NORMAL", .desc = {"Balanced fighter", "Rapid twin-linked Blaster", "No weaknesses, no tricks"},
         .color = 0x66f0ff, .hearts = 3, .armor = 0,
-        .dmg_mult = 1.0f, .speed_mult = 1.0f, .hit_radius = PLAYER_HIT_R, .weapon = WPN_BLASTER,
+        .dmg_mult = 1.0f, .speed_mult = 1.0f, .hit_radius = PLAYER_HIT_R, .start_upgrade = -1,
     },
     [CHAR_SHOTGUNNER] = {
         .name = "SHOTGUNNER", .desc = {"Round hull: bigger hitbox", "Every shot hits twice as hard", "Starts with the Scatter"},
         .color = 0xffa94d, .hearts = 3, .armor = 0,
-        .dmg_mult = 2.0f, .speed_mult = 1.0f, .hit_radius = 7.0f, .weapon = WPN_SCATTER,
+        .dmg_mult = 2.0f, .speed_mult = 1.0f, .hit_radius = 7.0f, .start_upgrade = UPG_W_SCATTER,
     },
     [CHAR_KNIGHT] = {
         .name = "KNIGHT", .desc = {"Slow square hull + 3 armor", "Sword: slashes in an arc", "and cuts enemy bullets"},
         .color = 0xc9d4ff, .hearts = 3, .armor = 3,
-        .dmg_mult = 1.0f, .speed_mult = 0.8f, .hit_radius = PLAYER_HIT_R, .weapon = WPN_SWORD,
+        .dmg_mult = 1.0f, .speed_mult = 0.8f, .hit_radius = PLAYER_HIT_R, .start_upgrade = UPG_W_SWORD,
     },
 };
 
@@ -33,14 +33,14 @@ const char *character_option_name(int c) { return c >= 0 && c < CHAR_COUNT ? OPT
 void character_apply(void) {
     Player *p = &G.pl;
     const CharDef *c = &CHARACTERS[G.character];
-    p->hp = p->max_hp = c->hearts * 2;
+    p->base.max_hp = c->hearts * 2;
     p->shield = c->armor * 2;
-    p->dmg_mult = c->dmg_mult;
-    p->speed = 540.0f * c->speed_mult;
-    p->hit_radius = c->hit_radius;
-    for (int w = 0; w < WPN_COUNT; w++) p->wlevel[w] = 0;
-    p->wlevel[c->weapon] = 1;
-    p->weapon = c->weapon;
+    p->base.dmg_mult = c->dmg_mult;
+    p->base.speed = 540.0f * c->speed_mult;
+    p->base.hit_radius = c->hit_radius;
+    player_recompute();
+    if (c->start_upgrade >= 0) upgrade_grant(c->start_upgrade);
+    p->hp = p->max_hp;
 }
 
 /* ---- Character select screen --------------------------------------------- */
@@ -77,7 +77,7 @@ void char_select_update(void) {
     if (in->right && !G.sel_right) G.char_hover = (G.char_hover + 1) % CHAR_COUNT;
     G.sel_left = in->left;
     G.sel_right = in->right;
-    if (in->weapon_select >= 0 && in->weapon_select < CHAR_COUNT) G.char_hover = in->weapon_select;
+    if (in->number >= 0 && in->number < CHAR_COUNT) G.char_hover = in->number;
     /* The mouse only takes over when it actually moves (the bot never moves it here). */
     if (v2_dist2(in->mouse, G.sel_mouse) > 1.0f) {
         int c = card_at(in->mouse);
@@ -142,7 +142,7 @@ void char_select_draw(void) {
         stat_line(sx, sw, sy + 32.0f, "SPEED", buf, cmp(c->speed_mult, base->speed_mult, 1));
         SDL_snprintf(buf, sizeof buf, "%.0fpx", (double)c->hit_radius);
         stat_line(sx, sw, sy + 64.0f, "HITBOX", buf, cmp(c->hit_radius, base->hit_radius, -1));
-        stat_line(sx, sw, sy + 96.0f, "WEAPON", WEAPONS[c->weapon].name, 0);
+        stat_line(sx, sw, sy + 96.0f, "WEAPON", c->start_upgrade >= 0 ? UPGRADES[c->start_upgrade].name : "BLASTER", 0);
 
         for (int l = 0; l < 3; l++)
             if (c->desc[l][0])

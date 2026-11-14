@@ -9,35 +9,35 @@ static void resource(PickupType t, float x, float y, int value) {
     draw_text(x + 22.0f, y - 8.0f, 2.0f, COL_WHITE, "%d", value);
 }
 
-/* Owned weapons only, right-aligned; slots shrink when many are owned (14 exist). */
-static void draw_weapon_slots(void) {
+/* The gun, top right: its main weapon mod, every mod turned on, and the upgrades menu key. */
+static void draw_gun_panel(void) {
     const Player *p = &G.pl;
-    int nslots = 0;
-    for (int i = 0; i < WPN_COUNT; i++) nslots += p->wlevel[i] > 0;
-    const float gap = 6.0f, right = SCREEN_W - 40.0f, room = 640.0f;
-    float w = fminf(112.0f, (room + gap) / (float)nslots - gap);
-    float x0 = right - (float)nslots * (w + gap) + gap;
-    for (int i = 0, slot = 0; i < WPN_COUNT; i++) {
-        if (p->wlevel[i] <= 0) continue;
-        float x = x0 + (float)slot * (w + gap), y = 14.0f;
-        slot++;
-        bool cur = p->weapon == i;
-        SDL_FColor c = col_hex(WEAPONS[i].color, 1);
-        draw_rect(x, y, w, 60.0f, cur ? col_a(col_mul(c, 0.25f), 1.0f) : col_hex(0x0b0e18, 1));
-        draw_rect_outline(x, y, w, 60.0f, cur ? 3.0f : 1.5f, col_a(c, cur ? 1.0f : 0.45f));
-        if (slot <= 9) draw_text(x + 5.0f, y + 5.0f, 1.0f, col_a(COL_WHITE, 0.5f), "%d", slot);
-        /* Full name when it fits, else the first letters. */
-        float ts = 1.5f;
-        char name[16];
-        int fit = (int)((w - 8.0f) / (8.0f * ts));
-        SDL_snprintf(name, sizeof name, "%.*s", fit > 0 ? fit : 1, WEAPONS[i].name);
-        draw_text_centered(x + w * 0.5f, y + 20.0f, ts, cur ? COL_WHITE : col_a(c, 0.8f), "%s", name);
-        float pip = fminf(14.0f, (w - 12.0f) / (float)MAX_WEAPON_LEVEL - 3.0f);
-        for (int l = 0; l < MAX_WEAPON_LEVEL; l++) {
-            float px = x + w * 0.5f - (float)MAX_WEAPON_LEVEL * (pip + 3.0f) * 0.5f + (float)l * (pip + 3.0f);
-            draw_rect(px, y + 42.0f, pip, 6.0f, l < p->wlevel[i] ? c : col_hex(0x2a3040, 1));
-        }
+    const float w = 600.0f, h = 60.0f, x = SCREEN_W - 40.0f - w, y = 14.0f;
+    int main_mod = gun_main_mod();
+    SDL_FColor c = col_hex(main_mod >= 0 ? UPGRADES[main_mod].color : 0x66f0ff, 1);
+    draw_rect(x, y, w, h, col_a(col_mul(c, 0.14f), 1.0f));
+    draw_rect_outline(x, y, w, h, 2.0f, col_a(c, 0.6f));
+    draw_text(x + 12.0f, y + 8.0f, 1.0f, col_a(COL_WHITE, 0.45f), "WEAPON");
+    draw_text(x + 12.0f, y + 22.0f, 2.5f, c, "%s", gun_name());
+    /* the other mods turned on, as coloured tags */
+    float tx = x + 24.0f + draw_text_width(gun_name(), 2.5f);
+    for (int u = UPG_W_SCATTER; u <= UPG_W_SWORD; u++) {
+        if (u == main_mod || !upg_has(u) || (main_mod == UPG_W_SWORD)) continue;
+        float tw = draw_text_width(UPGRADES[u].name, 1.25f) + 10.0f;
+        if (tx + tw > x + w - 150.0f) break;
+        SDL_FColor uc = col_hex(UPGRADES[u].color, 1);
+        draw_rect_outline(tx, y + 24.0f, tw, 18.0f, 1.0f, col_a(uc, 0.7f));
+        draw_text(tx + 5.0f, y + 29.0f, 1.25f, uc, "%s", UPGRADES[u].name);
+        tx += tw + 6.0f;
     }
+    int found = 0, off = 0;
+    for (int u = 0; u < UPG_COUNT; u++) {
+        found += p->upg_count[u] > 0;
+        off += p->upg_count[u] > 0 && p->upg_off[u];
+    }
+    draw_text(x + w - 130.0f, y + 12.0f, 1.5f, col_hex(0xb57cff, 0.9f), "TAB  %d UPG", found);
+    if (off) draw_text(x + w - 130.0f, y + 36.0f, 1.25f, col_hex(0xff5f7e, 0.9f), "%d TURNED OFF", off);
+    else draw_text(x + w - 130.0f, y + 36.0f, 1.25f, col_a(COL_WHITE, 0.4f), "ON / OFF");
 }
 
 /* Active item slot, next to the resources: icon, name, recharge bar, key. */
@@ -204,7 +204,7 @@ void hud_draw(void) {
         else draw_text_centered(SCREEN_W * 0.5f, 52.0f, 2.0f, col_hex(0x66f0ff, a), "CHOOSE A DOOR");
     }
 
-    draw_weapon_slots();
+    draw_gun_panel();
     if (G.show_stats) draw_stats_overlay();
 
     if (audio_muted()) draw_text(SCREEN_W - 120.0f, SCREEN_H - 24.0f, 2.0f, col_a(COL_WHITE, 0.5f), "MUTED");
@@ -253,8 +253,9 @@ static void draw_stats(float y) {
     int len = 0, row = 0;
     for (int u = 0; u <= UPG_COUNT; u++) {
         char item[48] = "";
-        if (u < UPG_COUNT && p->upg_count[u] == 1) SDL_snprintf(item, sizeof item, "%s", UPGRADES[u].name);
-        else if (u < UPG_COUNT && p->upg_count[u] > 1) SDL_snprintf(item, sizeof item, "%s x%d", UPGRADES[u].name, p->upg_count[u]);
+        const char *off = u < UPG_COUNT && p->upg_off[u] ? " (OFF)" : "";
+        if (u < UPG_COUNT && p->upg_count[u] == 1) SDL_snprintf(item, sizeof item, "%s%s", UPGRADES[u].name, off);
+        else if (u < UPG_COUNT && p->upg_count[u] > 1) SDL_snprintf(item, sizeof item, "%s x%d%s", UPGRADES[u].name, p->upg_count[u], off);
         if (u < UPG_COUNT && !item[0]) continue;
         if (len > 0 && (u == UPG_COUNT || len + 3 + (int)SDL_strlen(item) > 120)) {
             draw_text_centered(SCREEN_W * 0.5f, y + 100.0f + (float)row++ * 22.0f, 1.5f, col_hex(0xb57cff, 0.9f), "%s", line);
@@ -300,7 +301,7 @@ void overlay_draw(void) {
             "MOUSE                  aim & shoot (hold)",
             "SPACE / SHIFT / RMB    active item (dash, shield...)",
             "E                      bomb - clears every bullet",
-            "WHEEL / 1-9            switch weapon",
+            "TAB                    upgrades - turn them on / off",
             "ESC  pause   M  mute   F2  stats   F11  fullscreen",
         };
         for (int i = 0; i < ARRAY_LEN(lines); i++)
@@ -311,7 +312,7 @@ void overlay_draw(void) {
         dim(0.75f);
         draw_text_centered(SCREEN_W * 0.5f, 280.0f, 8.0f, COL_WHITE, "PAUSED");
         draw_stats(420.0f);
-        draw_text_centered(SCREEN_W * 0.5f, 820.0f, 2.0f, col_a(COL_WHITE, 0.7f), "ESC resume    R restart    C change ship    Q quit");
+        draw_text_centered(SCREEN_W * 0.5f, 820.0f, 2.0f, col_a(COL_WHITE, 0.7f), "ESC resume    TAB upgrades    R restart    C change ship    Q quit");
         break;
     case GS_GAMEOVER: {
         dim(fminf(G.gameover_t, 0.75f));
@@ -332,6 +333,9 @@ void overlay_draw(void) {
         break;
     case GS_DEBUG:
         debug_menu_draw();
+        break;
+    case GS_UPGRADES:
+        upgrade_menu_draw();
         break;
     default:
         break;

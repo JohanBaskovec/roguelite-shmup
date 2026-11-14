@@ -42,40 +42,29 @@ bool stat_can_change(int s, bool up) {
     }
 }
 
+/* Trades change the base stats (before upgrades): turning an upgrade off later never undoes
+ * a trade. The floors and caps are applied to the result (stats_compute). */
 void stat_apply(int s, bool up) {
     Player *p = &G.pl;
+    Stats *b = &p->base;
     switch (s) {
-    case ST_DAMAGE: p->dmg_mult *= up ? 1.25f : 0.85f; break;
-    case ST_FIRE_RATE: p->rate_mult *= up ? 1.25f : 0.85f; break;
-    case ST_RANGE: p->range_mult *= up ? 1.3f : 0.8f; break;
+    case ST_DAMAGE: b->dmg_mult *= up ? 1.25f : 0.85f; break;
+    case ST_FIRE_RATE: b->rate_mult *= up ? 1.25f : 0.85f; break;
+    case ST_RANGE: b->range_mult *= up ? 1.3f : 0.8f; break;
     case ST_MAX_HP:
-        p->max_hp += up ? 2 : -2;
+        b->max_hp += up ? 2 : -2;
         if (up) p->hp += 2;
-        if (p->hp > p->max_hp) p->hp = p->max_hp;
         break;
-    case ST_MOVE_SPEED: p->speed *= up ? 1.12f : 0.9f; break;
-    case ST_DASH: p->dash_cooldown *= up ? 0.75f : 1.33f; break;
-    case ST_SHOT_SPEED: p->shot_speed_mult *= up ? 1.25f : 0.85f; break;
-    case ST_HITBOX: p->hit_radius *= up ? 0.8f : 1.25f; break;
-    case ST_LUCK: p->luck += up ? 1 : -1; break;
-    case ST_SPREAD: p->spread_mult *= up ? 0.75f : 1.3f; break;
+    case ST_MOVE_SPEED: b->speed *= up ? 1.12f : 0.9f; break;
+    case ST_DASH: b->dash_cooldown *= up ? 0.75f : 1.33f; break;
+    case ST_SHOT_SPEED: b->shot_speed_mult *= up ? 1.25f : 0.85f; break;
+    case ST_HITBOX: b->hit_radius *= up ? 0.8f : 1.25f; break;
+    case ST_LUCK: b->luck += up ? 1 : -1; break;
+    case ST_SPREAD: b->spread_mult *= up ? 0.75f : 1.3f; break;
     case ST_SHIELD: if (up) player_add_shield(6); break;
     default: break;
     }
-    /* An offer is rolled when it appears but may be taken later (shops sell several trades,
-     * upgrades change stats in between): the floors and caps hold no matter what. */
-    p->dmg_mult = fmaxf(p->dmg_mult, 0.3f);
-    p->rate_mult = fmaxf(p->rate_mult, 0.3f);
-    p->range_mult = clampf(p->range_mult, 0.35f, 3.0f * 1.3f);
-    p->shot_speed_mult = fmaxf(p->shot_speed_mult, 0.4f);
-    p->speed = clampf(p->speed, 330.0f, 900.0f);
-    p->dash_cooldown = clampf(p->dash_cooldown, 0.15f, 2.0f);
-    p->hit_radius = clampf(p->hit_radius, 2.0f, 9.0f);
-    p->luck = p->luck < -3 ? -3 : p->luck > 5 ? 5 : p->luck;
-    p->spread_mult = clampf(p->spread_mult, SPREAD_MIN, SPREAD_MAX);
-    if (p->max_hp < 2) p->max_hp = 2;
-    if (p->max_hp > 24) p->max_hp = 24;
-    if (p->hp > p->max_hp) p->hp = p->max_hp;
+    player_recompute();
 }
 
 float luck_factor(void) { return fmaxf(0.25f, 1.0f + 0.3f * (float)G.pl.luck); }
