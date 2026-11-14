@@ -27,7 +27,7 @@ typedef struct {
     bool cleared;          /* --cleared: the starting room is already cleared (dev, like the F3 menu) */
     bool no_bot;           /* --no-bot: screenshots without the autopilot (the ship stays put) */
     int character;         /* --char NAME: normal / shotgunner / knight */
-    int active;            /* --active NAME: start with this active item */
+    unsigned actives;      /* --active NAME (repeatable): start with these active items (bit per ActiveId) */
     int weapon;            /* --weapon NAME: start with this weapon mod too (UpgradeId, -1 = none) */
     bool toggle_upgrades;  /* --toggle-upgrades (headless): the bot keeps turning upgrades off and on */
     bool active_room;      /* --active-room: start in an active room (choice of 3 active items) */
@@ -86,10 +86,11 @@ static void parse_args(int argc, char **argv, Options *o) {
         }
         else if (!strcmp(a, "--active") && more) {
             const char *name = argv[++i];
-            o->active = -1;
+            int found = -1;
             for (int c = ACT_NONE + 1; c < ACT_COUNT; c++)
-                if (!strcmp(name, active_option_name(c))) o->active = c;
-            if (o->active < 0) {
+                if (!strcmp(name, active_option_name(c))) found = c;
+            if (found > 0) o->actives |= 1u << found;
+            else {
                 fprintf(stderr, "unknown active item '%s' (dash, shield, boom, strength, chaos, reversal, turret,\n"
                                 "blink, nova, timestop, blades)\n", name);
                 exit(2);
@@ -216,7 +217,7 @@ int main(int argc, char **argv) {
             .runs = opt.runs, .max_ticks = opt.ticks, .depth = opt.depth, .stats_room = opt.stats_room,
             .shop_room = opt.shop_room, .coins = opt.coins, .debug_rooms = opt.debug_rooms, .secret = opt.secret,
             .all_upgrades = opt.all_upgrades, .hp = opt.hp, .character = opt.character, .workshop_room = opt.workshop_room,
-            .active = opt.active, .active_room = opt.active_room, .weapon = opt.weapon, .toggle_upgrades = opt.toggle_upgrades, .god = opt.god, .expect_rooms = opt.expect_rooms, .fail_shot = opt.fail_shot,
+            .actives = opt.actives, .active_room = opt.active_room, .weapon = opt.weapon, .toggle_upgrades = opt.toggle_upgrades, .god = opt.god, .expect_rooms = opt.expect_rooms, .fail_shot = opt.fail_shot,
         };
         return headless_run(&h);
     }
@@ -254,11 +255,12 @@ int main(int argc, char **argv) {
     G.reveal_secrets = opt.show_secret;
     G.show_stats = opt.show_stats;
     G.character = opt.character;
-    if (opt.stats_room || opt.shop_room || opt.workshop_room || opt.active_room || opt.active || opt.weapon >= 0 || opt.cleared || opt.depth > 0 ||
+    if (opt.stats_room || opt.shop_room || opt.workshop_room || opt.active_room || opt.actives || opt.weapon >= 0 || opt.cleared || opt.depth > 0 ||
         opt.coins > 0 || opt.debug_menu || opt.all_upgrades || opt.upgrades_menu) {
         game_new_run();
         G.pl.coins += opt.coins;
-        if (opt.active) active_give(opt.active);
+        for (int a = ACT_NONE + 1; a < ACT_COUNT; a++)
+            if (opt.actives & (1u << a)) active_give(a);
         if (opt.weapon >= 0 && !upgrade_capped(opt.weapon)) upgrade_apply(opt.weapon);
         if (opt.all_upgrades)
             for (int u = 0; u < UPG_COUNT; u++)

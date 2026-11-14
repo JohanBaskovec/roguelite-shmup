@@ -200,8 +200,11 @@ bool upgrade_capped(int u) {
     case UPG_FOUR_LEAF: return all.luck >= 4;
     case UPG_MICRO_HULL: return all.hit_radius * 0.75f < 2.0f;
     /* Useless without an active item that triggers them. */
-    case UPG_DASH_NOVA: return p->active == ACT_NONE;
-    case UPG_RAM: return p->active != ACT_DASH && p->active != ACT_SHIELD;
+    case UPG_DASH_NOVA: {
+        int owned[ACT_COUNT];
+        return actives_owned(owned) == 0;
+    }
+    case UPG_RAM: return p->act[ACT_DASH].level == 0 && p->act[ACT_SHIELD].level == 0;
     default: return false;
     }
 }

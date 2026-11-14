@@ -24,7 +24,7 @@ typedef struct {
     bool debug_rooms;  /* test the debug menu teleports instead of playing normal runs */
     bool god;
     int character;     /* CharId used for every run */
-    int active;        /* ActiveId given at the start (0 = none, the normal start); fail if never used */
+    unsigned actives;  /* active items given at the start (bit per ActiveId; 0 = none, the normal start); fail if never used */
     bool active_room;  /* start in an active room */
     int weapon;        /* weapon mod (UpgradeId) given at the start (-1 = none) */
     bool toggle_upgrades; /* the bot keeps turning random upgrades off and on; fail if it never does */

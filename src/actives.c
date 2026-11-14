@@ -3,11 +3,12 @@
 #include "game.h"
 
 /*
- * Active items: a single slot, used with SPACE / SHIFT / right click, then it recharges.
- * The ship starts without one; active rooms (RW_ACTIVE) offer a choice of 3. Taking a
- * different one replaces the item held; taking the same one again levels it up (like
- * weapons): longer effects, bigger explosions, faster recharge. Every recharge time also
- * scales with the RECHARGE stat (Player.dash_cooldown, which is the dash's own recharge).
+ * Active items: the ship starts without any; active rooms (RW_ACTIVE) offer a choice of 3.
+ * Every item taken is kept (Player.act[], indexed by ActiveId): SPACE / SHIFT / right click
+ * triggers all the ones turned on and ready at once, then each recharges on its own. Taking
+ * one already owned levels it up: longer effects, bigger explosions, faster recharge. Each
+ * can be turned off / on in the TAB menu (active_toggle). Every recharge time also scales
+ * with the RECHARGE stat (Player.dash_cooldown, which is the dash's own recharge).
  */
 
 const ActiveDef ACTIVES[ACT_COUNT] = {
@@ -111,44 +112,70 @@ float active_cooldown(int a, int level) {
     return base * powf(0.88f, (float)lv(level));
 }
 
-bool active_strength_on(void) { return G.pl.active == ACT_STRENGTH && G.pl.act_t > 0.0f; }
-bool active_shield_on(void) { return G.pl.active == ACT_SHIELD && G.pl.act_t > 0.0f; }
-bool active_time_stop_on(void) { return G.pl.active == ACT_TIME_STOP && G.pl.act_t > 0.0f; }
+bool active_running(int a) {
+    const ActiveSlot *k = &G.pl.act[a];
+    return k->level > 0 && !k->off && k->t > 0.0f;
+}
+int active_level_on(int a) { return G.pl.act[a].level > 0 && !G.pl.act[a].off ? G.pl.act[a].level : 0; }
+bool active_strength_on(void) { return active_running(ACT_STRENGTH); }
+bool active_shield_on(void) { return active_running(ACT_SHIELD); }
+bool active_time_stop_on(void) { return active_running(ACT_TIME_STOP); }
+
+int actives_owned(int *out) {
+    int n = 0;
+    for (int a = ACT_NONE + 1; a < ACT_COUNT; a++)
+        if (G.pl.act[a].level > 0) out[n++] = a;
+    return n;
+}
 
 void active_end_chaos(void) {
     Player *p = &G.pl;
     for (int u = 0; u < UPG_COUNT; u++) p->chaos[u] = false;
 }
 
-static void end_effect(void) {
+static void end_effect(int a) {
     Player *p = &G.pl;
-    bool lent = false;
-    for (int u = 0; u < UPG_COUNT; u++) lent |= p->chaos[u];
-    if (lent) {
-        active_end_chaos();
-        fx_popup(v2_add(p->pos, v2(0, -40)), col_hex(ACTIVES[ACT_CHAOS].color, 1), "CHAOS FADES");
+    if (a == ACT_CHAOS) {
+        bool lent = false;
+        for (int u = 0; u < UPG_COUNT; u++) lent |= p->chaos[u];
+        if (lent) {
+            active_end_chaos();
+            fx_popup(v2_add(p->pos, v2(0, -40)), col_hex(ACTIVES[ACT_CHAOS].color, 1), "CHAOS FADES");
+        }
     }
-    p->act_t = 0.0f;
+    if (a == ACT_DASH) p->dash_t = 0.0f;
+    p->act[a].t = 0.0f;
 }
 
 void active_give(int a) {
     Player *p = &G.pl;
+    if (a <= ACT_NONE || a >= ACT_COUNT) return;
+    ActiveSlot *k = &p->act[a];
     char title[48], desc[96];
-    if (a == p->active) {
-        /* The same item again: a level up (a running effect keeps going). */
-        if (p->act_level < MAX_ACTIVE_LEVEL) p->act_level++;
-        SDL_snprintf(title, sizeof title, "%s - LEVEL %d", ACTIVES[a].name, p->act_level);
+    if (k->level > 0) {
+        /* Owned already: a level up (a running effect keeps going). */
+        if (k->level < MAX_ACTIVE_LEVEL) k->level++;
+        SDL_snprintf(title, sizeof title, "%s - LEVEL %d", ACTIVES[a].name, k->level);
     } else {
-        end_effect();
-        p->active = a;
-        p->act_level = 1;
+        k->level = 1;
+        k->off = false;
         SDL_snprintf(title, sizeof title, "%s", ACTIVES[a].name);
     }
-    p->act_cd = p->act_cd_max = 0.0f; /* ready at once */
-    SDL_snprintf(desc, sizeof desc, "%s", active_desc(a, p->act_level));
+    k->cd = k->cd_max = 0.0f; /* ready at once */
+    SDL_snprintf(desc, sizeof desc, "%s", active_desc(a, k->level));
     for (char *c = desc; *c; c++)
         if (*c == '|') *c = ' ';
     fx_banner(title, desc, col_hex(ACTIVES[a].color, 1), 2.6f);
+}
+
+bool active_toggle(int a) {
+    Player *p = &G.pl;
+    if (a <= ACT_NONE || a >= ACT_COUNT || p->act[a].level == 0) return false;
+    ActiveSlot *k = &p->act[a];
+    k->off = !k->off;
+    if (k->off && k->t > 0.0f) end_effect(a); /* off = no effect at all, a running one stops */
+    G.toggles++;
+    return true;
 }
 
 /* ---- Effects ---------------------------------------------------------------- */
@@ -158,7 +185,7 @@ static void use_dash(void) {
     const Input *in = &G.in;
     V2 mv = v2_norm(v2((in->right ? 1.0f : 0.0f) - (in->left ? 1.0f : 0.0f), (in->down ? 1.0f : 0.0f) - (in->up ? 1.0f : 0.0f)));
     p->dash_dir = (mv.x != 0.0f || mv.y != 0.0f) ? mv : v2_angle(p->aim_angle);
-    p->dash_t = active_duration(ACT_DASH, p->act_level);
+    p->dash_t = active_duration(ACT_DASH, p->act[ACT_DASH].level);
     sfx_play_at(SFX_DASH, p->pos);
     fx_burst(p->pos, 12, 100.0f, 350.0f, 0.25f, 2.5f, col_hex(CHARACTERS[G.character].color, 1));
 }
@@ -166,8 +193,8 @@ static void use_dash(void) {
 /* Every shot in flight blows up where it is, and keeps going. */
 static void use_boom(void) {
     Player *p = &G.pl;
-    float radius = fminf(boom_radius(p->act_level) * sqrtf(p->bullet_size), 170.0f);
-    float power = boom_power(p->act_level);
+    float radius = fminf(boom_radius(p->act[ACT_BOOM].level) * sqrtf(p->bullet_size), 170.0f);
+    float power = boom_power(p->act[ACT_BOOM].level);
     SDL_FColor c = col_hex(ACTIVES[ACT_BOOM].color, 1);
     int n = 0;
     for (int i = 0; i < G.npb; i++) {
@@ -187,7 +214,7 @@ static void use_boom(void) {
     }
     /* No shots out (sword, or not firing): the ship itself goes off. */
     if (n == 0 || sword_on()) {
-        float big = 240.0f * (1.0f + 0.1f * (float)lv(p->act_level));
+        float big = 240.0f * (1.0f + 0.1f * (float)lv(p->act[ACT_BOOM].level));
         for (int j = 0; j < G.nen; j++) {
             Enemy *e = &G.en[j];
             float r = big + e->radius;
@@ -206,7 +233,7 @@ static void use_chaos(void) {
     int cand[ARRAY_LEN(CHAOS_POOL)], n = 0;
     for (int i = 0; i < ARRAY_LEN(CHAOS_POOL); i++)
         if (p->upg_count[CHAOS_POOL[i]] == 0 && !upgrade_capped(CHAOS_POOL[i])) cand[n++] = CHAOS_POOL[i];
-    int want = active_chaos_count(p->act_level), give = n < want ? n : want;
+    int want = active_chaos_count(p->act[ACT_CHAOS].level), give = n < want ? n : want;
     for (int i = 0; i < give; i++) { /* partial Fisher-Yates */
         int j = irand(i, n - 1), t = cand[i];
         cand[i] = cand[j];
@@ -214,7 +241,7 @@ static void use_chaos(void) {
         p->chaos[cand[i]] = true;
     }
     char sub[64];
-    SDL_snprintf(sub, sizeof sub, "+%d random upgrades for %.1f s", give, (double)active_duration(ACT_CHAOS, p->act_level));
+    SDL_snprintf(sub, sizeof sub, "+%d random upgrades for %.1f s", give, (double)active_duration(ACT_CHAOS, p->act[ACT_CHAOS].level));
     fx_banner("CHAOS", sub, col_hex(ACTIVES[ACT_CHAOS].color, 1), 1.6f);
     fx_burst(p->pos, 60, 200.0f, 800.0f, 0.6f, 3.0f, col_hex(ACTIVES[ACT_CHAOS].color, 1));
 }
@@ -222,7 +249,7 @@ static void use_chaos(void) {
 /* Every enemy bullet turns around as one of ours (marked dead, removed by its own loop). */
 static void use_reversal(void) {
     Player *p = &G.pl;
-    float dmg = 10.0f * p->dmg_mult * power(p->act_level);
+    float dmg = 10.0f * p->dmg_mult * power(p->act[ACT_REVERSAL].level);
     for (int i = 0; i < G.neb; i++) {
         EBullet *e = &G.eb[i];
         if (e->life <= 0.0f) continue;
@@ -248,7 +275,7 @@ static void blast(V2 at, float radius, float dmg, uint32_t color) {
 static void use_blink(void) {
     Player *p = &G.pl;
     V2 to = v2_sub(G.in.mouse, p->pos);
-    float d = v2_len(to), range = blink_range(p->act_level);
+    float d = v2_len(to), range = blink_range(p->act[ACT_BLINK].level);
     if (d > range) to = v2_scale(to, range / d);
     V2 from = p->pos, dest = v2_add(p->pos, to);
     dest.x = clampf(dest.x, ARENA_X0 + PLAYER_BODY_R + 2.0f, ARENA_X1 - PLAYER_BODY_R - 2.0f);
@@ -258,8 +285,8 @@ static void use_blink(void) {
     dest.y = clampf(dest.y, ARENA_Y0 + PLAYER_BODY_R, ARENA_Y1 - PLAYER_BODY_R);
     p->pos = dest;
     p->vel = v2(0, 0);
-    p->invuln = fmaxf(p->invuln, active_duration(ACT_BLINK, p->act_level));
-    float dmg = 40.0f * p->dmg_mult * power(p->act_level);
+    p->invuln = fmaxf(p->invuln, active_duration(ACT_BLINK, p->act[ACT_BLINK].level));
+    float dmg = 40.0f * p->dmg_mult * power(p->act[ACT_BLINK].level);
     blast(from, 120.0f, dmg, ACTIVES[ACT_BLINK].color);
     blast(dest, 120.0f, dmg, ACTIVES[ACT_BLINK].color);
     for (int k = 0; k <= 12; k++)
@@ -269,7 +296,7 @@ static void use_blink(void) {
 
 static void use_nova(void) {
     Player *p = &G.pl;
-    int n = nova_count(p->act_level);
+    int n = nova_count(p->act[ACT_NOVA].level);
     float off = frand(0.0f, TAU_F), dmg = 14.0f * p->dmg_mult;
     for (int k = 0; k < n; k++) {
         PBullet *b = pbullet_spawn(p->pos, v2_scale(v2_angle(off + TAU_F * (float)k / (float)n), 1100.0f), 8.0f, dmg,
@@ -284,9 +311,9 @@ static void use_nova(void) {
     fx_particle(p->pos, v2(0, 0), 0.35f, 200.0f, col_hex(ACTIVES[ACT_NOVA].color, 0.8f), 0.0f, PT_RING);
 }
 
-static void use_active(void) {
+static void use_active(int a) {
     Player *p = &G.pl;
-    int a = p->active;
+    ActiveSlot *k = &p->act[a];
     SDL_FColor c = col_hex(ACTIVES[a].color, 1);
     switch (a) {
     case ACT_DASH: use_dash(); break;
@@ -323,45 +350,62 @@ static void use_active(void) {
         break;
     default: return;
     }
-    p->act_t = a == ACT_DASH ? 0.0f : active_duration(a, p->act_level);
-    p->act_cd = p->act_cd_max = active_cooldown(a, p->act_level);
-    G.active_uses++;
-    upg_on_active();
+    k->t = a == ACT_DASH ? 0.0f : active_duration(a, k->level);
+    k->cd = k->cd_max = active_cooldown(a, k->level);
 }
 
 void actives_update(void) {
     Player *p = &G.pl;
-    if (p->act_cd > 0.0f) {
-        p->act_cd -= DT;
-        if (p->act_cd <= 0.0f) {
-            p->act_cd = 0.0f;
-            if (p->active != ACT_DASH) { /* the dash recharges too often to announce it */
-                sfx_play_ex(SFX_WEAPON_SWITCH, 0.7f, 1.6f, 0.0f);
-                fx_particle(p->pos, v2(0, 0), 0.25f, 70.0f, col_hex(ACTIVES[p->active].color, 0.8f), 0.0f, PT_RING);
+    int owned = 0;
+    for (int a = ACT_NONE + 1; a < ACT_COUNT; a++) {
+        ActiveSlot *k = &p->act[a];
+        if (k->level == 0) continue;
+        owned++;
+        if (k->cd > 0.0f) {
+            k->cd -= DT;
+            if (k->cd <= 0.0f) {
+                k->cd = 0.0f;
+                if (a != ACT_DASH && !k->off) { /* the dash recharges too often to announce it */
+                    sfx_play_ex(SFX_WEAPON_SWITCH, 0.7f, 1.6f, 0.0f);
+                    fx_particle(p->pos, v2(0, 0), 0.25f, 70.0f, col_hex(ACTIVES[a].color, 0.8f), 0.0f, PT_RING);
+                }
             }
         }
-    }
-    if (p->act_t > 0.0f) {
-        p->act_t -= DT;
-        if (p->act_t <= 0.0f) end_effect();
+        if (k->t > 0.0f) {
+            k->t -= DT;
+            if (k->t <= 0.0f) end_effect(a);
+        }
     }
     if (G.in.active_pressed) {
-        if (p->active == ACT_NONE) {
+        /* Every item turned on and ready goes off at once, in table order (BOOM before NOVA:
+         * it only blows up the shots already out). */
+        int used = 0, on = 0;
+        for (int a = ACT_NONE + 1; a < ACT_COUNT; a++) {
+            ActiveSlot *k = &p->act[a];
+            if (k->level == 0 || k->off) continue;
+            on++;
+            if (k->cd <= 0.0f) {
+                use_active(a);
+                used++;
+            }
+        }
+        if (used) {
+            G.active_uses++;
+            upg_on_active(); /* NOVA TRIGGER: once per press */
+        } else if (on == 0) {
             static float last = -10.0f;
             if (G.time - last > 1.0f || G.time < last) {
                 last = G.time;
                 sfx_play(SFX_DENIED);
-                fx_popup(v2_add(p->pos, v2(0, -40)), col_hex(0xff5f7e, 1), "NO ACTIVE ITEM");
+                fx_popup(v2_add(p->pos, v2(0, -40)), col_hex(0xff5f7e, 1), owned ? "ACTIVE ITEMS TURNED OFF" : "NO ACTIVE ITEM");
             }
-        } else if (p->act_cd <= 0.0f) {
-            use_active();
         }
     }
     /* TURRET: shoots the nearest enemy while it lasts. */
-    if (p->active == ACT_TURRET && p->act_t > 0.0f) {
+    if (active_running(ACT_TURRET)) {
         p->turret_cd -= DT;
         while (p->turret_cd <= 0.0f) {
-            p->turret_cd += turret_rate(p->act_level);
+            p->turret_cd += turret_rate(p->act[ACT_TURRET].level);
             Enemy *t = enemy_nearest(p->turret_pos, 1200.0f);
             if (!t) break;
             V2 dir = v2_norm(v2_sub(t->pos, p->turret_pos));
@@ -374,10 +418,10 @@ void actives_update(void) {
         }
     }
     /* BLADE STORM: orbiting blades cut bullets and grind enemies. */
-    if (p->active == ACT_BLADES && p->act_t > 0.0f) {
+    if (active_running(ACT_BLADES)) {
         p->blade_a += DT * 7.0f;
-        int n = blade_count(p->act_level);
-        float dps = 220.0f * p->dmg_mult * power(p->act_level);
+        int n = blade_count(p->act[ACT_BLADES].level);
+        float dps = 220.0f * p->dmg_mult * power(p->act[ACT_BLADES].level);
         for (int k = 0; k < n; k++) {
             V2 bp = blade_pos(k, n);
             for (int i = 0; i < G.neb; i++) {
@@ -399,7 +443,7 @@ void actives_update(void) {
     if (active_shield_on()) {
         for (int i = 0; i < G.neb; i++) {
             EBullet *b = &G.eb[i];
-            float r = shield_radius(p->act_level) + b->radius;
+            float r = shield_radius(p->act[ACT_SHIELD].level) + b->radius;
             if (b->life > 0.0f && v2_dist2(b->pos, p->pos) < r * r) {
                 b->life = -1.0f;
                 fx_particle(b->pos, v2(0, 0), 0.15f, b->radius * 2.5f, col_hex(ACTIVES[ACT_SHIELD].color, 0.8f), 0.0f, PT_GLOW);
@@ -410,16 +454,16 @@ void actives_update(void) {
 
 /* ---- Drawing ------------------------------------------------------------------ */
 
-void actives_draw(void) {
+static void draw_effect(int a) {
     const Player *p = &G.pl;
-    if (p->act_t <= 0.0f) return;
-    SDL_FColor c = col_hex(ACTIVES[p->active].color, 1);
+    const ActiveSlot *k = &p->act[a];
+    SDL_FColor c = col_hex(ACTIVES[a].color, 1);
     /* Flickers during its last half second: about to end. */
-    float fade = p->act_t < 0.5f && fmodf(G.time, 0.1f) < 0.05f ? 0.35f : 1.0f;
+    float fade = k->t < 0.5f && fmodf(G.time, 0.1f) < 0.05f ? 0.35f : 1.0f;
     draw_blend_add();
-    switch (p->active) {
+    switch (a) {
     case ACT_SHIELD: {
-        float r = shield_radius(p->act_level);
+        float r = shield_radius(k->level);
         draw_glow(p->pos, r * 1.75f, col_a(c, 0.25f * fade));
         draw_ring(p->pos, r + 1.5f * sinf(G.time * 12.0f), 3.0f, col_a(c, 0.8f * fade));
         draw_ngon_outline(p->pos, r - 4.0f, 6, G.time * 1.5f, 1.5f, col_a(c, 0.4f * fade));
@@ -443,9 +487,9 @@ void actives_draw(void) {
         draw_blend_add();
     } break;
     case ACT_BLADES: {
-        int n = blade_count(p->act_level);
-        for (int k = 0; k < n; k++) {
-            V2 bp = blade_pos(k, n), d = v2_angle(p->blade_a + TAU_F * (float)k / (float)n + PI_F * 0.5f);
+        int n = blade_count(k->level);
+        for (int b = 0; b < n; b++) {
+            V2 bp = blade_pos(b, n), d = v2_angle(p->blade_a + TAU_F * (float)b / (float)n + PI_F * 0.5f);
             draw_glow(bp, 26.0f, col_a(c, 0.3f * fade));
             draw_line(v2_sub(bp, v2_scale(d, 18.0f)), v2_add(bp, v2_scale(d, 18.0f)), 5.0f, col_a(COL_WHITE, 0.9f * fade));
         }
@@ -465,6 +509,11 @@ void actives_draw(void) {
     default: break;
     }
     draw_blend_alpha();
+}
+
+void actives_draw(void) {
+    for (int a = ACT_NONE + 1; a < ACT_COUNT; a++)
+        if (active_running(a)) draw_effect(a);
 }
 
 /* ACT_NONE draws a generic lightning bolt (door preview of an active room). */
@@ -549,7 +598,7 @@ void draw_active_icon(int a, V2 p, float s, float t) {
 void active_spawn_choices(V2 center) {
     int cand[ACT_COUNT], n = 0;
     for (int a = ACT_NONE + 1; a < ACT_COUNT; a++)
-        if (a != G.pl.active || G.pl.act_level < MAX_ACTIVE_LEVEL) cand[n++] = a; /* the held one = level up */
+        if (G.pl.act[a].level < MAX_ACTIVE_LEVEL) cand[n++] = a; /* one owned = a level up */
     int k = n < REWARD_CHOICES ? n : REWARD_CHOICES;
     for (int i = 0; i < k; i++) {
         int j = irand(i, n - 1), t = cand[i];

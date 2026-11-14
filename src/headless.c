@@ -74,24 +74,28 @@ static const char *check_invariants(float room_time) {
     for (int i = 0; i < G.npk; i++) {
         const Pickup *k = &G.pk[i];
         if (k->type != PK_ACTIVE) continue;
-        if (k->sub <= ACT_NONE || k->sub >= ACT_COUNT || (k->sub == p->active && p->act_level >= MAX_ACTIVE_LEVEL))
-            return "invalid active item offered (or the one held, already at max level)";
+        if (k->sub <= ACT_NONE || k->sub >= ACT_COUNT || p->act[k->sub].level >= MAX_ACTIVE_LEVEL)
+            return "invalid active item offered (or one owned already at max level)";
         if (!k->choice || G.room.type != ROOM_COMBAT || G.room.reward != RW_ACTIVE) return "active item outside an active room's choice";
     }
-    if (p->active < ACT_NONE || p->active >= ACT_COUNT) return "active item id out of range";
-    if (p->active == ACT_NONE ? p->act_level != 0 : p->act_level < 1 || p->act_level > MAX_ACTIVE_LEVEL) return "active item level out of range";
-    if (p->act_cd < 0.0f || p->act_t < 0.0f || !isfinite(p->act_cd) || !isfinite(p->act_t)) return "active item timers invalid";
-    if (p->dash_t > 0.0f && p->active != ACT_DASH) return "dashing without the dash active item";
+    for (int a = 0; a < ACT_COUNT; a++) {
+        const ActiveSlot *k = &p->act[a];
+        if (k->level < 0 || k->level > MAX_ACTIVE_LEVEL || (a == ACT_NONE && k->level != 0)) return "active item level out of range";
+        if (k->cd < 0.0f || k->t < 0.0f || !isfinite(k->cd) || !isfinite(k->t)) return "active item timers invalid";
+        if (k->level == 0 && (k->off || k->t > 0.0f)) return "active item turned off / running without being owned";
+        if (k->off && k->t > 0.0f) return "active item turned off but its effect still runs";
+    }
+    if (p->dash_t > 0.0f && !active_level_on(ACT_DASH)) return "dashing without the dash active item (or with it turned off)";
     {
         int lent = 0;
-        bool chaos_on = p->active == ACT_CHAOS && p->act_t > 0.0f;
+        bool chaos_on = active_running(ACT_CHAOS);
         for (int u = 0; u < UPG_COUNT; u++) {
             if (!p->chaos[u]) continue;
             lent++;
             if (!chaos_on) return "CHAOS upgrades still lent after the effect ended";
             if (p->upg_count[u] > 0) return "CHAOS lent an upgrade the player already owns";
         }
-        if (lent > active_chaos_count(p->act_level)) return "CHAOS lent too many upgrades";
+        if (lent > active_chaos_count(p->act[ACT_CHAOS].level)) return "CHAOS lent too many upgrades";
     }
     for (int i = 0; i < G.room.ndoors; i++)
         for (int j = i + 1; j < G.room.ndoors; j++) {
@@ -517,14 +521,16 @@ static int debug_rooms_run(const HeadlessOptions *o) {
 #define TICK() do { game_update(); clear_edges(); } while (0)
         in->active_pressed = true;
         TICK();
-        bool none_ok = pl->active == ACT_NONE && pl->dash_t <= 0.0f && G.active_uses == 0;
+        int owned_acts[ACT_COUNT];
+        bool none_ok = actives_owned(owned_acts) == 0 && pl->dash_t <= 0.0f && G.active_uses == 0;
+#define ONLY(a) do { memset(pl->act, 0, sizeof pl->act); active_end_chaos(); active_give(a); } while (0)
 
-        active_give(ACT_DASH);
+        ONLY(ACT_DASH);
         float x0 = pl->pos.x;
         in->right = true;
         in->active_pressed = true;
         TICK();
-        bool dash_ok = pl->dash_t > 0.0f && fabsf(pl->act_cd - pl->dash_cooldown) < 0.02f;
+        bool dash_ok = pl->dash_t > 0.0f && fabsf(pl->act[ACT_DASH].cd - pl->dash_cooldown) < 0.02f;
         in->active_pressed = true; /* still recharging: ignored */
         TICK();
         for (int t = 0; t < 30; t++) TICK();
@@ -532,7 +538,7 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         dash_ok = dash_ok && G.active_uses == 1 && pl->pos.x - x0 > 200.0f;
 
         G.god = false;
-        active_give(ACT_SHIELD);
+        ONLY(ACT_SHIELD);
         in->active_pressed = true;
         TICK();
         int hp = pl->hp + pl->shield;
@@ -542,11 +548,11 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         }
         bool shield_ok = pl->hp + pl->shield == hp && active_shield_on();
         for (int t = 0; t < 300; t++) TICK();
-        shield_ok = shield_ok && !active_shield_on() && pl->act_cd > 0.0f;
+        shield_ok = shield_ok && !active_shield_on() && pl->act[ACT_SHIELD].cd > 0.0f;
         G.neb = 0;
         G.god = true;
 
-        active_give(ACT_BOOM);
+        ONLY(ACT_BOOM);
         Enemy dummy = {.type = EN_TANK, .uid = ++G.next_uid, .pos = v2(ARENA_CX + 300.0f, ARENA_CY), .radius = 30.0f,
                        .hp = 5000.0f, .max_hp = 5000.0f};
         G.en[G.nen++] = dummy;
@@ -558,7 +564,7 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         bool boom_ok = G.nen > 0 && G.en[0].hp < 5000.0f && G.npb == 1 && G.pb[0].life > 0.0f;
         G.nen = G.npb = 0;
 
-        active_give(ACT_STRENGTH);
+        ONLY(ACT_STRENGTH);
         pl->fire_cd = 0.0f;
         in->fire = true;
         TICK();
@@ -572,7 +578,7 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         bool strength_ok = normal > 0 && strong == 4 * normal;
         G.npb = 0;
 
-        active_give(ACT_CHAOS);
+        ONLY(ACT_CHAOS);
         float dmg = pl->dmg_mult, rate = pl->rate_mult, speed = pl->speed;
         int owned = 0;
         for (int u = 0; u < UPG_COUNT; u++) owned += pl->upg_count[u];
@@ -594,14 +600,15 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         }
         chaos_ok = chaos_ok && still == 0 && after == owned && pl->dmg_mult == dmg && pl->rate_mult == rate && pl->speed == speed;
 
-        /* Taking the item held again levels it up: longer, stronger, faster recharge. */
-        active_give(ACT_SHIELD);
+        /* Taking an item owned again levels it up: longer, stronger, faster recharge. */
+        ONLY(ACT_SHIELD);
         active_give(ACT_SHIELD);
         in->active_pressed = true;
         TICK();
-        bool level_ok = pl->act_level == 2 && fabsf(pl->act_t - (active_duration(ACT_SHIELD, 2) - DT)) < 0.02f &&
+        const ActiveSlot *sh = &pl->act[ACT_SHIELD];
+        bool level_ok = sh->level == 2 && fabsf(sh->t - (active_duration(ACT_SHIELD, 2) - DT)) < 0.02f &&
                         active_duration(ACT_SHIELD, 2) > active_duration(ACT_SHIELD, 1) &&
-                        fabsf(pl->act_cd_max - active_cooldown(ACT_SHIELD, 2)) < 0.02f && pl->act_cd_max < active_cooldown(ACT_SHIELD, 1);
+                        fabsf(sh->cd_max - active_cooldown(ACT_SHIELD, 2)) < 0.02f && sh->cd_max < active_cooldown(ACT_SHIELD, 1);
         bool offered_held = false, offered_max = false;
         for (int k = 0; k < 30; k++) {
             G.npk = 0;
@@ -616,9 +623,44 @@ static int debug_rooms_run(const HeadlessOptions *o) {
             level_ok = level_ok && G.npk == REWARD_CHOICES;
         }
         G.npk = 0;
-        level_ok = level_ok && offered_held && !offered_max && pl->act_level == MAX_ACTIVE_LEVEL;
+        level_ok = level_ok && offered_held && !offered_max && sh->level == MAX_ACTIVE_LEVEL;
         failures += !level_ok;
         printf("scripted actives: level up (offered while it can level, never at max %d) -> %s\n", MAX_ACTIVE_LEVEL, level_ok ? "OK" : "FAILED");
+
+        /* Several items at once: one press triggers every one turned on and ready, each then
+         * recharges on its own; one turned off is never triggered, and turning it off ends its
+         * effect; taking a new one keeps the others. */
+        memset(pl->act, 0, sizeof pl->act);
+        for (int t = 0; t < 30; t++) TICK();
+        G.neb = G.npb = 0;
+        active_give(ACT_NOVA);
+        active_give(ACT_SHIELD);
+        active_give(ACT_STRENGTH);
+        active_give(ACT_NOVA);
+        int uses0 = G.active_uses;
+        bool multi_ok = actives_owned(owned_acts) == 3 && pl->act[ACT_NOVA].level == 2 && pl->act[ACT_SHIELD].level == 1;
+        in->active_pressed = true;
+        TICK();
+        multi_ok = multi_ok && G.active_uses == uses0 + 1 && active_shield_on() && active_strength_on() && G.npb >= 28 &&
+                   pl->act[ACT_NOVA].cd > 0.0f && pl->act[ACT_SHIELD].cd > 0.0f && pl->act[ACT_NOVA].cd != pl->act[ACT_SHIELD].cd;
+        multi_ok = multi_ok && active_toggle(ACT_SHIELD) && !active_shield_on() && pl->act[ACT_SHIELD].off && active_strength_on();
+        multi_ok = multi_ok && !active_toggle(ACT_BLINK); /* not owned */
+        for (int t = 0; t < 30 * TICK_RATE; t++) TICK(); /* everything recharged */
+        in->active_pressed = true;
+        TICK();
+        multi_ok = multi_ok && !active_shield_on() && pl->act[ACT_SHIELD].cd == 0.0f && active_strength_on() && pl->act[ACT_NOVA].cd > 0.0f;
+        active_toggle(ACT_SHIELD);
+        G.npk = 0;
+        for (int k = 0; k < 30; k++) { /* one owned (not at max) can still be offered, as a level up */
+            G.npk = 0;
+            active_spawn_choices(v2(ARENA_CX, ARENA_CY));
+            for (int i = 0; i < G.npk; i++)
+                for (int j = i + 1; j < G.npk; j++) multi_ok = multi_ok && G.pk[i].sub != G.pk[j].sub;
+        }
+        G.npk = G.npb = G.neb = 0;
+        failures += !multi_ok;
+        printf("scripted actives: several at once (one press, own recharges, turned off = never used) -> %s\n", multi_ok ? "OK" : "FAILED");
+#undef ONLY
 #undef TICK
         printf("scripted actives: none -> %s, dash -> %s, shield -> %s, boom -> %s, strength %d -> %d shots -> %s, chaos %d upgrades -> %s\n",
                none_ok ? "OK" : "FAILED", dash_ok ? "OK" : "FAILED", shield_ok ? "OK" : "FAILED", boom_ok ? "OK" : "FAILED",
@@ -654,7 +696,7 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         DUMMY(ARENA_CX + 200.0f, ARENA_CY);
         in->active_pressed = true;
         for (int t = 0; t < 90; t++) TICK();
-        names[nres] = "turret", oks[nres++] = G.nen > 0 && G.en[0].hp < 5000.0f && pl->act_t > 0.0f;
+        names[nres] = "turret", oks[nres++] = G.nen > 0 && G.en[0].hp < 5000.0f && active_running(ACT_TURRET);
 
         FRESH(); /* BLINK: to the cursor */
         active_give(ACT_BLINK);
@@ -876,6 +918,25 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         game_update();
         clear_edges();
         menu_ok = menu_ok && G.state == GS_PAUSED;
+        /* Active items come first in the menu and turn off / on the same way. */
+        G.state = GS_PLAYING;
+        active_give(ACT_NOVA);
+        in->menu_pressed = true;
+        game_update();
+        clear_edges();
+        in->mouse = v2((SCREEN_W - (4.0f * 430.0f + 3.0f * 12.0f)) * 0.5f + 100.0f, 215.0f + 20.0f);
+        in->click_pressed = true;
+        game_update();
+        clear_edges();
+        menu_ok = menu_ok && pl->act[ACT_NOVA].off;
+        in->click_pressed = true;
+        game_update();
+        clear_edges();
+        menu_ok = menu_ok && !pl->act[ACT_NOVA].off;
+        in->menu_pressed = true;
+        game_update();
+        clear_edges();
+        menu_ok = menu_ok && G.state == GS_PLAYING;
         printf("scripted upgrades menu: order -> %s, all off -> %s, all back on (no heal) -> %s, trade kept -> %s, TAB menu -> %s\n",
                order_ok ? "OK" : "FAILED", off_ok && sync ? "OK" : "FAILED", on_ok ? "OK" : "FAILED", trade_ok ? "OK" : "FAILED",
                menu_ok ? "OK" : "FAILED");
@@ -902,12 +963,14 @@ int headless_run(const HeadlessOptions *o) {
         G.character = o->character;
         game_new_run();
         const CharDef *cd = &CHARACTERS[G.character];
+        int start_acts[ACT_COUNT];
         const char *start_err = G.pl.max_hp != cd->hearts * 2 || G.pl.hp != G.pl.max_hp || G.pl.shield != cd->armor * 2 ||
                                         (cd->start_upgrade >= 0 && G.pl.upg_count[cd->start_upgrade] != 1) ||
                                         G.pl.hit_radius != cd->hit_radius || G.pl.dmg_mult != cd->dmg_mult
                                     ? "run did not start with the character's stats / weapon mod"
-                                : G.pl.active != ACT_NONE ? "run started with an active item (they must be found)" : NULL;
-        if (o->active) active_give(o->active);
+                                : actives_owned(start_acts) > 0 ? "run started with an active item (they must be found)" : NULL;
+        for (int a = ACT_NONE + 1; a < ACT_COUNT; a++)
+            if (o->actives & (1u << a)) active_give(a);
         if (o->weapon >= 0 && !upgrade_capped(o->weapon)) upgrade_apply(o->weapon);
         G.bot_toggles = o->toggle_upgrades;
         G.pl.coins += o->coins;
@@ -1005,7 +1068,10 @@ int headless_run(const HeadlessOptions *o) {
             if (upg_has(u)) printf("%.4s+", UPGRADES[u].name);
         printf("%s upgrades=%d off=%d toggles=%d ", gun_main_mod() < 0 ? "BLAS" : "", owned, off, G.toggles);
         printf("hits=%d coins=%d shops=%d bought=%d secrets=%d stats_rooms=%d", hits, p->coins, shops, G.items_bought, secrets, stats_rooms);
-        printf(" active=%s%d uses=%d", active_option_name(p->active), p->act_level, G.active_uses);
+        int acts[ACT_COUNT], na = actives_owned(acts);
+        printf(" actives=");
+        for (int i = 0; i < na; i++) printf("%s%d%s", active_option_name(acts[i]), p->act[acts[i]].level, i + 1 < na ? "+" : "");
+        printf("%s uses=%d", na ? "" : "none", G.active_uses);
         if (workshops) printf(" workshops=%d machine_uses=%d augments=%d", workshops, G.machine_uses, G.augments);
         if (start_revives > p->revives) printf(" second_winds=%d", start_revives - p->revives);
         if (stats_rooms)
@@ -1023,10 +1089,10 @@ int headless_run(const HeadlessOptions *o) {
         } else if (o->workshop_room && (G.machine_uses == 0 || G.augments == 0)) {
             printf("  started in a workshop but never used a machine (%d) or took an augment (%d)\n", G.machine_uses, G.augments);
             failures++;
-        } else if ((o->active || o->active_room) && G.active_uses == 0) {
+        } else if ((o->actives || o->active_room) && G.active_uses == 0) {
             printf("  had an active item but never used it\n");
             failures++;
-        } else if (o->active_room && p->active == ACT_NONE) {
+        } else if (o->active_room && na == 0) {
             printf("  started in an active room but never took an active item\n");
             failures++;
         } else if (o->toggle_upgrades && G.toggles == 0) {

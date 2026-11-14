@@ -11,7 +11,7 @@ void player_init(void) {
     memset(p, 0, sizeof *p);
     p->keys = 1;
     p->bombs = 2;
-    p->active = ACT_NONE; /* active items are found in active rooms */
+    /* no active item (p->act[] zeroed): they are found in active rooms */
     Stats *b = &p->base;
     b->max_hp = 6;
     b->speed = 540.0f;
@@ -189,10 +189,13 @@ void player_draw(void) {
     draw_circle(p->pos, p->hit_radius + 2.0f, col_hex(0xff3355, 1));
     draw_circle(p->pos, p->hit_radius, COL_WHITE);
 
-    /* Active item recharging: an arc around the ship fills up. */
-    if (p->active != ACT_NONE && p->act_cd > 0.0f && p->act_cd_max > 0.0f) {
-        float k = 1.0f - p->act_cd / p->act_cd_max;
-        SDL_FColor c = p->active == ACT_DASH ? COL_WHITE : col_hex(ACTIVES[p->active].color, 1);
-        draw_arc(p->pos, 30.0f, 3.0f, -PI_F * 0.5f, -PI_F * 0.5f + TAU_F * k, col_a(c, 0.35f));
+    /* Active items recharging: an arc per item around the ship fills up (4 at most). */
+    int ring = 0;
+    for (int a = ACT_NONE + 1; a < ACT_COUNT && ring < 4; a++) {
+        const ActiveSlot *s = &p->act[a];
+        if (s->level == 0 || s->off || s->cd <= 0.0f || s->cd_max <= 0.0f) continue;
+        float k = 1.0f - s->cd / s->cd_max;
+        SDL_FColor c = a == ACT_DASH ? COL_WHITE : col_hex(ACTIVES[a].color, 1);
+        draw_arc(p->pos, 30.0f + 6.0f * (float)ring++, 2.5f, -PI_F * 0.5f, -PI_F * 0.5f + TAU_F * k, col_a(c, 0.35f));
     }
 }

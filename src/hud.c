@@ -35,38 +35,46 @@ static void draw_upgrades_panel(void) {
     else draw_text(x + w - 130.0f, y + 36.0f, 1.25f, col_a(COL_WHITE, 0.4f), "ON / OFF");
 }
 
-/* Active item slot, next to the resources: icon, name, recharge bar, key. */
+/* Active items, next to the resources: one cell per item owned (icon, level pips, recharge
+ * bar, or the effect draining), lit when ready; all of them go off with SPACE / right click. */
 static void draw_active_slot(void) {
     const Player *p = &G.pl;
-    const float x = 380.0f, y = 14.0f, w = 230.0f, h = 60.0f;
-    bool none = p->active == ACT_NONE;
-    SDL_FColor c = col_hex(none ? 0x2a3040 : ACTIVES[p->active].color, 1);
-    bool ready = !none && p->act_cd <= 0.0f;
-    draw_rect(x, y, w, h, ready ? col_a(col_mul(c, 0.18f), 1.0f) : col_hex(0x0b0e18, 1));
-    draw_rect_outline(x, y, w, h, ready ? 2.5f : 1.5f, col_a(c, ready ? 0.6f + 0.4f * sinf(G.time * 5.0f) : 0.5f));
-    if (none) {
+    const float x = 380.0f, y = 14.0f, h = 60.0f, cw = 32.0f;
+    int list[ACT_COUNT];
+    int n = actives_owned(list);
+    if (n == 0) {
+        const float w = 230.0f;
+        draw_rect(x, y, w, h, col_hex(0x0b0e18, 1));
+        draw_rect_outline(x, y, w, h, 1.5f, col_hex(0x2a3040, 1));
         draw_text_centered(x + w * 0.5f, y + 14.0f, 1.5f, col_hex(0x4a5470, 1), "NO ACTIVE ITEM");
         draw_text_centered(x + w * 0.5f, y + 36.0f, 1.25f, col_hex(0x4a5470, 1), "find one in an ACTIVE room");
         return;
     }
-    draw_active_icon(p->active, v2(x + 30.0f, y + h * 0.5f), 14.0f, G.time);
-    const char *name = ACTIVES[p->active].name;
-    float ns = draw_text_width(name, 2.0f) <= w - 70.0f ? 2.0f : 1.5f; /* BLADE STORM is long */
-    draw_text(x + 58.0f, y + (ns == 2.0f ? 8.0f : 11.0f), ns, c, "%s", name);
-    float bx = x + 58.0f, bw = w - 70.0f - 62.0f, by = y + 34.0f;
-    for (int l = 0; l < MAX_ACTIVE_LEVEL; l++) /* level pips, like the weapon slots */
-        draw_rect(bx + bw + 8.0f + (float)l * 11.0f, by + 1.0f, 8.0f, 6.0f, l < p->act_level ? c : col_hex(0x2a3040, 1));
-    draw_rect(bx, by, bw, 8.0f, col_hex(0x1a2035, 1));
-    float dur = active_duration(p->active, p->act_level);
-    if (p->act_t > 0.0f && dur > 0.0f) {
-        /* effect running: the bar drains */
-        draw_rect(bx, by, bw * fminf(p->act_t / dur, 1.0f), 8.0f, COL_WHITE);
-    } else {
-        float k = ready || p->act_cd_max <= 0.0f ? 1.0f : 1.0f - p->act_cd / p->act_cd_max;
-        draw_rect(bx, by, bw * k, 8.0f, ready ? c : col_a(c, 0.5f));
+    const float w = 12.0f + cw * (float)n;
+    draw_rect(x, y, w, h, col_hex(0x0b0e18, 1));
+    draw_rect_outline(x, y, w, h, 1.5f, col_hex(0x2a3040, 1));
+    for (int i = 0; i < n; i++) {
+        int a = list[i];
+        const ActiveSlot *k = &p->act[a];
+        float cx = x + 6.0f + cw * (float)i;
+        SDL_FColor c = col_hex(k->off ? 0x4a5470 : ACTIVES[a].color, 1);
+        bool ready = !k->off && k->cd <= 0.0f;
+        if (ready) draw_rect(cx + 1.0f, y + 4.0f, cw - 2.0f, h - 8.0f, col_a(col_mul(c, 0.2f), 1.0f));
+        if (ready && k->t <= 0.0f)
+            draw_rect_outline(cx + 1.0f, y + 4.0f, cw - 2.0f, h - 8.0f, 1.5f, col_a(c, 0.5f + 0.4f * sinf(G.time * 5.0f)));
+        draw_active_icon(a, v2(cx + cw * 0.5f, y + 22.0f), 9.0f, G.time);
+        if (k->off) {
+            draw_rect(cx + 2.0f, y + 6.0f, cw - 4.0f, 32.0f, rgba(0.03f, 0.03f, 0.06f, 0.7f));
+            draw_text_centered(cx + cw * 0.5f, y + 18.0f, 1.0f, col_hex(0xff5f7e, 1), "OFF");
+        }
+        for (int l = 0; l < k->level; l++) /* level pips */
+            draw_rect(cx + 4.0f + (float)l * 5.0f, y + 39.0f, 3.0f, 4.0f, c);
+        float bx = cx + 4.0f, bw = cw - 8.0f, by = y + 47.0f;
+        draw_rect(bx, by, bw, 5.0f, col_hex(0x1a2035, 1));
+        float dur = active_duration(a, k->level);
+        if (k->t > 0.0f && dur > 0.0f) draw_rect(bx, by, bw * fminf(k->t / dur, 1.0f), 5.0f, COL_WHITE); /* effect draining */
+        else draw_rect(bx, by, bw * (ready || k->cd_max <= 0.0f ? 1.0f : 1.0f - k->cd / k->cd_max), 5.0f, ready ? c : col_a(c, 0.5f));
     }
-    if (p->act_t > 0.0f) draw_text(bx, y + 46.0f, 1.0f, col_a(COL_WHITE, 0.8f), "ACTIVE - %.1f S", (double)p->act_t);
-    else draw_text(bx, y + 46.0f, 1.0f, col_a(COL_WHITE, 0.45f), "%s", ready ? "READY - SPACE" : "RECHARGING");
 }
 
 /* ---- Stats overlay (F2, top-left of the arena, semi-transparent) ---------- */

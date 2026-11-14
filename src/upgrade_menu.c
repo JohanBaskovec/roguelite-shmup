@@ -3,9 +3,10 @@
 #include "game.h"
 
 /*
- * Upgrades menu (TAB, from a run or the pause screen): every upgrade found. Each one can be
- * turned off and back on (upgrade_toggle): a build can be shaped, e.g. an upgrade reshaping
- * the shots that does not fit the others. The world is frozen while it is open.
+ * Upgrades menu (TAB, from a run or the pause screen): every active item owned, then every
+ * upgrade found. Each one can be turned off and back on (active_toggle / upgrade_toggle): a
+ * build can be shaped, e.g. an upgrade reshaping the shots that does not fit the others, or an
+ * active item that should not go off with the rest. The world is frozen while it is open.
  */
 
 #define COLS 4
@@ -28,6 +29,19 @@ int upgrade_menu_list(int *out) {
         if (G.pl.upg_count[u] > 0) out[n++] = u;
     return n;
 }
+
+/* Menu entries: active items (UPG_COUNT + ActiveId) first, then upgrades (UpgradeId). */
+#define ACT_ENTRY(e) ((e) >= UPG_COUNT ? (e) - UPG_COUNT : -1)
+#define MAX_ENTRIES (UPG_COUNT + ACT_COUNT)
+
+static int entries(int *out) {
+    int acts[ACT_COUNT];
+    int na = actives_owned(acts);
+    for (int i = 0; i < na; i++) out[i] = UPG_COUNT + acts[i];
+    return na + upgrade_menu_list(out + na);
+}
+
+static bool entry_off(int e) { return ACT_ENTRY(e) >= 0 ? G.pl.act[ACT_ENTRY(e)].off : G.pl.upg_off[e]; }
 
 static float grid_x(void) { return (SCREEN_W - (CELL_W * COLS + GAP * (COLS - 1))) * 0.5f; }
 
@@ -53,14 +67,15 @@ void upgrade_menu_open(void) {
     M.left = G.in.left;
     M.right = G.in.right;
     M.mouse = G.in.mouse;
-    int list[UPG_COUNT];
-    int n = upgrade_menu_list(list);
+    int list[MAX_ENTRIES];
+    int n = entries(list);
     if (M.sel >= n) M.sel = n > 0 ? n - 1 : 0;
     sfx_play(SFX_PAUSE);
 }
 
-static void toggle(int u) {
-    if (upgrade_toggle(u)) sfx_play_ex(SFX_WEAPON_SWITCH, 1.0f, G.pl.upg_off[u] ? 0.8f : 1.2f, 0.0f);
+static void toggle(int e) {
+    bool ok = ACT_ENTRY(e) >= 0 ? active_toggle(ACT_ENTRY(e)) : upgrade_toggle(e);
+    if (ok) sfx_play_ex(SFX_WEAPON_SWITCH, 1.0f, entry_off(e) ? 0.8f : 1.2f, 0.0f);
     else sfx_play(SFX_DENIED);
 }
 
@@ -71,8 +86,8 @@ void upgrade_menu_update(void) {
         sfx_play(SFX_PAUSE);
         return;
     }
-    int list[UPG_COUNT];
-    int n = upgrade_menu_list(list);
+    int list[MAX_ENTRIES];
+    int n = entries(list);
     int prev = M.sel;
     if (n > 0) {
         if (in->left && !M.left && M.sel > 0) M.sel--;
@@ -117,26 +132,35 @@ void upgrade_menu_draw(void) {
     draw_text_centered(SCREEN_W * 0.5f, 122.0f, 1.75f, col_a(COL_WHITE, 0.6f),
                        "CLICK / ENTER / SPACE  turn on - off      ARROWS / WHEEL  move      TAB / ESC  back");
 
-    int list[UPG_COUNT];
-    int n = upgrade_menu_list(list);
+    int list[MAX_ENTRIES];
+    int n = entries(list);
     if (n == 0) {
         draw_text_centered(SCREEN_W * 0.5f, 480.0f, 3.0f, col_a(COL_WHITE, 0.5f), "NO UPGRADE FOUND YET");
         return;
     }
-    int off = 0;
-    for (int i = 0; i < n; i++) off += p->upg_off[list[i]];
+    int off = 0, nact = 0;
+    for (int i = 0; i < n; i++) {
+        off += entry_off(list[i]);
+        nact += ACT_ENTRY(list[i]) >= 0;
+    }
     for (int i = M.scroll * COLS; i < n && i < (M.scroll + ROWS_SHOWN) * COLS; i++) {
-        int u = list[i];
+        int u = list[i], a = ACT_ENTRY(u);
         float x, y;
         cell_pos(i, &x, &y);
-        bool on = !p->upg_off[u], sel = i == M.sel, fixed = !upgrade_toggleable(u);
-        SDL_FColor c = col_hex(UPGRADES[u].color, 1);
+        bool on = !entry_off(u), sel = i == M.sel, fixed = a < 0 && !upgrade_toggleable(u);
+        SDL_FColor c = col_hex(a >= 0 ? ACTIVES[a].color : UPGRADES[u].color, 1);
         draw_rect(x, y, CELL_W, CELL_H, on ? col_a(col_mul(c, 0.16f), 1.0f) : col_hex(0x07080e, 1));
         draw_rect_outline(x, y, CELL_W, CELL_H, sel ? 3.0f : 1.5f, sel ? COL_WHITE : on ? col_a(c, 0.55f) : col_hex(0x2a3040, 1));
-        draw_pickup_icon(PK_UPGRADE, u, v2(x + 26.0f, y + CELL_H * 0.5f), 11.0f, G.time);
+        if (a >= 0) draw_active_icon(a, v2(x + 26.0f, y + CELL_H * 0.5f), 11.0f, G.time);
+        else draw_pickup_icon(PK_UPGRADE, u, v2(x + 26.0f, y + CELL_H * 0.5f), 11.0f, G.time);
         if (!on) draw_rect(x + 8.0f, y + 6.0f, 38.0f, CELL_H - 12.0f, rgba(0.03f, 0.03f, 0.06f, 0.7f));
         SDL_FColor tc = on ? c : col_hex(0x4a5470, 1);
-        draw_text(x + 54.0f, y + 16.0f, 2.0f, tc, "%s", UPGRADES[u].name);
+        if (a >= 0) {
+            draw_text(x + 54.0f, y + 8.0f, 2.0f, tc, "%s", ACTIVES[a].name);
+            draw_text(x + 54.0f, y + 31.0f, 1.0f, col_a(tc, 0.7f), "ACTIVE ITEM - LEVEL %d", p->act[a].level);
+        } else {
+            draw_text(x + 54.0f, y + 16.0f, 2.0f, tc, "%s", UPGRADES[u].name);
+        }
         const char *tag = fixed ? "ONE-TIME" : on ? "ON" : "OFF";
         SDL_FColor gc = fixed ? col_hex(0x6a7490, 1) : on ? col_hex(0x7dff9a, 1) : col_hex(0xff5f7e, 1);
         float ts = fixed ? 1.25f : 2.0f;
@@ -149,10 +173,17 @@ void upgrade_menu_draw(void) {
         draw_rect(bx, top + h * (float)M.scroll / (float)rows, 6.0f, h * (float)ROWS_SHOWN / (float)rows, col_hex(0xb57cff, 0.8f));
     }
 
-    /* The selected upgrade, in full. */
-    int u = list[M.sel < n ? M.sel : n - 1];
+    /* The selected entry, in full. */
+    int u = list[M.sel < n ? M.sel : n - 1], a = ACT_ENTRY(u);
     float y = GRID_Y + ROWS_SHOWN * (CELL_H + GAP) + 18.0f;
-    draw_text_centered(SCREEN_W * 0.5f, y, 3.0f, col_hex(UPGRADES[u].color, 1), "%s", UPGRADES[u].name);
-    draw_desc(SCREEN_W * 0.5f, y + 42.0f, 2.0f, col_a(COL_WHITE, 0.8f), upgrade_desc_at(u, p->upg_count[u]));
-    draw_text_centered(SCREEN_W * 0.5f, y + 100.0f, 1.5f, col_a(COL_WHITE, 0.45f), "%d UPGRADE%s FOUND, %d TURNED OFF", n, n > 1 ? "S" : "", off);
+    if (a >= 0) {
+        draw_text_centered(SCREEN_W * 0.5f, y, 3.0f, col_hex(ACTIVES[a].color, 1), "%s - LEVEL %d", ACTIVES[a].name, p->act[a].level);
+        draw_desc(SCREEN_W * 0.5f, y + 42.0f, 2.0f, col_a(COL_WHITE, 0.8f), active_desc(a, p->act[a].level));
+    } else {
+        draw_text_centered(SCREEN_W * 0.5f, y, 3.0f, col_hex(UPGRADES[u].color, 1), "%s", UPGRADES[u].name);
+        draw_desc(SCREEN_W * 0.5f, y + 42.0f, 2.0f, col_a(COL_WHITE, 0.8f), upgrade_desc_at(u, p->upg_count[u]));
+    }
+    int nupg = n - nact;
+    draw_text_centered(SCREEN_W * 0.5f, y + 100.0f, 1.5f, col_a(COL_WHITE, 0.45f), "%d ACTIVE ITEM%s (ALL GO OFF TOGETHER), %d UPGRADE%s, %d TURNED OFF",
+                       nact, nact != 1 ? "S" : "", nupg, nupg != 1 ? "S" : "", off);
 }

@@ -24,11 +24,13 @@ void bot_input(void) {
         return;
     }
     if (G.state == GS_DEBUG || G.state == GS_UPGRADES) return;
-    /* --toggle-upgrades: every 4 s, turn a random upgrade off (or back on), like the TAB menu. */
+    /* --toggle-upgrades: every 4 s, turn a random upgrade or active item off (or back on), like the TAB menu. */
     if (G.bot_toggles && G.state == GS_PLAYING && G.ticks % (4 * TICK_RATE) == 0) {
-        int list[UPG_COUNT];
-        int n = upgrade_menu_list(list);
-        if (n > 0) upgrade_toggle(list[irand(0, n - 1)]);
+        int list[UPG_COUNT], acts[ACT_COUNT];
+        int n = upgrade_menu_list(list), na = actives_owned(acts);
+        int r = n + na > 0 ? irand(0, n + na - 1) : -1;
+        if (r >= n) active_toggle(acts[r - n]);
+        else if (r >= 0) upgrade_toggle(list[r]);
     }
     /* Like a player in the TAB menu: when its shots have hit nothing for a while (a weapon mod
      * combo that does not work here), turn one of its weapon mods off, every 10 s. */
@@ -136,7 +138,7 @@ void bot_input(void) {
             int score = d->type == ROOM_SHOP ? (pl->coins >= 25 ? 7 : pl->coins >= 14 ? 4 : 0)
                       : d->type == ROOM_STATS ? 4
                       : d->type == ROOM_WORKSHOP ? (pl->coins >= GAMBLE_COST || pl->max_hp >= 6 ? 5 : 2)
-                      : d->reward == RW_ACTIVE ? (pl->active == ACT_NONE ? 7 : 2)
+                      : d->reward == RW_ACTIVE ? (G.active_uses == 0 && !pl->act[ACT_DASH].level ? 7 : 4)
                       : d->reward == RW_UPGRADE ? 5
                       : d->reward == RW_HEART && pl->hp <= pl->max_hp / 2 ? 6
                       : d->reward == RW_COINS && pl->coins < 40 ? 4
@@ -208,32 +210,33 @@ void bot_input(void) {
         V2 centre = v2_norm(v2_sub(v2(ARENA_CX, ARENA_CY), pl->pos));
         dir = v2_len2(away) > 1.0f ? v2_norm(v2_add(v2_norm(away), v2_scale(centre, 0.3f))) : centre;
     }
-    /* Active item, when it is ready and worth it. */
-    if (pl->active != ACT_NONE && pl->act_cd <= 0.0f && pl->act_t <= 0.0f && !G.room.cleared) {
+    /* Active items: one press triggers every item ready, so press when any of them is worth it. */
+    if (!G.room.cleared) {
         int alive = 0;
         for (int i = 0; i < G.nen; i++) alive += G.en[i].hp > 0.0f;
-        switch (pl->active) {
-        case ACT_DASH: in->active_pressed = imminent || overlapped; break;
-        case ACT_SHIELD: in->active_pressed = imminent || overlapped || threats >= 4; break;
-        case ACT_BOOM: /* plenty of shots out near enemies, or (sword) enemies right around */
-            in->active_pressed = alive > 0 && (melee ? nearest && best_any < 220.0f * 220.0f : G.npb >= 10);
-            break;
-        case ACT_STRENGTH: in->active_pressed = alive >= 3 && (t || melee); break;
-        case ACT_CHAOS: in->active_pressed = alive >= 5; break;
-        case ACT_REVERSAL: in->active_pressed = G.neb >= 40 || threats >= 5; break;
-        case ACT_TURRET: in->active_pressed = alive >= 3; break;
-        case ACT_BLINK:
-            if (imminent || overlapped) {
-                /* jump away from the danger, not onto the enemy being aimed at */
-                in->mouse = v2_add(pl->pos, v2_scale(v2_len2(avoid) > 0.0f ? v2_norm(avoid) : v2_norm(v2_sub(v2(ARENA_CX, ARENA_CY), pl->pos)), 320.0f));
-                in->active_pressed = true;
+        for (int a = ACT_NONE + 1; a < ACT_COUNT && !in->active_pressed; a++) {
+            const ActiveSlot *k = &pl->act[a];
+            if (k->level == 0 || k->off || k->cd > 0.0f || k->t > 0.0f) continue;
+            switch (a) {
+            case ACT_DASH: in->active_pressed = imminent || overlapped; break;
+            case ACT_SHIELD: in->active_pressed = imminent || overlapped || threats >= 4; break;
+            case ACT_BOOM: /* plenty of shots out near enemies, or (sword) enemies right around */
+                in->active_pressed = alive > 0 && (melee ? nearest && best_any < 220.0f * 220.0f : G.npb >= 10);
+                break;
+            case ACT_STRENGTH: in->active_pressed = alive >= 3 && (t || melee); break;
+            case ACT_CHAOS: in->active_pressed = alive >= 5; break;
+            case ACT_REVERSAL: in->active_pressed = G.neb >= 40 || threats >= 5; break;
+            case ACT_TURRET: in->active_pressed = alive >= 3; break;
+            case ACT_BLINK: in->active_pressed = imminent || overlapped; break;
+            case ACT_NOVA: in->active_pressed = alive >= 3 && nearest && best_any < 380.0f * 380.0f; break;
+            case ACT_TIME_STOP: in->active_pressed = threats >= 5 || (imminent && alive >= 3); break;
+            case ACT_BLADES: in->active_pressed = threats >= 3 || (alive >= 2 && nearest && best_any < 240.0f * 240.0f); break;
+            default: break;
             }
-            break;
-        case ACT_NOVA: in->active_pressed = alive >= 3 && nearest && best_any < 380.0f * 380.0f; break;
-        case ACT_TIME_STOP: in->active_pressed = threats >= 5 || (imminent && alive >= 3); break;
-        case ACT_BLADES: in->active_pressed = threats >= 3 || (alive >= 2 && nearest && best_any < 240.0f * 240.0f); break;
-        default: break;
         }
+        /* BLINK jumps to the cursor: away from the danger, not onto the enemy being aimed at. */
+        if (in->active_pressed && active_level_on(ACT_BLINK) && pl->act[ACT_BLINK].cd <= 0.0f && (imminent || overlapped))
+            in->mouse = v2_add(pl->pos, v2_scale(v2_len2(avoid) > 0.0f ? v2_norm(avoid) : v2_norm(v2_sub(v2(ARENA_CX, ARENA_CY), pl->pos)), 320.0f));
     }
     if (pl->hp <= 2 && threats >= 6 && pl->bombs > 0 && pl->invuln <= 0.0f) in->bomb_pressed = true;
 

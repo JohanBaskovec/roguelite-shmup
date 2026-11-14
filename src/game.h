@@ -56,8 +56,9 @@ typedef enum {
     UPG_COUNT
 } UpgradeId;
 
-/* Active items: one slot, used with SPACE / SHIFT / right click, then recharges. None at the start:
- * they come from active rooms (RW_ACTIVE, choice of 3). */
+/* Active items: several can be owned at once; SPACE / SHIFT / right click triggers every one that
+ * is turned on and ready, then each recharges on its own. None at the start: they come from active
+ * rooms (RW_ACTIVE, choice of 3); taking one already owned levels it up. */
 typedef enum {
     ACT_NONE, ACT_DASH, ACT_SHIELD, ACT_BOOM, ACT_STRENGTH, ACT_CHAOS,
     ACT_REVERSAL, ACT_TURRET, ACT_BLINK, ACT_NOVA, ACT_TIME_STOP, ACT_BLADES,
@@ -74,7 +75,14 @@ typedef struct {
 extern const ActiveDef ACTIVES[ACT_COUNT];
 
 #define DASH_BASE_CD 0.6f    /* Player.dash_cooldown at the start: the dash's own recharge */
-#define MAX_ACTIVE_LEVEL 5   /* taking the active item held again levels it up, like weapons */
+#define MAX_ACTIVE_LEVEL 5   /* taking an active item owned again levels it up */
+
+typedef struct {
+    int level;        /* 0: not owned, else 1..MAX_ACTIVE_LEVEL */
+    bool off;         /* turned off in the TAB menu: never triggered, no effect */
+    float cd, cd_max; /* recharge left / total of the last use */
+    float t;          /* effect time left (shield, strength, chaos...) */
+} ActiveSlot;
 
 typedef struct {
     const char *name;
@@ -179,7 +187,7 @@ typedef struct {
 /* ---- Pickups ------------------------------------------------------------- */
 
 /* PK_UPGRADE: any upgrade, weapon mods included (upgrade_is_weapon). */
-/* PK_ACTIVE: an active item (sub = ActiveId), replaces the one held. */
+/* PK_ACTIVE: an active item (sub = ActiveId), added to the ones owned (or levels one up). */
 /* PK_AUGMENT: workshop pad, a tier-N exclusive upgrade paid with N heart containers. */
 typedef enum { PK_COIN, PK_KEY, PK_BOMB, PK_HEART, PK_UPGRADE, PK_STAT, PK_AUGMENT, PK_ACTIVE } PickupType;
 
@@ -279,12 +287,9 @@ typedef struct {
     float fire_cd;
     float dash_t, dash_cooldown; /* dash_cooldown: the RECHARGE stat (dash recharge, scales every active) */
     V2 dash_dir;
-    int active;                 /* ActiveId held (ACT_NONE at the start) */
-    int act_level;              /* 1..MAX_ACTIVE_LEVEL (0 without an active item) */
-    float act_cd, act_cd_max;   /* recharge left / total of the last use */
-    float act_t;                /* effect time left (shield, strength, chaos) */
+    ActiveSlot act[ACT_COUNT];  /* indexed by ActiveId (ACT_NONE unused); none owned at the start */
     bool chaos[UPG_COUNT];      /* CHAOS: temporary upgrades (only ones not owned), removed when it ends */
-    V2 turret_pos;              /* TURRET active: where it stands (alive while act_t > 0) */
+    V2 turret_pos;              /* TURRET active: where it stands (alive while its effect runs) */
     float turret_cd, blade_a;   /* TURRET fire timer, BLADE STORM rotation */
     float spin;                 /* VULCAN: 0..1, spins up while firing */
     float momentum, momentum_t; /* MOMENTUM: damage bonus, time since the last hit */
@@ -537,7 +542,11 @@ void draw_ship(int character, V2 pos, float angle, float scale, bool blink);
 /* actives.c */
 void actives_update(void);            /* input, recharge, effects (from player_update) */
 void actives_draw(void);              /* shield bubble, strength / chaos auras */
-void active_give(int a);
+void active_give(int a);              /* a new item (level 1), or a level up of one owned */
+bool active_toggle(int a);            /* TAB menu: turn an owned item off / on (ends its effect); false if not owned */
+int actives_owned(int *out);          /* ActiveIds owned, in table order; returns the count */
+bool active_running(int a);           /* owned, turned on, effect running */
+int active_level_on(int a);           /* level if owned and turned on, else 0 */
 bool active_strength_on(void);        /* STRENGTH: x4 shots */
 bool active_shield_on(void);          /* SHIELD: invincible */
 bool active_time_stop_on(void);       /* TIME STOP: enemies and their bullets frozen */
@@ -548,7 +557,7 @@ const char *active_desc(int a, int level); /* '|' splits it over two lines */
 void active_end_chaos(void);
 const char *active_option_name(int a); /* lowercase name for --active */
 void draw_active_icon(int a, V2 pos, float s, float t);
-/* Active room: REWARD_CHOICES distinct actives; the one held only while it can still level up. */
+/* Active room: REWARD_CHOICES distinct actives; ones owned only while they can still level up. */
 void active_spawn_choices(V2 center);
 #define COLOR_ACTIVE 0xffe94d
 

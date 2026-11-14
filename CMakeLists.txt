@@ -171,6 +171,15 @@ if(SHMUP_BUILD_TESTS)
                      --fail-shot ${_out}/fail_sim_toggle_all.bmp)
     add_test(NAME render_upgrades_menu
              COMMAND neon_breach --shot ${_out}/render_upgrades_menu.bmp --all-upgrades --upgrades-menu --seed 13 --frames 30)
+    add_test(NAME sim_active_multi
+             COMMAND neon_breach --headless --god --active dash --active nova --active shield --active boom --active turret
+                     --seed 200 --runs 2 --ticks 24000 --expect-rooms 3 --fail-shot ${_out}/fail_sim_active_multi.bmp)
+    add_test(NAME sim_active_multi_toggle
+             COMMAND neon_breach --headless --active chaos --active blades --active timestop --active strength --toggle-upgrades
+                     --seed 300 --runs 3 --ticks 24000 --fail-shot ${_out}/fail_sim_active_multi_toggle.bmp)
+    add_test(NAME render_actives_hud
+             COMMAND neon_breach --shot ${_out}/render_actives_hud.bmp --active dash --active shield --active nova --active chaos
+                     --active turret --depth 4 --seed 14 --frames 400)
     add_test(NAME sim_active_reversal
              COMMAND neon_breach --headless --god --active reversal --seed 200 --runs 2 --ticks 24000 --expect-rooms 3
                      --fail-shot ${_out}/fail_sim_active_reversal.bmp)

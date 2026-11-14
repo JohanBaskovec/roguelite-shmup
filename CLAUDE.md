@@ -44,11 +44,15 @@ All graphics and sounds are generated in code. See README.md for controls and ar
 - **Enemies never scale with depth**: each type always has the same HP / speed / fire pattern
   (`ENEMIES` table). Difficulty only comes from more enemies, more waves and new, harder types.
 - When a room is cleared the ship is teleported back to the entry spot at the bottom (headless checks it).
-- **Active items** (`src/actives.c`, `Player.active`): the ship starts with none (not even the dash).
-  They are found in active rooms (combat rooms with `RW_ACTIVE`, a door like any other): choice of 3
-  distinct items. Taking another one replaces the item held; taking the same one levels it up
-  (`Player.act_level`, max `MAX_ACTIVE_LEVEL`, numbers in `active_duration` / `active_desc` /
-  `active_cooldown`); an item at max level is no longer offered. CHAOS only lends hook-only upgrades the player does not own (`Player.chaos`, read by `has()` /
+- **Active items** (`src/actives.c`, `Player.act[]` indexed by `ActiveId`): the ship starts with none
+  (not even the dash). They are found in active rooms (combat rooms with `RW_ACTIVE`, a door like any
+  other): choice of 3 distinct items. **Every item taken is kept**: one press (SPACE / SHIFT / right
+  click) triggers all the ones turned on and ready, each then recharges on its own (`ActiveSlot.cd`).
+  An item can be offered and taken again: it levels up (`ActiveSlot.level`, max `MAX_ACTIVE_LEVEL`,
+  numbers in `active_duration` / `active_desc` / `active_cooldown`); an item at max level is no longer
+  offered. Like upgrades, each one can be turned off / on in the TAB menu (`active_toggle`, listed first):
+  off = never triggered, a running effect stops; effects are read through `active_running()` /
+  `active_level_on()`, never `act[].t` alone. Per-press hooks (NOVA TRIGGER, `G.active_uses`) run once per press. CHAOS only lends hook-only upgrades the player does not own (`Player.chaos`, read by `has()` /
   `upg_has()`) and takes them all back when it ends. Recharges scale with the RECHARGE stat
   (`Player.dash_cooldown`).
 - A shop always sells exactly 5 items (weapons, upgrades, stat trades), paid with coins.
