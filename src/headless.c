@@ -60,6 +60,8 @@ static const char *check_invariants(float room_time) {
         const Pickup *k = &G.pk[i];
         if ((k->type == PK_UPGRADE || k->type == PK_AUGMENT) && (k->sub < 0 || k->sub >= UPG_COUNT)) return "invalid upgrade offered";
         if (k->type == PK_UPGRADE && p->upg_count[k->sub] > 0) return "upgrade offered that the player already owns";
+        if (k->type == PK_STAT && (stat_offer_down(k->sub) == ST_MAX_HP || stat_offer_down(k->sub) == ST_SHIELD))
+            return "stat trade offered that lowers max HP (or shields)";
         if (k->type == PK_AUGMENT && p->upg_count[k->sub] > 0) return "augment offered that the player already owns";
         for (int j = i + 1; j < G.npk; j++)
             if (k->type == PK_UPGRADE && G.pk[j].type == PK_UPGRADE && G.pk[j].sub == k->sub) return "the same upgrade offered twice";
@@ -71,6 +73,9 @@ static const char *check_invariants(float room_time) {
         if (G.mc[i].type == MC_GAMBLE && !G.mc[i].broken && G.mc[i].prize == PK_UPGRADE &&
             (p->upg_count[G.mc[i].prize_sub] > 0 || on_floor(G.mc[i].prize_sub)))
             return "slot machine prize already owned (or also on the floor)";
+    for (int i = 0; i < G.nmc; i++)
+        if (G.mc[i].type == MC_GAMBLE && G.mc[i].prize == PK_STAT && stat_offer_down(G.mc[i].prize_sub) == ST_MAX_HP)
+            return "slot machine prize is a stat trade that lowers max HP";
     for (int i = 0; i < G.npk; i++) {
         const Pickup *k = &G.pk[i];
         if (k->type != PK_ACTIVE) continue;
