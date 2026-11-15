@@ -38,7 +38,7 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   off = no effect at all (`Player.upg_off`, `has()` returns 0, stats left out); turning a heart
   container back on never heals; stat trades stay.
 - **Secret rooms**: some rooms (combat / stats / shop) hide one. During the fight a small, faint square
-  flashes briefly (`SECRET_FLASH_TIME`) anywhere in the room every 5-10 s; a bomb next to the bottom door
+  flashes briefly (`SECRET_FLASH_TIME`) anywhere in the room every 5-10 s; a bomb next to the entry door
   (`room_secret_spot`) opens it, leading to the secret room.
   The secret room has no enemies (exception above): 1 item (rarely 2) plus coins / bombs / keys
   are waiting there. Variants: 10% secret shop (5 priced items instead of the free item),
@@ -58,7 +58,11 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   (shots fly through, `enemy_damage` ignores them), shields through `enemy_blocks_shot()`; new enemy
   bullet behaviours are an `EBulletKind` handled in `update_enemy_bullets` (a grenade in the air,
   `ebullet_airborne()`, never hurts). A kamikaze blowing itself up is not a kill (`upg_on_kill` skipped).
-- When a room is cleared the ship is teleported back to the entry spot at the bottom (headless checks it).
+- **The ship enters a room by the door opposite the one it left by** (`Room.entry`, set from `G.entry_side`
+  in the transition; out on the right = in on the left; the launch bay and debug teleports: bottom). The entry
+  door stays closed - it only opens as the secret passage - and the other 3 sides are the exits (`gen_doors`;
+  the boss door is the one straight ahead). When a room is cleared the ship is teleported back to the entry
+  spot (`room_entry_spot`) (headless checks both).
 - **Active items** (`src/actives.c`, `Player.act[]` indexed by `ActiveId`): the ship starts with none
   (not even the dash). They are found in active rooms (combat rooms with `RW_ACTIVE`, a door like any
   other): choice of 3 distinct items. **Every item taken is kept**: one press (SPACE / SHIFT / right

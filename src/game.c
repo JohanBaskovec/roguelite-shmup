@@ -24,6 +24,7 @@ void game_init(uint64_t seed) {
     G.secret_shop_override = G.secret_ambush_override = -1; /* random */
     G.state = GS_TITLE;
     player_init();
+    G.entry_side = SIDE_BOTTOM;
     room_enter(ROOM_START, RW_NONE, 0);
 }
 
@@ -40,6 +41,7 @@ void game_new_run(void) {
     G.transitioning = false;
     G.gameover_t = 0.0f;
     G.demo = false; /* the menu's demo run is wiped */
+    G.entry_side = SIDE_BOTTOM; /* the launch bay: in from the bottom */
     room_enter(ROOM_START, RW_NONE, 0);
     G.state = GS_PLAYING;
     sfx_play(SFX_UI_START);
@@ -92,6 +94,7 @@ void game_world_step(void) {
                 room_return_from_secret();
             } else {
                 Door d = G.room.doors[G.trans_door];
+                G.entry_side = side_opposite(d.side); /* out on the right: in on the left */
                 room_enter(d.type, d.reward, G.room.depth + 1);
             }
         }

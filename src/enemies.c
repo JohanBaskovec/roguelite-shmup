@@ -64,7 +64,8 @@ int enemy_by_name(const char *name) {
 #define BLINK_WARN_T 0.5f
 #define LANCER_AIM_T 1.0f
 #define LANCER_BEAM_T 0.7f
-#define MIRROR_ARC 1.15f     /* half-angle of the mirror's front plate */
+#define MIRROR_ARC 1.0f      /* half-angle of the mirror's front plate */
+#define MIRROR_OPEN_T 0.5f   /* the plate opens that long each time it fires */
 #define MAX_MINES 24
 
 void enemy_queue_spawn(EnemyType type, V2 pos, float delay) {
@@ -139,7 +140,7 @@ bool enemy_untouchable(const Enemy *e) {
 }
 
 bool enemy_blocks_shot(const Enemy *e, V2 from) {
-    if (e->type != EN_MIRROR) return false;
+    if (e->type != EN_MIRROR || e->dodge_cd > 0.0f) return false; /* plate open while it fires */
     V2 d = v2_sub(from, e->pos);
     if (v2_len2(d) < 1.0f) return false;
     return v2_dot(v2_norm(d), v2_angle(e->angle)) > cosf(MIRROR_ARC);
@@ -924,8 +925,10 @@ static void update_serpent(Enemy *e) {
 static void update_mirror(Enemy *e, float aim) {
     wander(e, 260.0f, 460.0f, ENEMIES[e->type].speed);
     float diff = atan2f(sinf(aim - e->angle), cosf(aim - e->angle));
-    e->angle += clampf(diff, -1.1f * DT, 1.1f * DT);
+    e->angle += clampf(diff, -0.85f * DT, 0.85f * DT);
+    e->dodge_cd -= DT;
     if (e->fire_t <= 0.0f) {
+        e->dodge_cd = MIRROR_OPEN_T; /* it opens its plate to fire: the moment to hit it */
         for (int k = -1; k <= 1; k++) {
             EBullet *b = ebullet_spawn(v2_add(e->pos, v2_scale(v2_angle(e->angle), e->radius)), e->angle + 0.3f * (float)k, 250.0f, 7.0f,
                                        col_hex(0xeefcff, 1));
@@ -1678,7 +1681,7 @@ void enemies_draw(void) {
             draw_circle(v2_add(e->pos, v2_scale(v2_angle(e->angle), e->radius * 0.4f)), 4.0f, c);
             break;
         case EN_MIRROR: { /* the front plate */
-            SDL_FColor pc = e->flash > 0.0f ? COL_WHITE : col_hex(0xffffff, 0.95f);
+            SDL_FColor pc = e->flash > 0.0f ? COL_WHITE : col_hex(0xffffff, e->dodge_cd > 0.0f ? 0.25f : 0.95f);
             V2 prev = v2_add(e->pos, v2_scale(v2_angle(e->angle - MIRROR_ARC), e->radius + 9.0f));
             for (int k = 1; k <= 8; k++) {
                 float a = e->angle - MIRROR_ARC + 2.0f * MIRROR_ARC * (float)k / 8.0f;

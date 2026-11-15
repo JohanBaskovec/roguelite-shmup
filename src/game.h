@@ -315,10 +315,11 @@ typedef struct {
     int id;              /* unique per room_enter; kept when returning from a secret room */
     bool revisit;        /* restored after leaving its secret room (the only re-entered room) */
     /* Secret room: during combat a faint square flashes somewhere in the room every 5-10 s;
-     * a bomb next to the bottom door (room_secret_spot) then opens it. */
+     * a bomb next to the entry door (room_secret_spot) then opens it. */
     bool has_secret;
     V2 secret_flash_pos; /* where the current / last flash shows (anywhere in the room) */
     bool secret_open, secret_used;
+    Side entry;          /* door the ship came in by (the side opposite the one it left by); closed, or the secret passage */
     float secret_flash_t, secret_flash_cd;
     int secret_flashes;  /* how many times it flashed (the bot only "knows" after seeing one) */
     bool peaceful;       /* starts without enemies: launch bay, secret room without an ambush */
@@ -326,12 +327,12 @@ typedef struct {
 } Room;
 
 /* Pseudo door indices for game_start_transition(). */
-#define DOOR_SECRET (-1) /* bottom door into the secret room */
+#define DOOR_SECRET (-1) /* entry door, bombed open: into the secret room */
 #define DOOR_RETURN (-2) /* secret room exit, back to the room it was found in */
 #define SECRET_CHANCE 0.15f
 #define KEY_REWARD_2_CHANCE 0.14f /* key rooms: 2 keys */
 #define KEY_REWARD_3_CHANCE 0.04f /* key rooms: 3 keys */
-#define SECRET_BOMB_RADIUS 170.0f /* around room_secret_spot(), just above the bottom door */
+#define SECRET_BOMB_RADIUS 170.0f /* around room_secret_spot(), just inside the entry door */
 #define SECRET_FLASH_TIME 0.18f
 
 /* ---- Player -------------------------------------------------------------- */
@@ -478,6 +479,7 @@ typedef struct {
     GameState state;
     Rng rng;
     Input in;
+    Side entry_side; /* entry door of the next room_enter (opposite the door taken) */
     /* Main menu (title.c): a demo run played by the bot behind it, on its own generator. */
     bool demo;
     Rng demo_rng;
@@ -699,6 +701,8 @@ V2 room_navigate(V2 from, V2 goal, float margin);
 V2 door_position(Side side);
 RewardType room_roll_reward(void);
 V2 room_secret_spot(void);
+V2 room_entry_spot(void);       /* where the ship arrives: just inside the entry door */
+Side side_opposite(Side s);
 /* The launch bay and secret rooms are the exceptions to "every room starts full of enemies". */
 static inline bool room_type_peaceful(RoomType t) { return t == ROOM_START || t == ROOM_SECRET; }
 #define SECRET_SHOP_CHANCE 0.10f   /* a secret room holds a shop instead of its bonus item */

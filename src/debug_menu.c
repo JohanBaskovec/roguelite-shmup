@@ -69,6 +69,7 @@ static int row_at(V2 m) {
 
 void debug_teleport(RoomType type, RewardType reward, int depth, bool with_enemies) {
     G.transitioning = false;
+    G.entry_side = SIDE_BOTTOM;
     if (type == ROOM_START) depth = 0;
     else if (depth < 1) depth = 1;
     if (type == ROOM_BOSS && !is_boss_depth(depth)) depth = (depth / BOSS_EVERY + 1) * BOSS_EVERY; /* bosses only live there */

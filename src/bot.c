@@ -138,11 +138,31 @@ void bot_input(void) {
         goal = room_secret_spot();
         if (v2_dist(pl->pos, goal) < SECRET_BOMB_RADIUS * 0.5f) in->bomb_pressed = true;
     } else if (G.room.cleared && (r->secret_open || r->type == ROOM_SECRET)) {
-        goal = door_position(SIDE_BOTTOM); /* into the secret room, or back out of it */
+        goal = door_position(r->entry); /* into the secret room, or back out of it */
     } else if (G.room.cleared) {
-        /* Pick the most valuable door it can open. */
-        int pick = 0, best_score = -1;
+        /* Pick the most valuable door it can open. A door it cannot reach (no progress for
+         * 3 s, e.g. a path that flips back and forth through a tight gap) is given up. */
+        static int stuck_room = -1;
+        static float stuck_t, last_clear_t;
+        static V2 stuck_ref;
+        static int give_ups;
+        if (G.room.id != stuck_room || G.room.clear_t < last_clear_t) {
+            stuck_room = G.room.id;
+            stuck_t = 0.0f;
+            stuck_ref = pl->pos;
+            give_ups = 0;
+        }
+        last_clear_t = G.room.clear_t;
+        if (v2_dist2(pl->pos, stuck_ref) > 60.0f * 60.0f) {
+            stuck_ref = pl->pos;
+            stuck_t = 0.0f;
+        } else if (G.room.clear_t > 1.2f && (stuck_t += DT) > 3.0f) {
+            stuck_t = 0.0f;
+            give_ups++; /* next best door */
+        }
+        int pick = 0, scores[MAX_DOORS];
         for (int i = 0; i < G.room.ndoors; i++) {
+            scores[i] = -1;
             const Door *d = &G.room.doors[i];
             if (d->locked && pl->keys == 0) continue;
             int score = d->type == ROOM_SHOP ? (pl->coins >= 25 ? 7 : pl->coins >= 14 ? 4 : 0)
@@ -153,10 +173,18 @@ void bot_input(void) {
                       : d->reward == RW_HEART && pl->hp <= pl->max_hp / 2 ? 6
                       : d->reward == RW_COINS && pl->coins < 40 ? 4
                       : d->reward == RW_KEY ? 3 : d->reward == RW_BOMBS ? 2 : 1;
-            if (score > best_score) {
-                best_score = score;
-                pick = i;
-            }
+            scores[i] = score * MAX_DOORS + (MAX_DOORS - 1 - i); /* ties: first door first */
+        }
+        /* The (give_ups)-th best door it can open. */
+        int eligible = 0;
+        for (int i = 0; i < G.room.ndoors; i++) eligible += scores[i] >= 0;
+        for (int rank = 0, skip = eligible ? give_ups % eligible : 0, taken = 0; rank <= skip; rank++) {
+            int best = -1;
+            for (int i = 0; i < G.room.ndoors; i++)
+                if (scores[i] >= 0 && !(taken & (1 << i)) && (best < 0 || scores[i] > scores[best])) best = i;
+            if (best < 0) break;
+            taken |= 1 << best;
+            pick = best;
         }
         goal = G.room.clear_t < 1.2f ? v2(ARENA_CX, ARENA_CY) : door_position(G.room.doors[pick].side);
     } else if (short_range && nearest) {

@@ -5,6 +5,7 @@
 #include "game.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 
 /* Soft-lock detection: enemies alive but none of them hurt for this long... */
 #define MAX_STALL_SECONDS 60.0f
@@ -187,6 +188,8 @@ static const char *check_invariants(float room_time) {
                  G.pk[0].type);
         return msg;
     }
+    for (int i = 0; i < G.room.ndoors; i++)
+        if (G.room.doors[i].side == G.room.entry) return "an exit door on the side the ship came in by";
     if (G.room.secret_open && !G.room.has_secret) return "secret passage open in a room without a secret";
     for (int i = 0; i < G.nen; i++) { /* crawlers live on the wall (separation may nudge them a little) */
         const Enemy *c = &G.en[i];
@@ -1450,7 +1453,7 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         bool back = enemy_blocks_shot(&G.en[0], v2(ARENA_CX + 600.0f, ARENA_CY));
         in->mouse = G.en[0].pos;
         in->fire = true;
-        for (int t = 0; t < 90; t++) { G.hitstop = 0.0f; in->mouse = G.en[0].pos; TICK(); }
+        for (int t = 0; t < 90; t++) { G.hitstop = 0.0f; in->mouse = G.en[0].pos; G.en[0].fire_t = 5.0f; TICK(); } /* plate stays shut */
         in->fire = false;
         bool mirror_ok = front && !back && G.nen == 1 && G.en[0].hp >= G.en[0].max_hp;
         G.npb = 0;
@@ -1735,16 +1738,33 @@ int headless_run(const HeadlessOptions *o) {
                           : G.room.cleared != G.room.peaceful
                               ? "first room: only the launch bay / secret rooms start without enemies" : NULL;
         int tick = 0, hits = 0, life = G.pl.hp + G.pl.shield;
+        int taken_side = -1; /* side of the door being walked through (-1: none / secret passage) */
+        static char entry_msg[128];
         for (; !err && tick < o->max_ticks && G.state != GS_GAMEOVER; tick++) {
             bot_input();
             game_update();
             clear_edges();
+            if (G.transitioning && taken_side < 0 && G.trans_door >= 0 && G.trans_t < TRANS_TIME * 0.5f)
+                taken_side = G.room.doors[G.trans_door].side;
             hits += G.pl.hp + G.pl.shield < life; /* hull or shield damage taken this tick */
             life = G.pl.hp + G.pl.shield;
             if (G.room.id != room_id) {
                 int from = room_id;
                 room_id = G.room.id;
                 room_time = 0.0f;
+                /* In by the door opposite the one taken; the secret passage is the entry door, so the
+                 * secret room is entered from the other side (back from it: the parent, as it was). */
+                if (!G.room.revisit) {
+                    Side want = G.room.type == ROOM_SECRET ? side_opposite(G.parent.entry) : side_opposite((Side)taken_side);
+                    if (taken_side < 0 && G.room.type != ROOM_SECRET) want = G.room.entry; /* not walked in (cannot happen) */
+                    if (G.room.entry != want) {
+                        snprintf(entry_msg, sizeof entry_msg, "entered room %d by side %d, expected %d (door taken: %d)", G.room.depth,
+                                 G.room.entry, want, taken_side);
+                        err = entry_msg;
+                        break;
+                    }
+                }
+                taken_side = -1;
                 if (G.room.revisit) {
                     /* Leaving a secret room: back in the (cleared) room it was found in. */
                     if (G.room.id != secret_parent || !G.room.cleared) {
@@ -1781,7 +1801,7 @@ int headless_run(const HeadlessOptions *o) {
                     boss_time += room_time;
                     boss_hits += hits - hits_at_entry;
                 }
-                if (!G.room.revisit && v2_dist(G.pl.pos, v2(ARENA_CX, ARENA_Y1 - 80.0f)) > 1.0f) {
+                if (!G.room.revisit && v2_dist(G.pl.pos, room_entry_spot()) > 1.0f) {
                     err = "room cleared but the ship was not moved back to the entry spot";
                     break;
                 }
