@@ -94,6 +94,7 @@ static void update_playing(void) {
         return;
     }
 
+    synergies_update();
     player_update();
     weapons_update();
     upg_update();

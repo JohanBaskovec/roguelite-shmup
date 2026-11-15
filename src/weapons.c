@@ -29,7 +29,7 @@ typedef struct {
 #define PIERCE_ALL 999
 
 static const char *const OPTION_NAMES[] = {
-    "scatter", "needler", "seeker", "bouncer", "railgun", "flamer", "rockets", "chakram", "cluster", "arc", "vulcan", "wave", "sword",
+    "scatter", "needler", "seeker", "bouncer", "railgun", "flamer", "rockets", "chakram", "cluster", "arc", "vulcan", "wave", "laser", "orbit", "prism", "graviton", "sword",
 };
 
 const char *weapon_option_name(int u) { return upgrade_is_weapon(u) ? OPTION_NAMES[u - UPG_W_SCATTER] : "?"; }
@@ -41,6 +41,10 @@ int weapon_mod_by_name(const char *name) {
 }
 
 bool sword_on(void) { return upg_has(UPG_W_SWORD) > 0; }
+
+bool weapon_trigger(void) {
+    return G.in.fire || (upg_has(UPG_DEAD_TRIGGER) && !G.room.cleared && G.state == GS_PLAYING && !G.transitioning);
+}
 
 /* The look (colour, bullet style, sound) comes from the most striking mod: mods are applied
  * from the least to the most striking one, each one overriding the look. */
@@ -65,6 +69,14 @@ static void gun_profile(Gun *g) {
         g->cooldown *= 0.5f, g->damage *= 0.52f, g->pierce += 2, g->speed *= 1.27f, g->speed_var += 200.0f;
         g->radius *= 0.6f, g->life *= 0.7f, g->jitter += 0.03f, g->spread_per += 0.04f, g->knockback *= 0.3f;
         LOOK(0xf28cff, g->style, SFX_SHOT_NEEDLER, 1.0f);
+    }
+    if (upg_has(UPG_W_PRISM)) { /* every shot splits in three mid-flight (bullets.c) */
+        g->flags |= PB_SPLIT, g->damage *= 0.65f, g->cooldown *= 1.5f;
+        LOOK(0xd8a0ff, g->style, SFX_SHOT_NEEDLER, 1.3f);
+    }
+    if (upg_has(UPG_W_SPIRAL)) { /* shots circle the ship in a widening spiral: no aiming, a wall of shots */
+        g->flags |= PB_ORBIT, g->damage *= 1.5f, g->life *= 2.2f, g->pierce += 1;
+        LOOK(0x8affc0, g->style, g->sfx, g->pitch);
     }
     if (upg_has(UPG_W_SCATTER)) { /* a shotgun: many pellets, short range */
         g->mult *= 8, g->damage *= 0.8f, g->cooldown *= 2.8f, g->life *= 0.36f, g->speed *= 0.77f, g->speed_var += 400.0f;
@@ -101,10 +113,20 @@ static void gun_profile(Gun *g) {
         g->life *= 0.4f, g->speed *= 0.67f, g->spread_per += 0.27f, g->parallel = 0.0f;
         LOOK(0xa8ff5a, BS_CHAKRAM, SFX_SWORD, 1.5f);
     }
+    if (upg_has(UPG_W_GRAVITON)) { /* heavy orbs dragging enemies along, imploding at the end */
+        g->flags |= PB_PULL | PB_EXPLOSIVE, g->damage *= 2.4f, g->cooldown *= 5.0f, g->speed *= 0.28f, g->radius *= 2.4f;
+        g->life *= 1.7f, g->pierce += 3, g->knockback = 0.0f, g->spread_per += 0.2f;
+        LOOK(0x8a5aff, BS_GRAVITON, SFX_SHOT_BOUNCER, 0.5f);
+    }
     if (upg_has(UPG_W_ROCKETS)) { /* slow start, then fast, and boom (weapon_bullet_death) */
         g->flags |= PB_EXPLOSIVE | PB_ACCEL, g->damage *= 3.6f, g->cooldown *= 6.0f, g->speed *= 0.25f, g->speed_var += 40.0f;
         g->life *= 1.45f, g->homing += 1.2f, g->radius *= 1.4f, g->spread_per += 0.15f;
         LOOK(0xffb04d, BS_ROCKET, SFX_SHOT_ROCKET, 1.0f);
+    }
+    if (upg_has(UPG_W_LASER)) { /* a stream of beam segments: a continuous ray through everything */
+        g->pierce = PIERCE_ALL, g->cooldown *= 0.4f, g->damage *= 0.42f, g->speed *= 2.6f, g->life *= 0.6f, g->radius *= 0.8f;
+        g->jitter = 0.0f, g->speed_var = 0.0f, g->knockback *= 0.15f, g->parallel = fminf(g->parallel, 6.0f);
+        LOOK(0xff4060, BS_LASER, SFX_SHOT_FLAMER, 1.7f);
     }
     if (upg_has(UPG_W_RAILGUN)) { /* one devastating rail through everything */
         g->pierce = PIERCE_ALL, g->damage *= 9.0f, g->cooldown *= 7.0f, g->speed *= 2.8f, g->life *= 0.55f;
@@ -112,6 +134,7 @@ static void gun_profile(Gun *g) {
         LOOK(0xe0f4ff, BS_RAIL, SFX_SHOT_RAIL, 1.0f);
     }
     float cd = clampf(g->cooldown, GUN_CD_MIN, GUN_CD_MAX); /* the vulcan's spin included */
+    if (upg_has(UPG_W_LASER)) cd = fminf(cd, 0.04f); /* a beam stays continuous whatever it is mixed with (same damage per second) */
     g->damage *= cd / g->cooldown;
     g->cooldown = cd;
     g->speed = clampf(g->speed, 120.0f, 6000.0f);
@@ -119,6 +142,7 @@ static void gun_profile(Gun *g) {
     float reach = MIN_REACH * ((g->flags & PB_RETURNS) ? 2.0f : 1.0f);
     if (g->speed * g->life < reach) g->life = reach / g->speed;
     g->life = clampf(g->life, 0.12f, 2.5f);
+    if (syn(SYN_SAW_HALO)) g->life = 4.0f; /* the saws stay around the ship (bullets.c keeps them in a ring) */
     g->radius = clampf(g->radius, 2.0f, 30.0f);
     if (g->pierce > PIERCE_ALL) g->pierce = PIERCE_ALL;
 }
@@ -144,8 +168,8 @@ float gun_volley_shots(void) {
 int gun_main_mod(void) {
     if (sword_on()) return UPG_W_SWORD;
     /* most striking first, as in gun_profile */
-    static const int order[] = {UPG_W_RAILGUN, UPG_W_ROCKETS, UPG_W_CHAKRAM, UPG_W_FLAMER, UPG_W_CLUSTER, UPG_W_ARC,
-                                UPG_W_WAVE, UPG_W_VULCAN, UPG_W_SCATTER, UPG_W_NEEDLER, UPG_W_SEEKER, UPG_W_BOUNCER};
+    static const int order[] = {UPG_W_RAILGUN, UPG_W_LASER, UPG_W_ROCKETS, UPG_W_GRAVITON, UPG_W_CHAKRAM, UPG_W_FLAMER, UPG_W_CLUSTER, UPG_W_ARC,
+                                UPG_W_WAVE, UPG_W_VULCAN, UPG_W_SCATTER, UPG_W_SPIRAL, UPG_W_PRISM, UPG_W_NEEDLER, UPG_W_SEEKER, UPG_W_BOUNCER};
     for (int i = 0; i < ARRAY_LEN(order); i++)
         if (upg_has(order[i])) return order[i];
     return -1;
@@ -163,6 +187,12 @@ void weapon_on_hit(PBullet *b, Enemy *e, float dmg) {
 
 /* Called once when a shot dies, whatever killed it (enemy, wall, end of range). */
 void weapon_bullet_death(PBullet *b) {
+    /* PLASMA CUTTER: where the beam ends, the ground burns. EVENT HORIZON: a rail-graviton shot
+     * collapses into a vortex. (The main gun's shots only: by-products and extra shots do not.) */
+    if (b->style == BS_LASER && !(b->flags & PB_BYPRODUCT) && (G.ticks % 3) == 0 && syn(SYN_PLASMA))
+        upg_fire_patch(b->pos, 6.0f * G.pl.dmg_mult, 1.2f);
+    if ((b->style == BS_RAIL || b->style == BS_GRAVITON) && (b->flags & PB_PULL) && !(b->flags & PB_BYPRODUCT) && syn(SYN_EVENT_HORIZON))
+        upg_vortex(b->pos, 1.0f, 50.0f * G.pl.dmg_mult);
     if (b->flags & PB_EXPLOSIVE) {
         explode_at(b->pos, 105.0f * sqrtf(G.pl.bullet_size), b->damage, NULL, 0xffb04d);
         sfx_play_at(SFX_EXPLODE_SMALL, b->pos);
@@ -177,6 +207,13 @@ void weapon_bullet_death(PBullet *b) {
             f->last_hit = b->last_hit;
             f->flags = PB_FRAGMENT;
             f->knockback = 15.0f;
+            if (syn(SYN_MIRV)) { /* each fragment is a small homing rocket */
+                f->flags |= PB_EXPLOSIVE | PB_ACCEL;
+                f->vel = v2_scale(f->vel, 0.45f);
+                f->homing = 9.0f;
+                f->life = 0.7f;
+                f->last_hit = -1;
+            }
         }
         fx_particle(b->pos, v2(0, 0), 0.2f, 60.0f, col_a(b->col, 0.7f), 0.0f, PT_RING);
     }
@@ -190,10 +227,43 @@ void weapon_bullet_death(PBullet *b) {
 #define SWORD_KNOCKBACK 260.0f
 #define SWORD_COLOR 0xc9d4ff
 
+/*
+ * The sword combines with every shot-shaping upgrade owned:
+ *  LASER -> lightsaber (x2.5 damage, longer, burns), RAILGUN -> greatsword (x2.4 damage, longer, slower),
+ *  NEEDLER -> rapier (faster, lighter), SCATTER -> wider arc, ORBIT -> full-circle whirlwind,
+ *  VULCAN -> swings speed up while attacking, BOUNCER -> huge knockback, GRAVITON -> pulls enemies in,
+ *  FLAMER / ARC / ROCKETS / CLUSTER -> the blade burns / chains lightning / explodes / bursts,
+ *  and any mod that shapes projectiles (see SWORD_WAVE_MODS) makes every swing launch a blade wave
+ *  carrying all of them (it homes, bounces, splits, comes back...).
+ */
+static const int SWORD_WAVE_MODS[] = {UPG_W_SEEKER, UPG_W_BOUNCER, UPG_W_ROCKETS, UPG_W_CHAKRAM, UPG_W_CLUSTER,
+                                      UPG_W_WAVE, UPG_W_PRISM, UPG_W_GRAVITON, UPG_W_SPIRAL};
+
+static uint32_t sword_color(void) {
+    return upg_has(UPG_W_LASER) ? 0xff3050 : upg_has(UPG_W_FLAMER) ? 0xff9a4a : upg_has(UPG_W_ARC) ? 0x9db8ff : SWORD_COLOR;
+}
+
 float sword_reach(void) {
     const Player *p = &G.pl;
     /* Capped: a huge blade would clear every bullet around the ship. */
-    return fminf(115.0f * sqrtf(p->range_mult) * sqrtf(p->bullet_size), 170.0f);
+    float r = fminf(115.0f * sqrtf(p->range_mult) * sqrtf(p->bullet_size), 170.0f);
+    if (upg_has(UPG_W_LASER)) r *= 1.25f;
+    if (upg_has(UPG_W_RAILGUN)) r *= 1.3f;
+    return r;
+}
+
+/* A crescent of energy thrown by the swing; pbullet_arm gives it every shot behaviour owned. */
+static void sword_wave(float aim, float dmg) {
+    const Player *p = &G.pl;
+    V2 f = v2_angle(aim);
+    PBullet *b = pbullet_spawn(v2_add(p->pos, v2_scale(f, 34.0f)), v2_scale(f, 950.0f * p->shot_speed_mult), 15.0f, dmg,
+                               col_hex(sword_color(), 1));
+    if (!b) return;
+    b->life = 0.5f * p->range_mult;
+    b->pierce = 2;
+    b->knockback = 120.0f;
+    b->style = BS_CRESCENT;
+    pbullet_arm(b, true); /* damage and range come from the swing */
 }
 
 static void sword_swing(void) {
@@ -201,33 +271,122 @@ static void sword_swing(void) {
     /* Fire rate counts less for the sword (sqrt), with a floor: a blade swinging non-stop
      * would be a permanent bullet shield. */
     float cd = SWORD_COOLDOWN / sqrtf(p->rate_mult * upg_fire_rate_mult());
+    float dmg_k = 1.0f;
+    if (upg_has(UPG_W_NEEDLER)) cd *= 0.7f, dmg_k *= 0.75f;  /* rapier */
+    if (upg_has(UPG_W_RAILGUN)) cd *= 1.7f, dmg_k *= 2.4f;   /* greatsword */
+    if (upg_has(UPG_W_LASER)) dmg_k *= 2.5f;                 /* lightsaber */
+    if (upg_has(UPG_W_BOUNCER)) dmg_k *= 1.3f;
+    if (upg_has(UPG_W_GRAVITON)) cd *= 1.3f, dmg_k *= 1.4f;
+    if (upg_has(UPG_W_VULCAN)) cd /= 1.0f + p->spin;         /* a flurry once spun up */
     cd = fmaxf(cd, 0.16f);
     p->fire_cd += cd;
+    float charge = upg_has(UPG_CHARGE) ? p->charge : 0.0f;   /* CHARGE SHOT: one mighty blow */
+    p->charge = 0.0f;
     /* Back and forth: every swing goes the other way. Extra projectiles widen the arc. */
     p->swing_dir = p->swing_dir > 0 ? -1 : 1;
     p->swing_len = fminf(SWORD_SWING_TIME, cd * 0.8f);
     p->swing_t = p->swing_len;
     p->swing_a0 = p->aim_angle;
-    p->swing_half = fminf(0.95f + 0.1f * (float)p->extra_proj, 1.4f);
+    p->swing_half = fminf(0.95f + 0.1f * (float)p->extra_proj, 1.4f) + (upg_has(UPG_W_SCATTER) ? 0.5f : 0.0f);
+    if (upg_has(UPG_W_SPIRAL)) p->swing_half = PI_F; /* whirlwind: all the way around */
     p->swing_reach = sword_reach();
     p->swing_prev = -(float)p->swing_dir * p->swing_half;
-    p->swing_dmg = SWORD_DAMAGE * p->dmg_mult * upg_volley_damage_mult();
+    p->swing_dmg = SWORD_DAMAGE * p->dmg_mult * upg_volley_damage_mult() * dmg_k;
     if (active_strength_on()) p->swing_dmg *= 4.0f; /* STRENGTH: one blade, four times the bite */
     p->swing_id++;
-    upg_on_volley(p->pos, p->aim_angle, p->swing_dmg * 0.35f, col_hex(SWORD_COLOR, 1));
-    sfx_play_at(SFX_SWORD, p->pos);
+    upg_on_volley(p->pos, p->aim_angle, p->swing_dmg * 0.35f, col_hex(sword_color(), 1));
+    for (int i = 0; i < ARRAY_LEN(SWORD_WAVE_MODS); i++)
+        if (upg_has(SWORD_WAVE_MODS[i])) {
+            sword_wave(p->aim_angle, p->swing_dmg * 0.45f);
+            break;
+        }
+    if (syn(SYN_THROWN_SWORD) && (p->swing_id & 1)) { /* every other swing: a blade flies out and comes back */
+        V2 f = v2_angle(p->aim_angle);
+        PBullet *b = pbullet_spawn(v2_add(p->pos, v2_scale(f, 30.0f)), v2_scale(f, 1000.0f * p->shot_speed_mult), 18.0f,
+                                   p->swing_dmg * 0.6f, col_hex(sword_color(), 1));
+        if (b) {
+            b->life = 0.45f * p->range_mult;
+            b->pierce = PIERCE_ALL;
+            b->knockback = 150.0f;
+            b->style = BS_CHAKRAM;
+            b->flags = PB_RETURNS;
+            pbullet_arm(b, true);
+        }
+    }
+    p->swing_dmg *= 1.0f + 5.0f * charge;
+    if (charge > 0.3f) {
+        fx_particle(p->pos, v2(0, 0), 0.25f, p->swing_reach * 2.2f, col_hex(0x9ff0ff, 0.9f), 0.0f, PT_RING);
+        fx_shake(0.2f * charge);
+    }
+    if (upg_has(UPG_W_GRAVITON)) /* the swing sucks everything nearby towards the blade */
+        for (int i = 0; i < G.nen; i++) {
+            Enemy *e = &G.en[i];
+            V2 d = v2_sub(p->pos, e->pos);
+            float dist = v2_len(d);
+            if (e->hp > 0.0f && e->type != EN_BOSS && dist > 60.0f && dist < 360.0f) e->vel = v2_add(e->vel, v2_scale(d, 520.0f / dist));
+        }
+    sfx_play_ex(SFX_SWORD, 1.0f, upg_has(UPG_W_LASER) ? 0.6f : upg_has(UPG_W_RAILGUN) ? 0.75f : 1.0f, 0.0f);
 }
 
 /* Is a circle (pos, r) inside the arc swept by the blade between relative angles lo and hi? */
-static bool in_sweep(V2 pos, float r, float lo, float hi) {
+static bool in_sweep(V2 center, V2 pos, float r, float lo, float hi) {
     const Player *p = &G.pl;
-    V2 d = v2_sub(pos, p->pos);
+    V2 d = v2_sub(pos, center);
     float dist = v2_len(d);
     if (dist - r > p->swing_reach) return false;
     if (dist <= r + SWORD_INNER) return true; /* right on top of the ship */
     float rel = angle_wrap(v2_heading(d) - p->swing_a0);
     float tol = asinf(fminf(1.0f, r / dist));
     return rel >= lo - tol && rel <= hi + tol;
+}
+
+/* Everything on the path of a blade held at `center`: enemies (once per swing) and enemy bullets.
+ * `clone`: the SHADOW CLONE's blade (BLADE DANCER), at dmg_k of the real one. */
+static void sword_sweep(V2 center, float lo, float hi, float dmg_k, bool clone) {
+    Player *p = &G.pl;
+    SDL_FColor col = col_hex(clone ? 0x9aa8ff : sword_color(), 1);
+    Gun g;
+    gun_profile(&g); /* the other shot upgrades lend the blade their burn / lightning / explosions */
+    int blade_flags = g.flags & (PB_FLAME | PB_ARC | PB_EXPLOSIVE | PB_CLUSTER);
+    if (upg_has(UPG_W_LASER)) blade_flags |= PB_FLAME; /* a lightsaber burns what it cuts */
+    float knock = SWORD_KNOCKBACK * (upg_has(UPG_W_BOUNCER) ? 2.2f : 1.0f);
+
+    for (int i = 0; i < G.nen; i++) {
+        Enemy *e = &G.en[i];
+        int *seen = clone ? &e->clone_swing : &e->sword_swing;
+        if (e->hp <= 0.0f || *seen == p->swing_id || !in_sweep(center, e->pos, e->radius, lo, hi)) continue;
+        *seen = p->swing_id;
+        V2 dir = v2_norm(v2_sub(e->pos, center));
+        PBullet hit = {.pos = e->pos, .vel = v2_scale(dir, 900.0f), .radius = 6.0f, .damage = p->swing_dmg * dmg_k,
+                       .knockback = knock, .last_hit = e->uid, .flags = blade_flags & (PB_FLAME | PB_ARC), .col = col};
+        upg_on_bullet_spawn(&hit); /* critical hits, IMPACT... like any shot */
+        hit.flags |= blade_flags & (PB_EXPLOSIVE | PB_CLUSTER);
+        hit.radius = 6.0f;
+        float dmg = upg_hit_damage(&hit, e);
+        enemy_damage(e, dmg, v2_scale(dir, hit.knockback));
+        upg_after_hit(&hit, e, dmg);
+        weapon_on_hit(&hit, e, dmg);
+        if (hit.flags & (PB_EXPLOSIVE | PB_CLUSTER)) { /* the cut explodes / bursts, at half strength */
+            hit.damage = dmg * 0.5f;
+            weapon_bullet_death(&hit);
+        }
+        sfx_play_at(SFX_HIT, e->pos);
+        fx_particle(e->pos, v2(0, 0), 0.12f, e->radius * 2.5f, col_a(col, 0.8f), 0.0f, PT_GLOW);
+        for (int s = 0; s < 4; s++)
+            fx_particle(e->pos, v2_scale(v2_rotate(dir, frand(-0.9f, 0.9f)), frand(200, 500)), 0.18f, 2.5f, col, 4.0f, PT_SPARK);
+    }
+    bool parry = syn(SYN_PARRY); /* with DEFLECTOR SHELLS the blade sends the bullets back */
+    int cut = 0;
+    for (int i = 0; i < G.neb; i++) {
+        EBullet *b = &G.eb[i];
+        if (b->life <= 0.0f || !in_sweep(center, b->pos, b->radius + 4.0f, lo, hi)) continue;
+        fx_particle(b->pos, v2(0, 0), 0.15f, b->radius * 3.0f, col_a(b->col, 0.8f), 0.0f, PT_GLOW);
+        if (parry) upg_return_bullet(b, center);
+        else b->life = -1.0f; /* removed by the bullet loop */
+        cut++;
+        if (cut <= 12) fx_particle(b->pos, v2_scale(v2_angle(frand(0, TAU_F)), frand(100, 300)), 0.15f, 2.0f, col, 4.0f, PT_SPARK);
+    }
+    if (cut) sfx_play_at(SFX_DEFLECT, center);
 }
 
 static void sword_update(void) {
@@ -239,48 +398,26 @@ static void sword_update(void) {
     float cur = (float)p->swing_dir * p->swing_half * (2.0f * k - 1.0f);
     float lo = fminf(p->swing_prev, cur), hi = fmaxf(p->swing_prev, cur);
     p->swing_prev = cur;
-    SDL_FColor col = col_hex(SWORD_COLOR, 1);
-    Gun g;
-    gun_profile(&g); /* other weapon mods lend the blade their burn / lightning */
-
-    /* Everything on the blade's path: enemies (once per swing) and enemy bullets. */
-    for (int i = 0; i < G.nen; i++) {
-        Enemy *e = &G.en[i];
-        if (e->hp <= 0.0f || e->sword_swing == p->swing_id || !in_sweep(e->pos, e->radius, lo, hi)) continue;
-        e->sword_swing = p->swing_id;
-        V2 dir = v2_norm(v2_sub(e->pos, p->pos));
-        PBullet hit = {.pos = e->pos, .vel = v2_scale(dir, 900.0f), .radius = 6.0f, .damage = p->swing_dmg,
-                       .knockback = SWORD_KNOCKBACK, .last_hit = e->uid, .flags = g.flags & (PB_FLAME | PB_ARC), .col = col};
-        float dmg = upg_hit_damage(&hit, e);
-        enemy_damage(e, dmg, v2_scale(dir, hit.knockback));
-        upg_after_hit(&hit, e, dmg);
-        weapon_on_hit(&hit, e, dmg);
-        sfx_play_at(SFX_HIT, e->pos);
-        fx_particle(e->pos, v2(0, 0), 0.12f, e->radius * 2.5f, col_a(col, 0.8f), 0.0f, PT_GLOW);
-        for (int s = 0; s < 4; s++)
-            fx_particle(e->pos, v2_scale(v2_rotate(dir, frand(-0.9f, 0.9f)), frand(200, 500)), 0.18f, 2.5f, col, 4.0f, PT_SPARK);
-    }
-    int cut = 0;
-    for (int i = 0; i < G.neb; i++) {
-        EBullet *b = &G.eb[i];
-        if (b->life <= 0.0f || !in_sweep(b->pos, b->radius + 4.0f, lo, hi)) continue;
-        b->life = -1.0f; /* removed by the bullet loop */
-        cut++;
-        fx_particle(b->pos, v2(0, 0), 0.15f, b->radius * 3.0f, col_a(b->col, 0.8f), 0.0f, PT_GLOW);
-        if (cut <= 12) fx_particle(b->pos, v2_scale(v2_angle(frand(0, TAU_F)), frand(100, 300)), 0.15f, 2.0f, col, 4.0f, PT_SPARK);
-    }
-    if (cut) sfx_play_at(SFX_DEFLECT, p->pos);
+    sword_sweep(p->pos, lo, hi, 1.0f, false);
+    if (syn(SYN_BLADE_DANCER)) sword_sweep(upg_clone_pos(), lo, hi, 0.5f, true);
 }
 
 void sword_draw(void) {
     const Player *p = &G.pl;
     if (!sword_on()) return;
-    SDL_FColor col = col_hex(SWORD_COLOR, 1);
+    SDL_FColor col = col_hex(sword_color(), 1);
+    float thick = upg_has(UPG_W_LASER) || upg_has(UPG_W_RAILGUN) ? 1.6f : 1.0f; /* lightsaber / greatsword */
     if (p->swing_t <= 0.0f) {
         /* Resting blade, held at the side and pointing where the knight aims. */
         V2 f = v2_angle(p->aim_angle), s = v2_perp(f);
         V2 hilt = v2_add(p->pos, v2_scale(s, 20.0f));
-        draw_line(hilt, v2_add(hilt, v2_scale(f, 46.0f)), 4.0f, col_a(col, 0.85f));
+        if (upg_has(UPG_W_LASER)) { /* the lightsaber hums even at rest */
+            draw_blend_add();
+            draw_line(hilt, v2_add(hilt, v2_scale(f, 52.0f)), 12.0f + 2.0f * sinf(G.time * 40.0f), col_a(col, 0.3f));
+            draw_blend_alpha();
+            draw_line(hilt, v2_add(hilt, v2_scale(f, 52.0f)), 3.0f, COL_WHITE);
+        }
+        draw_line(hilt, v2_add(hilt, v2_scale(f, 46.0f)), 4.0f * thick, col_a(col, 0.85f));
         draw_line(v2_sub(hilt, v2_scale(s, 7.0f)), v2_add(hilt, v2_scale(s, 7.0f)), 3.0f, col_hex(0xffd36b, 1));
         return;
     }
@@ -300,10 +437,15 @@ void sword_draw(void) {
     }
     V2 dir = v2_angle(p->swing_a0 + cur);
     V2 tip = v2_add(p->pos, v2_scale(dir, r1));
+    if (syn(SYN_BLADE_DANCER)) { /* the clone's blade */
+        V2 c = upg_clone_pos();
+        draw_line(v2_add(c, v2_scale(dir, r0)), v2_add(c, v2_scale(dir, r1)), 5.0f, col_hex(0x9aa8ff, 0.5f));
+        draw_glow(v2_add(c, v2_scale(dir, r1)), 14.0f, col_hex(0x9aa8ff, 0.4f));
+    }
     draw_glow(tip, 16.0f, col_a(col, 0.4f));
     draw_blend_alpha();
-    draw_line(v2_add(p->pos, v2_scale(dir, r0)), tip, 6.0f, COL_WHITE);
-    draw_line(v2_add(p->pos, v2_scale(dir, r0)), tip, 2.5f, col);
+    draw_line(v2_add(p->pos, v2_scale(dir, r0)), tip, 6.0f * thick, COL_WHITE);
+    draw_line(v2_add(p->pos, v2_scale(dir, r0)), tip, 2.5f * thick, col);
 }
 
 
@@ -316,7 +458,9 @@ static void fire_volley(void) {
     p->fire_cd += g.cooldown / (p->rate_mult * upg_fire_rate_mult());
 
     float spread = fminf((g.spread + g.spread_per * (float)(n - 1)) * p->spread_mult, 2.6f);
-    float dmg = g.damage * dmg_scale * p->dmg_mult * upg_volley_damage_mult();
+    float charge = upg_has(UPG_CHARGE) ? p->charge : 0.0f; /* CHARGE SHOT: spent on this volley */
+    p->charge = 0.0f;
+    float dmg = g.damage * dmg_scale * p->dmg_mult * upg_volley_damage_mult() * (1.0f + 5.0f * charge);
     SDL_FColor col = col_hex(g.color, 1);
     V2 fwd = v2_angle(p->aim_angle), side = v2_perp(fwd);
     V2 muzzle = v2_add(p->pos, v2_scale(fwd, 22.0f));
@@ -341,19 +485,30 @@ static void fire_volley(void) {
         b->flags |= g.flags;
         if ((g.flags & PB_WAVE) && (i & 1)) b->flags |= PB_FLIP;
         b->armed = true;
+        b->radius *= 1.0f + 0.8f * charge;
         upg_on_bullet_spawn(b);
     }
-    upg_on_volley(muzzle, p->aim_angle, dmg, col);
+    if (charge > 0.3f) {
+        fx_particle(muzzle, v2(0, 0), 0.25f, 60.0f + 140.0f * charge, col_hex(0x9ff0ff, 0.9f), 0.0f, PT_RING);
+        fx_shake(0.15f * charge);
+        sfx_play_ex(SFX_SNIPER_FIRE, 0.7f, 1.6f - 0.6f * charge, 0.0f);
+    }
+    upg_on_volley(muzzle, p->aim_angle, dmg / (1.0f + 5.0f * charge), col);
+    if (charge >= 0.99f && syn(SYN_OVERLOAD)) upg_mega_shot(muzzle, p->aim_angle, dmg * 3.0f); /* a full charge fires the capacitor too */
 
     fx_particle(muzzle, v2(0, 0), 0.05f, 18.0f + (float)(n * copies) * 2.0f, col_a(col, 0.8f), 0.0f, PT_GLOW);
     float pan = clampf((p->pos.x - ARENA_CX) / (ARENA_X1 - ARENA_CX), -1.0f, 1.0f) * 0.6f;
     sfx_play_ex(g.sfx, 1.0f, g.pitch, pan);
+    /* Recoil: a push back per volley, smaller for fast guns (so it stays the same per second) and
+     * for a heavy ship (DRIFT malus: slower to stop, so pushed less) - it never beats the engines. */
+    float heavy = fmaxf(0.25f, 1.0f - malus_pct(MAL_DRIFT));
     if (g.recoil) {
-        p->vel = v2_sub(p->vel, v2_scale(fwd, 90.0f));
+        p->vel = v2_sub(p->vel, v2_scale(fwd, 90.0f * fminf(1.0f, g.cooldown / 0.22f) * heavy));
         fx_shake(0.04f);
     }
-    int kick = malus(MAL_RECOIL); /* recoil malus: a push back per volley, less for fast guns */
-    if (kick > 0) p->vel = v2_sub(p->vel, v2_scale(fwd, 70.0f * (float)kick * fminf(1.0f, g.cooldown / 0.08f)));
+    int kick = malus(MAL_RECOIL);
+    if (kick > 3) kick = 3;
+    if (kick > 0) p->vel = v2_sub(p->vel, v2_scale(fwd, 70.0f * (float)kick * fminf(1.0f, g.cooldown / 0.08f) * heavy));
 }
 
 void pbullet_arm(PBullet *b, bool scaled) {
@@ -363,20 +518,22 @@ void pbullet_arm(PBullet *b, bool scaled) {
         b->life *= p->range_mult;
         b->vel = v2_scale(b->vel, p->shot_speed_mult);
     }
-    b->pierce += p->pierce;
-    b->bounces += p->bounce;
-    b->homing += p->homing;
-    if (!sword_on()) { /* the shot-shaping upgrades' behaviours (the sword's own effects stay on the blade) */
-        Gun g;
-        gun_profile(&g);
-        b->flags |= g.flags & ~PB_FLIP;
-        if ((g.flags & PB_WAVE) && chance(0.5f)) b->flags |= PB_FLIP;
-    }
+    /* The shot-shaping upgrades: their behaviours, pierce, bounces and homing. */
+    Gun g;
+    gun_profile(&g);
+    b->flags |= g.flags & ~(PB_FLIP | PB_ORBIT);
+    if ((g.flags & PB_WAVE) && chance(0.5f)) b->flags |= PB_FLIP;
+    /* Only shots leaving the ship circle around it (a turret's would never reach its target). */
+    if ((g.flags & PB_ORBIT) && v2_dist2(b->pos, p->pos) < 90.0f * 90.0f) b->flags |= PB_ORBIT;
+    b->pierce += p->pierce + g.pierce;
+    if (b->pierce > PIERCE_ALL) b->pierce = PIERCE_ALL;
+    b->bounces += p->bounce + g.bounce;
+    b->homing += p->homing + g.homing;
     b->armed = true;
     upg_on_bullet_spawn(b);
 }
 
-void weapon_echo(float aim, float dmg) {
+void weapon_echo(V2 from, float aim, float dmg) {
     const Player *p = &G.pl;
     Gun g;
     float k;
@@ -385,7 +542,7 @@ void weapon_echo(float aim, float dmg) {
     count = count > 4 ? 4 : count;
     for (int i = 0; i < count; i++) {
         float a = aim + ((float)i - (float)(count - 1) * 0.5f) * 0.08f;
-        PBullet *b = pbullet_spawn(p->pos, v2_scale(v2_angle(a), g.speed * p->shot_speed_mult), 4.0f, dmg, col_hex(0xb0a0ff, 1));
+        PBullet *b = pbullet_spawn(from, v2_scale(v2_angle(a), g.speed * p->shot_speed_mult), 4.0f, dmg, col_hex(0xb0a0ff, 1));
         if (!b) return;
         b->life = fmaxf(g.life, 0.4f) * p->range_mult;
         b->knockback = 30.0f;
@@ -395,9 +552,10 @@ void weapon_echo(float aim, float dmg) {
 
 static V2 drone_pos(int i) {
     const Player *p = &G.pl;
-    float a = G.time * 2.4f + TAU_F * (float)i / (float)p->drones;
+    float a = G.time * 2.4f + TAU_F * (float)i / (float)(p->drones > 0 ? p->drones : 1);
     return v2_add(p->pos, v2_scale(v2_angle(a), 52.0f));
 }
+V2 weapon_drone_pos(int i) { return drone_pos(i); }
 
 static void update_drones(void) {
     Player *p = &G.pl;
@@ -414,6 +572,7 @@ static void update_drones(void) {
         if (!b) return;
         b->life = 1.0f;
         b->knockback = 20.0f;
+        if (syn(SYN_LIGHTNING_ROD)) b->flags |= PB_ARC; /* with TESLA FIELD: drone shots chain lightning */
         pbullet_arm(b, false);
         sfx_play_at(SFX_DRONE_SHOT, dp);
     }
@@ -424,15 +583,25 @@ void weapons_update(void) {
     bool sword = sword_on();
     p->fire_cd -= DT;
     /* VULCAN: spins up over ~1 s of firing, winds down when released. */
-    bool spinning = G.in.fire && !sword && upg_has(UPG_W_VULCAN);
+    bool trigger = weapon_trigger();
+    bool spinning = trigger && upg_has(UPG_W_VULCAN);
     p->spin = clampf(p->spin + (spinning ? DT / 1.0f : -DT / 0.6f), 0.0f, 1.0f);
-    if (malus_fire_gate(G.in.fire)) {
+    if (malus_fire_gate(trigger)) {
         while (p->fire_cd <= 0.0f) {
             if (sword) sword_swing();
             else fire_volley();
         }
     } else if (p->fire_cd < 0.0f) {
         p->fire_cd = 0.0f;
+    }
+    /* TESLA BEAM (LASER + ARC CASTER): while the trigger is held, bolts leap to the nearest enemy. */
+    if (trigger && syn(SYN_TESLA_BEAM) && p->jam_t <= 0.0f && p->cold_t <= 0.0f) {
+        p->bolt_cd -= DT;
+        Enemy *t = p->bolt_cd <= 0.0f ? enemy_nearest(p->pos, 440.0f) : NULL;
+        if (t) {
+            p->bolt_cd = 0.25f;
+            upg_bolt(p->pos, t, 9.0f * p->dmg_mult, 2);
+        }
     }
     if (!sword) p->swing_t = 0.0f;
     sword_update();

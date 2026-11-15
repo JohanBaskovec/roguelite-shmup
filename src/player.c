@@ -39,6 +39,7 @@ static void player_bomb(void) {
     G.bomb_flash = 1.0f;
     G.hitstop = 0.06f;
     room_bomb_at(p->pos);
+    upg_on_bomb(); /* synergies: DEMOLITION, SCORCHED EARTH */
     fx_shake(1.0f);
     fx_particle(p->pos, v2(0, 0), 0.6f, 1500.0f, col_hex(0xffffff, 0.9f), 0.0f, PT_RING);
     fx_particle(p->pos, v2(0, 0), 0.45f, 900.0f, col_hex(0xff8a3d, 1.0f), 0.0f, PT_RING);
@@ -50,7 +51,7 @@ bool player_hurt(int dmg) {
     if (G.state != GS_PLAYING || G.transitioning) return false;
     if (p->invuln > 0.0f || p->dash_t > 0.0f || active_shield_on()) return false;
     if (upg_block_hit()) return true; /* EMERGENCY SHIELD: blocked, but it did land */
-    dmg += malus_on_hurt(); /* first hit of the room costs more, coins lost */
+    dmg += malus_on_hurt() + malus(MAL_FRAGILE); /* first hit of the room costs more, coins lost; FRAGILE: every hit does */
     if (G.god) dmg = 0;
     /* Shields (temporary hearts) soak damage before the hull. */
     bool shielded = p->shield > 0;
@@ -64,7 +65,7 @@ bool player_hurt(int dmg) {
     G.hitstop = 0.08f;
     fx_shake(0.55f);
     /* Mercy: wipe bullets right around the ship. Marked dead, removed by the bullet loop. */
-    for (int i = 0; i < G.neb; i++) {
+    for (int i = 0; i < G.neb && !malus(MAL_NO_MERCY); i++) {
         EBullet *b = &G.eb[i];
         if (b->life > 0.0f && v2_dist2(b->pos, p->pos) < 170.0f * 170.0f) {
             b->life = -1.0f;

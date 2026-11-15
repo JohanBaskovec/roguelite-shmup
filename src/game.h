@@ -48,9 +48,17 @@ typedef enum {
     UPG_CHAIN_REACTION, UPG_GROWTH, UPG_TURRET_MODE, UPG_RUN_GUN, UPG_FROSTBITE, UPG_PYROMANIAC,
     UPG_TOXIC_CLOUD, UPG_OVERKILL, UPG_MISSILE_POD, UPG_ORBITAL, UPG_SPIKED_HULL, UPG_ECHO,
     UPG_MAGNUM, UPG_SPRAY, UPG_HEAVY_CALIBER, UPG_EMERGENCY, UPG_RAMPAGE, UPG_BLACK_HOLE, UPG_XRAY,
+    /* shot behaviours (hooks), elemental combos */
+    UPG_RICOCHET, UPG_SNOWBALL, UPG_STICKY, UPG_FIREWORKS, UPG_PINBALL, UPG_SHATTER, UPG_CONDUCTOR,
+    UPG_ALCHEMIST, UPG_CRIT_MASS, UPG_FIRST_BLOOD, UPG_HIVEMIND,
+    /* ways of playing */
+    UPG_DEAD_TRIGGER, UPG_CHARGE, UPG_GRAZE, UPG_BULLET_TIME, UPG_CLONE, UPG_BLOOD_MONEY, UPG_WILD_CARD,
+    UPG_POINT_DEFENSE, UPG_TRAIL, UPG_AEGIS, UPG_AFTERBURNER, UPG_BERSERKER, UPG_BOMB_FACTORY, UPG_FLAWLESS,
+    UPG_VENGEANCE,
     /* weapon mods (offered by weapon rooms); UPG_W_SWORD replaces the gun with a sword */
     UPG_W_SCATTER, UPG_W_NEEDLER, UPG_W_SEEKER, UPG_W_BOUNCER, UPG_W_RAILGUN, UPG_W_FLAMER, UPG_W_ROCKETS,
-    UPG_W_CHAKRAM, UPG_W_CLUSTER, UPG_W_ARC, UPG_W_VULCAN, UPG_W_WAVE, UPG_W_SWORD,
+    UPG_W_CHAKRAM, UPG_W_CLUSTER, UPG_W_ARC, UPG_W_VULCAN, UPG_W_WAVE,
+    UPG_W_LASER, UPG_W_SPIRAL, UPG_W_PRISM, UPG_W_GRAVITON, UPG_W_SWORD,
     /* workshop exclusives (UpgradeDef.tier = max hearts paid), never offered anywhere else */
     UPG_X_BLOOD_ROUNDS, UPG_X_OVERDRIVE, UPG_X_HELLFIRE, UPG_X_STORM, UPG_X_DEMON, UPG_X_GOD_CANNON,
     UPG_COUNT
@@ -107,6 +115,8 @@ typedef struct {
     int flags;      /* PB_* */
     float age;
     SDL_FColor col;
+    int ricochets;  /* RICOCHET: jumps to another enemy already made */
+    float grown;    /* SNOWBALL: size multiplier applied so far (0 = none yet) */
     bool armed;     /* went through pbullet_arm (or is the main gun's): carries every upgrade */
 } PBullet;
 
@@ -121,14 +131,19 @@ enum {
     PB_ACCEL = 4096,    /* rockets, seeker: speeds up after launch */
     PB_WAVE = 8192,     /* wave gun: weaves around its line of fire */
     PB_ARC = 16384,     /* arc caster: hits chain lightning */
+    PB_ORBIT = 1 << 15, /* orbit: circles around the ship in a widening spiral */
+    PB_SPLIT = 1 << 16, /* prism: splits in three mid-flight (once) */
+    PB_PULL = 1 << 17,  /* graviton: drags enemies along */
 };
 
 /* Look of a player shot: the most striking weapon mod owned decides (gun_profile). */
-typedef enum { BS_BOLT, BS_SEEKER, BS_BOUNCER, BS_RAIL, BS_FLAME, BS_ROCKET, BS_CHAKRAM, BS_CLUSTER, BS_ARC, BS_WAVE } BulletStyle;
+typedef enum { BS_BOLT, BS_SEEKER, BS_BOUNCER, BS_RAIL, BS_FLAME, BS_ROCKET, BS_CHAKRAM, BS_CLUSTER, BS_ARC, BS_WAVE,
+               BS_LASER, BS_GRAVITON, BS_CRESCENT } BulletStyle;
 
 typedef struct {
     V2 pos, vel;
     float radius, life, age;
+    bool grazed;    /* GRAZE: already counted */
     float accel;    /* px/s^2 along velocity */
     float curve;    /* rad/s */
     SDL_FColor col;
@@ -158,6 +173,9 @@ typedef struct {
     int state, burst, spin_dir;
     float slow_t;                 /* chilled: moves and shoots slower */
     float poison_t, poison_dps, burn_t, burn_dps;
+    float sticky_t, sticky_dmg;   /* STICKY CHARGES: time before the charge blows, its damage */
+    float react_cd;               /* elemental reactions (synergies): time before the next one */
+    int clone_swing;              /* BLADE DANCER: last swing of the clone's blade that hit it */
     int sword_swing;              /* id of the last sword swing that hit it (one hit per swing) */
     int phase;                    /* EN_BOSS: current phase, 0 .. BOSS_PHASES - 1 */
     float inv_t;                  /* EN_BOSS: invulnerable while > 0 (phase change) */
@@ -287,6 +305,40 @@ typedef struct {
     int max_hp, extra_proj, pierce, bounce, drones, luck;
 } Stats;
 
+#define CLONE_DELAY 66 /* ticks the SHADOW CLONE lags behind the ship */
+
+/* Synergies (synergies.c): extra effects that only exist while a given set of upgrades is turned on
+ * together. Nothing to pick up: owning the parts is enough; a banner names each one the first time. */
+typedef enum {
+    /* elemental reactions */
+    SYN_THERMAL_SHOCK, SYN_COMBUSTION, SYN_FLASH_FREEZE, SYN_PLAGUE,
+    /* the sword */
+    SYN_PARRY, SYN_BLADE_DANCER, SYN_THROWN_SWORD,
+    /* pairs of shot upgrades */
+    SYN_TESLA_BEAM, SYN_PLASMA, SYN_EVENT_HORIZON, SYN_SAW_HALO, SYN_MIRV,
+    /* defence */
+    SYN_MIRROR_SHIELD, SYN_SHIELD_BASH, SYN_STORM_ORBS, SYN_FROZEN_TIME, SYN_PHOENIX, SYN_FAILSAFE,
+    /* drones, bombs, mines */
+    SYN_INTERCEPTORS, SYN_LIGHTNING_ROD, SYN_DEMOLITION, SYN_SCORCHED_EARTH, SYN_SEEKER_MINES,
+    /* extra shots, kill triggers */
+    SYN_STARBURST, SYN_ECHO_CHAMBER, SYN_OVERLOAD, SYN_RAIN_OF_FIRE, SYN_CHAIN_EXPLOSION, SYN_SINGULARITY,
+    /* damage rules, ways of playing */
+    SYN_CLOSE_CALL, SYN_UNSTOPPABLE, SYN_EXECUTIONER, SYN_DEADEYE, SYN_COMPOUND, SYN_TRICK_SHOT, SYN_GRAND_FINALE,
+    SYN_STACKED_DECK, SYN_STEADY_AIM,
+    SYN_COUNT
+} SynergyId;
+
+typedef struct {
+    const char *name;
+    const char *desc;  /* '|' splits it over two lines, like upgrade descriptions */
+    int need[3];       /* upgrades all required (UpgradeId + 1, 0 = unused) */
+    int any1[6];       /* ...plus at least one of these, if any is listed */
+    int any2[6];       /* ...and one of these */
+    uint32_t color;
+} SynergyDef;
+
+extern const SynergyDef SYNERGIES[SYN_COUNT];
+
 typedef struct {
     V2 pos, vel;
     float aim_angle;
@@ -306,6 +358,18 @@ typedef struct {
     bool emergency_used;        /* EMERGENCY SHIELD: spent for this room */
     bool room_hit;              /* hit in this room already (FIRST HIT malus) */
     float heat, jam_t, trig_t, cold_t; /* maluses: overheat, jam left, trigger held, no-fire time at room start */
+    float charge;               /* CHARGE SHOT: 0..1, builds while not firing */
+    int graze;                  /* GRAZE: bullets brushed this room */
+    int wild;                   /* WILD CARD: this room's bonus (0 damage, 1 fire rate, 2 speed) */
+    int flawless;               /* FLAWLESS: rooms cleared in a row without a hit */
+    float vengeance_t, afterburn_t, pd_cd, trail_cd;
+    V2 pd_from, pd_to;          /* POINT DEFENSE: last beam (drawn while pd_show > 0) */
+    float pd_show;
+    float bolt_cd, orb_zap_cd;  /* TESLA BEAM / STORM ORBS synergies */
+    int pd_drone;               /* INTERCEPTORS: the drone that fires next */
+    bool syn_seen[SYN_COUNT];   /* synergies already announced this run */
+    V2 trail[CLONE_DELAY];      /* SHADOW CLONE: where the ship was, one entry per tick (ring buffer) */
+    int trail_i;
     float speed;
     int coins, keys, bombs;
     Stats base;                 /* before upgrades (see Stats) */
@@ -471,6 +535,11 @@ typedef enum {
     /* behaviour maluses (read through malus()) */
     MAL_RECOIL, MAL_FIRE_SLOW, MAL_ENEMY_BULLETS, MAL_INVULN, MAL_PRICES, MAL_TAX, MAL_OVERHEAT, MAL_SPINUP,
     MAL_FIRST_HIT, MAL_CROWD, MAL_DRIFT, MAL_COLD_START, MAL_HIT_COINS, MAL_ACTIVE_TIME, MAL_HEAL,
+    MAL_FRAGILE,     /* every hit costs `amount` more half-hearts */
+    MAL_REVENGE,     /* % chance that an enemy killed fires a last bullet at the ship */
+    MAL_BIG_BULLETS, /* enemy bullets % bigger */
+    MAL_NO_MERCY,    /* getting hit no longer clears the bullets around the ship */
+    MAL_MOVING_RATE, /* -% fire rate while moving */
     MAL_CUSTOM, /* part of the upgrade's own effect (text) */
     MAL_COUNT
 } MalusKind;
@@ -508,6 +577,7 @@ float upg_shot_speed_mult(void);      /* DEFLECTOR */
 const char *upgrade_desc_at(int u, int n);
 /* What taking it now would give (current stacks + 1). */
 const char *upgrade_desc(int u);
+int upgrade_by_name(const char *name);
 /* Workshop: a random exclusive upgrade of this tier not owned yet, or -1. */
 int upgrade_roll_exclusive(int tier);
 /* DEFLECTOR SHELLS: a big player bullet turns the enemy bullets it touches. */
@@ -522,7 +592,26 @@ bool upg_on_lethal_hit(void);         /* SECOND WIND: true = survived */
 void upg_on_hurt(void);
 void upg_on_active(void);            /* NOVA TRIGGER: any active item used */
 bool upg_block_hit(void);             /* EMERGENCY SHIELD: true = this hit is ignored */
-void upg_on_bounce(PBullet *b);       /* SMART BOUNCE */
+void upg_on_bounce(PBullet *b);       /* SMART BOUNCE, PINBALL */
+bool upg_ricochet(PBullet *b, const Enemy *hit);
+void upg_on_bullet_expire(const PBullet *b); /* FIREWORKS */
+bool upg_graze_on(void);
+void upg_on_graze(V2 at);
+float upg_enemy_bullet_tempo(V2 pos); /* CHRONO BUBBLE */
+V2 upg_clone_pos(void);               /* SHADOW CLONE */
+void upg_return_bullet(EBullet *e, V2 from); /* an enemy bullet turned into one of ours (marked dead) */
+void upg_enemy_reactions(Enemy *e);   /* elemental reaction synergies, once per enemy tick */
+void upg_bolt(V2 from, Enemy *t, float dmg, int jumps);
+void upg_fire_patch(V2 pos, float dmg, float life);
+void upg_vortex(V2 pos, float life, float dmg);
+void upg_mega_shot(V2 muzzle, float aim, float dmg);
+void upg_on_bomb(void);
+
+/* synergies.c */
+bool syn(int s);                      /* is this synergy active right now? */
+void synergies_update(void);          /* announces the ones just completed */
+int synergies_active(int *out);
+const char *synergy_parts(int s);     /* "A + B", the parts owned that make it */
 /* Area damage with its fx (explosions: payload, rockets, boom...). */
 void explode_at(V2 pos, float radius, float dmg, const Enemy *skip, uint32_t color);
 /* Lightning from an enemy to the nearest ones not hit yet. */
@@ -619,7 +708,8 @@ void drones_draw(void);
 void sword_draw(void);
 void weapon_on_hit(PBullet *b, Enemy *e, float dmg); /* flamer burn, arc chains */
 void weapon_bullet_death(PBullet *b);  /* explosive / cluster shots */
-void weapon_echo(float aim, float dmg); /* ECHO: a weaker copy of the last volley */
+void weapon_echo(V2 from, float aim, float dmg); /* ECHO, SHADOW CLONE: a weaker copy of the volley */
+bool weapon_trigger(void); /* the fire button, or DEAD MAN'S TRIGGER holding it down in a fight */
 /* Every player shot (turret, tail / side shots, echo, drones, nova, enemy bullets turned around...)
  * carries the upgrades like the main gun's: shot-shaping behaviours, pierce, bounces, homing, size,
  * on-spawn effects (crit...), and - unless `scaled` (damage / range / speed already derived from a
@@ -629,7 +719,8 @@ void pbullet_arm(PBullet *b, bool scaled);
 int weapon_mod_by_name(const char *name); /* --weapon NAME: UpgradeId of that weapon mod, or -1 */
 const char *weapon_option_name(int u);    /* lowercase name of a weapon mod */
 int gun_main_mod(void);                  /* that weapon mod (UpgradeId), -1 for the plain blaster */
-bool sword_on(void);                     /* the sword replaces the gun */
+bool sword_on(void);
+V2 weapon_drone_pos(int i);                     /* the sword replaces the gun */
 float gun_volley_shots(void);            /* projectiles per volley right now (HUD, tests) */
 float sword_reach(void);
 #define SWORD_INNER 18.0f /* the blade starts this far from the ship's centre */

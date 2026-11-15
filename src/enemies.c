@@ -393,6 +393,16 @@ static void update_enemy(Enemy *e) {
                         col_hex(e->burn_t > 0.0f ? 0xff7a2e : 0x7dff4a, 0.9f), 0.0f, PT_GLOW);
     }
 
+    upg_enemy_reactions(e); /* synergies: THERMAL SHOCK, COMBUSTION */
+    /* STICKY CHARGES: the charge planted by the last hits goes off. */
+    if (e->sticky_t > 0.0f && (e->sticky_t -= DT) <= 0.0f) {
+        float boom = e->sticky_dmg;
+        e->sticky_dmg = 0.0f;
+        explode_at(e->pos, 90.0f + e->radius, boom, e, 0xffc23d);
+        enemy_damage(e, boom, v2(0, 0));
+        sfx_play_at(SFX_EXPLODE_SMALL, e->pos);
+    }
+
     switch (e->type) {
     case EN_CHASER: {
         V2 chase = nav_dir(e, pl->pos);
@@ -661,6 +671,9 @@ static void on_death(Enemy *e) {
     else if (e->type == EN_SWARM) sfx_play_ex(SFX_EXPLODE_SMALL, 0.7f, 1.5f, (e->pos.x - ARENA_CX) / (ARENA_X1 - ARENA_CX) * 0.7f);
     else sfx_play_at(SFX_EXPLODE_SMALL, e->pos);
 
+    /* REVENGE malus: a last bullet for the ship (never point-blank). */
+    if (e->type != EN_BOSS && !G.room.cleared && v2_dist2(e->pos, G.pl.pos) > 160.0f * 160.0f && chance(malus_pct(MAL_REVENGE)))
+        ebullet_spawn(e->pos, v2_heading(v2_sub(G.pl.pos, e->pos)), 300.0f, 8.0f, col_hex(0xff5a6e, 1));
     /* No drops: resources only ever come from room rewards. */
     upg_on_kill(e);
 }
@@ -824,6 +837,10 @@ void enemies_draw(void) {
             break;
         }
 
+        if (e->sticky_t > 0.0f) { /* STICKY CHARGES: a blinking charge about to blow */
+            float blink = fmodf(e->sticky_t, 0.16f) < 0.08f ? 1.0f : 0.35f;
+            draw_ngon(v2_add(e->pos, v2(e->radius * 0.5f, -e->radius * 0.5f)), 6.0f, 4, G.time * 6.0f, col_hex(0xffc23d, blink));
+        }
         if (e->hp < e->max_hp && e->radius >= 18.0f && e->type != EN_BOSS) {
             float w = e->radius * 2.0f, k = clampf(e->hp / e->max_hp, 0.0f, 1.0f);
             float x = e->pos.x - w * 0.5f, y = e->pos.y - e->radius - 12.0f;

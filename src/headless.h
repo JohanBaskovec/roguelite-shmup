@@ -27,7 +27,9 @@ typedef struct {
     int character;     /* CharId used for every run */
     unsigned actives;  /* active items given at the start (bit per ActiveId; 0 = none, the normal start); fail if never used */
     bool active_room;  /* start in an active room */
-    int weapon;        /* weapon mod (UpgradeId) given at the start (-1 = none) */
+    const int *upgrades; /* upgrades given at the start (UpgradeId) */
+    int nupgrades;
+    unsigned weapons;  /* shot upgrades given at the start (bit per UpgradeId - UPG_W_SCATTER) */
     bool toggle_upgrades; /* the bot keeps turning random upgrades off and on; fail if it never does */
     int expect_rooms;  /* fail if a run clears fewer rooms than this */
     const char *fail_shot; /* if set, render the failing frame offscreen into this BMP */

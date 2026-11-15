@@ -199,8 +199,9 @@ static const char *check_invariants(float room_time) {
         return msg;
     }
     if (G.room.cleared && G.room.clear_t > MAX_CLEARED_SECONDS) {
-        snprintf(msg, sizeof msg, "still in cleared room %d after %.0f s (bot stuck at %.0f, %.0f?)", G.room.depth,
-                 (double)G.room.clear_t, (double)p->pos.x, (double)p->pos.y);
+        snprintf(msg, sizeof msg, "still in cleared room %d after %.0f s (bot stuck at %.0f, %.0f? vel %.0f,%.0f keys %d%d%d%d fire %d, %d shots, speed %.0f x%.2f)",
+                 G.room.depth, (double)G.room.clear_t, (double)p->pos.x, (double)p->pos.y, (double)p->vel.x, (double)p->vel.y,
+                 G.in.left, G.in.right, G.in.up, G.in.down, G.in.fire, G.npb, (double)p->speed, (double)upg_move_speed_mult());
         return msg;
     }
     return NULL;
@@ -846,8 +847,8 @@ static int debug_rooms_run(const HeadlessOptions *o) {
                                     .hp = 5000.0f, .max_hp = 5000.0f}; G.en[G.nen++] = d; } while (0)
         Player *pl = &G.pl;
         Input *in = &G.in;
-        const char *names[32];
-        bool oks[32];
+        const char *names[48];
+        bool oks[48];
         int nres = 0;
 
         FRESH(); /* REVERSAL: every enemy bullet becomes ours */
@@ -1056,15 +1057,15 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         mal_ok = mal_ok && first_hit == 2 && hp_m - pl->hp == 3;
         G.god = true;
         G.hitstop = 0.0f;
-        /* spin-up: no shot for 0.3 s after pulling the trigger */
+        /* spin-up: no shot for 0.4 s after pulling the trigger */
         FRESH();
-        upgrade_apply(UPG_MOMENTUM);
+        upgrade_apply(UPG_CONDUCTOR);
         G.npb = 0;
         pl->fire_cd = 0.0f;
         in->fire = true;
         for (int t = 0; t < 24; t++) TICK(); /* 0.2 s */
         int early = G.npb;
-        for (int t = 0; t < 24; t++) TICK();
+        for (int t = 0; t < 36; t++) TICK();
         mal_ok = mal_ok && early == 0 && G.npb > 0;
         /* overheat: OVERCLOCK jams the gun after 3 s of non-stop fire; turned off, it never does */
         upgrade_apply(UPG_RAPID);
@@ -1083,6 +1084,247 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         in->fire = false;
         G.npb = 0;
         names[nres] = "maluses", oks[nres++] = mal_ok;
+
+        /* The newer malus kinds: FRAGILE (BERSERKER: every hit costs one more half-heart), BIG BULLETS
+         * (GUARDIAN ORB: +20%), NO MERCY (REACTIVE ARMOR: bullets around the ship survive a hit). */
+        FRESH();
+        upgrade_apply(UPG_BERSERKER);
+        G.god = false;
+        pl->invuln = 0.0f;
+        int hp_f = pl->hp;
+        player_hurt(1);
+        bool mal2_ok = hp_f - pl->hp == 2;
+        G.god = true;
+        FRESH();
+        EBullet *big = ebullet_spawn(v2(ARENA_CX, ARENA_CY - 300.0f), 0.0f, 1.0f, 10.0f, COL_WHITE);
+        mal2_ok = mal2_ok && big && big->radius == 10.0f;
+        upgrade_apply(UPG_ORB);
+        big = ebullet_spawn(v2(ARENA_CX, ARENA_CY - 300.0f), 0.0f, 1.0f, 10.0f, COL_WHITE);
+        mal2_ok = mal2_ok && big && fabsf(big->radius - 12.0f) < 1e-3f;
+        FRESH();
+        upgrade_apply(UPG_REACTIVE);
+        G.neb = 0;
+        ebullet_spawn(v2_add(pl->pos, v2(60.0f, 0.0f)), 0.0f, 0.0f, 6.0f, COL_WHITE);
+        pl->invuln = 0.0f;
+        player_hurt(1);
+        mal2_ok = mal2_ok && G.neb == 1 && G.eb[0].life > 0.0f;
+        G.neb = G.npb = 0;
+        G.hitstop = 0.0f;
+        names[nres] = "maluses: fragile, big bullets, no mercy", oks[nres++] = mal2_ok;
+
+        /* PRISM: one shot becomes three mid-flight; LASER keeps a continuous beam and pierces. */
+        FRESH();
+        upgrade_apply(UPG_W_PRISM);
+        G.npb = 0;
+        pl->fire_cd = 0.0f;
+        in->fire = true;
+        TICK();
+        in->fire = false;
+        int before_split = G.npb;
+        for (int t = 0; t < 24; t++) TICK();
+        bool prism_ok = before_split == 1 && G.npb == 3;
+        FRESH();
+        upgrade_apply(UPG_W_LASER);
+        DUMMY(ARENA_CX, ARENA_CY);
+        DUMMY(ARENA_CX + 200.0f, ARENA_CY);
+        in->fire = true;
+        for (int t = 0; t < 60; t++) { G.hitstop = 0.0f; TICK(); }
+        in->fire = false;
+        prism_ok = prism_ok && G.nen == 2 && G.en[0].hp < 5000.0f && G.en[1].hp < 5000.0f && G.npb > 8;
+        G.nen = G.npb = 0;
+        names[nres] = "prism splits, laser pierces", oks[nres++] = prism_ok;
+
+        /* The sword combines with the shot upgrades: LASER -> lightsaber (x2.5 damage, longer),
+         * WAVE -> every swing throws a blade wave that carries the shot behaviours. */
+        FRESH();
+        upgrade_apply(UPG_W_SWORD);
+        pl->fire_cd = 0.0f;
+        in->fire = true;
+        TICK();
+        float plain_dmg = pl->swing_dmg, plain_reach = pl->swing_reach;
+        int plain_shots = G.npb;
+        upgrade_apply(UPG_W_LASER);
+        pl->fire_cd = 0.0f;
+        TICK();
+        bool saber_ok = plain_dmg > 0.0f && fabsf(pl->swing_dmg - plain_dmg * 2.5f) < 0.01f && pl->swing_reach > plain_reach &&
+                        plain_shots == 0 && G.npb == 0;
+        upgrade_apply(UPG_W_WAVE);
+        pl->fire_cd = 0.0f;
+        TICK();
+        in->fire = false;
+        saber_ok = saber_ok && G.npb == 1 && G.pb[0].style == BS_CRESCENT && (G.pb[0].flags & PB_WAVE) && G.pb[0].armed;
+        G.npb = 0;
+        names[nres] = "lightsaber, blade waves", oks[nres++] = saber_ok;
+
+        /* RICOCHET: a shot without pierce hits one enemy, then jumps to the other. STICKY CHARGES:
+         * the charge blows 0.7 s after the hit. FIRST BLOOD: x3 on an enemy at full health. */
+        FRESH();
+        upgrade_apply(UPG_RICOCHET);
+        DUMMY(ARENA_CX, ARENA_CY);
+        DUMMY(ARENA_CX + 150.0f, ARENA_CY + 150.0f);
+        G.npb = 0;
+        pl->fire_cd = 0.0f;
+        in->fire = true;
+        TICK();
+        in->fire = false;
+        for (int t = 0; t < 60; t++) { G.hitstop = 0.0f; TICK(); }
+        bool hit_ok = G.nen == 2 && G.en[0].hp < 5000.0f && G.en[1].hp < 5000.0f;
+        FRESH();
+        upgrade_apply(UPG_STICKY);
+        DUMMY(ARENA_CX, ARENA_CY);
+        pl->fire_cd = 0.0f;
+        in->fire = true;
+        TICK();
+        in->fire = false;
+        for (int t = 0; t < 40; t++) TICK(); /* the shot lands... */
+        float after_hit = G.en[0].hp;
+        for (int t = 0; t < 100; t++) TICK(); /* ...and the charge goes off */
+        hit_ok = hit_ok && after_hit < 5000.0f && G.en[0].sticky_t <= 0.0f && G.en[0].hp < after_hit - (5000.0f - after_hit);
+        FRESH();
+        DUMMY(ARENA_CX, ARENA_CY);
+        PBullet probe = {.damage = 10.0f};
+        float base_hit = upg_hit_damage(&probe, &G.en[0]);
+        upgrade_apply(UPG_FIRST_BLOOD);
+        hit_ok = hit_ok && fabsf(upg_hit_damage(&probe, &G.en[0]) - base_hit * 3.0f) < 1e-3f;
+        G.en[0].hp -= 1.0f;
+        hit_ok = hit_ok && fabsf(upg_hit_damage(&probe, &G.en[0]) - base_hit) < 1e-3f;
+        G.nen = G.npb = 0;
+        names[nres] = "ricochet, sticky charges, first blood", oks[nres++] = hit_ok;
+
+        /* GRAZE: a bullet brushing past counts once and hurts nobody. CHARGE SHOT: 1.5 s without
+         * firing, then one volley at x6. AEGIS: a bullet coming from the front is eaten. */
+        FRESH();
+        upgrade_apply(UPG_GRAZE);
+        G.god = false;
+        pl->invuln = 0.0f;
+        int hp_g = pl->hp;
+        G.neb = 0;
+        ebullet_spawn(v2_add(pl->pos, v2(-100.0f, 22.0f)), 0.0f, 400.0f, 7.0f, COL_WHITE);
+        for (int t = 0; t < 60; t++) TICK();
+        bool play_ok = pl->graze == 1 && pl->hp == hp_g;
+        G.god = true;
+        FRESH();
+        upgrade_apply(UPG_CHARGE);
+        float d0 = pl->dmg_mult * upg_volley_damage_mult() * 7.0f; /* the blaster's 7 damage */
+        for (int t = 0; t < 190; t++) TICK();
+        play_ok = play_ok && pl->charge == 1.0f;
+        G.npb = 0;
+        pl->fire_cd = 0.0f;
+        in->fire = true;
+        TICK();
+        play_ok = play_ok && G.npb == 1 && fabsf(G.pb[0].damage - d0 * 6.0f) < 0.01f && pl->charge == 0.0f;
+        for (int t = 0; t < 12; t++) TICK();
+        in->fire = false;
+        play_ok = play_ok && G.npb >= 2 && fabsf(G.pb[G.npb - 1].damage - d0) < 0.01f;
+        FRESH();
+        upgrade_apply(UPG_AEGIS);
+        G.god = false;
+        pl->invuln = 0.0f;
+        hp_g = pl->hp;
+        G.neb = 0;
+        ebullet_spawn(v2_add(pl->pos, v2(200.0f, 0.0f)), PI_F, 400.0f, 7.0f, COL_WHITE); /* from where the ship aims */
+        for (int t = 0; t < 90; t++) TICK();
+        play_ok = play_ok && pl->hp == hp_g && G.neb == 0;
+        G.god = true;
+        G.npb = 0;
+        names[nres] = "graze, charge shot, aegis", oks[nres++] = play_ok;
+
+        /* Synergies: active only while every part is turned on, announced once per run. */
+        FRESH();
+        upgrade_apply(UPG_W_SWORD);
+        bool syn_ok = !syn(SYN_PARRY);
+        upgrade_apply(UPG_DEFLECTOR);
+        syn_ok = syn_ok && syn(SYN_PARRY) && !pl->syn_seen[SYN_PARRY];
+        upgrade_toggle(UPG_DEFLECTOR);
+        syn_ok = syn_ok && !syn(SYN_PARRY);
+        upgrade_toggle(UPG_DEFLECTOR);
+        int act_syn[SYN_COUNT];
+        syn_ok = syn_ok && synergies_active(act_syn) == 1 && act_syn[0] == SYN_PARRY && SDL_strstr(synergy_parts(SYN_PARRY), "SWORD + DEFLECTOR");
+        TICK(); /* the upgrade's own banner is still up: the synergy waits */
+        syn_ok = syn_ok && !pl->syn_seen[SYN_PARRY];
+        G.banner_t = 0.0f;
+        TICK();
+        syn_ok = syn_ok && pl->syn_seen[SYN_PARRY] && SDL_strstr(G.banner, "PARRY") != NULL;
+        /* PARRY: the blade sends a bullet back as one of ours. */
+        G.neb = G.npb = 0;
+        ebullet_spawn(v2_add(pl->pos, v2(80.0f, 0.0f)), 0.0f, 0.0f, 7.0f, COL_WHITE);
+        pl->fire_cd = 0.0f;
+        in->fire = true;
+        for (int t = 0; t < 30; t++) TICK();
+        in->fire = false;
+        int sent_back = 0;
+        for (int i = 0; i < G.npb; i++) sent_back += (G.pb[i].flags & PB_REFLECTED) && G.pb[i].armed;
+        syn_ok = syn_ok && sent_back == 1 && G.neb == 0;
+        /* MIRROR SHIELD: so does the front shield. */
+        FRESH();
+        upgrade_apply(UPG_AEGIS);
+        upgrade_apply(UPG_DEFLECTOR);
+        G.neb = G.npb = 0;
+        ebullet_spawn(v2_add(pl->pos, v2(200.0f, 0.0f)), PI_F, 400.0f, 7.0f, COL_WHITE);
+        for (int t = 0; t < 60; t++) TICK();
+        sent_back = 0;
+        for (int i = 0; i < G.npb; i++) sent_back += (G.pb[i].flags & PB_REFLECTED) != 0;
+        syn_ok = syn_ok && syn(SYN_MIRROR_SHIELD) && sent_back == 1 && G.neb == 0;
+        G.npb = 0;
+        names[nres] = "synergies: on / off, banner, parry, mirror shield", oks[nres++] = syn_ok;
+
+        /* Elemental reactions. THERMAL SHOCK: burning + chilled -> a burst, both states spent (and
+         * nothing without a chill source). COMBUSTION: burning + poisoned -> the poison blows up,
+         * the neighbour catches fire. */
+        FRESH();
+        upgrade_apply(UPG_THERMITE);
+        DUMMY(ARENA_CX, ARENA_CY);
+        G.en[0].burn_t = 2.0f, G.en[0].burn_dps = 20.0f, G.en[0].slow_t = 1.0f;
+        TICK();
+        bool react_ok = !syn(SYN_THERMAL_SHOCK) && G.en[0].burn_t > 0.0f && G.en[0].hp > 4999.0f;
+        upgrade_apply(UPG_FROST);
+        G.en[0].hp = 5000.0f, G.en[0].burn_t = 2.0f, G.en[0].burn_dps = 20.0f, G.en[0].slow_t = 1.0f;
+        TICK();
+        react_ok = react_ok && syn(SYN_THERMAL_SHOCK) && G.en[0].burn_t <= 0.0f && G.en[0].slow_t <= 0.0f && G.en[0].hp <= 5000.0f - 30.0f;
+        FRESH();
+        upgrade_apply(UPG_THERMITE);
+        upgrade_apply(UPG_VENOM);
+        DUMMY(ARENA_CX, ARENA_CY);
+        DUMMY(ARENA_CX + 90.0f, ARENA_CY);
+        G.en[0].burn_t = 2.0f, G.en[0].burn_dps = 20.0f, G.en[0].poison_t = 3.0f, G.en[0].poison_dps = 30.0f;
+        TICK();
+        react_ok = react_ok && syn(SYN_COMBUSTION) && G.en[0].poison_t <= 0.0f && G.en[0].hp <= 5000.0f - 60.0f &&
+                   G.en[1].burn_t > 0.0f && G.en[1].hp < 5000.0f;
+        G.nen = 0;
+        names[nres] = "synergies: thermal shock, combustion", oks[nres++] = react_ok;
+
+        /* DEMOLITION: a bomb sets off the sticky charges, twice as strong. EXECUTIONER: the
+         * guillotine falls at 25%. BLADE DANCER: the clone's blade cuts too. */
+        FRESH();
+        upgrade_apply(UPG_STICKY);
+        DUMMY(ARENA_CX, ARENA_CY);
+        G.en[0].sticky_dmg = 100.0f, G.en[0].sticky_t = 5.0f;
+        pl->bombs = 1;
+        in->bomb_pressed = true;
+        TICK();
+        bool misc_ok = syn(SYN_DEMOLITION) && G.en[0].sticky_dmg == 0.0f && G.en[0].hp <= 5000.0f - 200.0f - 35.0f;
+        G.hitstop = 0.0f;
+        FRESH();
+        upgrade_apply(UPG_GUILLOTINE);
+        DUMMY(ARENA_CX, ARENA_CY);
+        G.en[0].hp = 5000.0f * 0.2f;
+        PBullet weak = {.damage = 1.0f};
+        misc_ok = misc_ok && upg_hit_damage(&weak, &G.en[0]) < 10.0f;
+        upgrade_apply(UPG_BULLY);
+        misc_ok = misc_ok && syn(SYN_EXECUTIONER) && upg_hit_damage(&weak, &G.en[0]) > G.en[0].hp;
+        FRESH();
+        upgrade_apply(UPG_W_SWORD);
+        upgrade_apply(UPG_CLONE);
+        for (int i = 0; i < CLONE_DELAY; i++) pl->trail[i] = v2(ARENA_CX, ARENA_CY + 250.0f); /* the clone, far from the ship */
+        pl->pos = v2(ARENA_CX - 500.0f, ARENA_CY - 250.0f);
+        DUMMY(ARENA_CX + 70.0f, ARENA_CY + 250.0f); /* right in front of the clone only */
+        pl->fire_cd = 0.0f;
+        in->fire = true;
+        for (int t = 0; t < 6; t++) { G.hitstop = 0.0f; TICK(); }
+        in->fire = false;
+        misc_ok = misc_ok && syn(SYN_BLADE_DANCER) && G.nen == 1 && G.en[0].hp < 5000.0f && G.npb == 0;
+        G.nen = G.npb = 0;
+        names[nres] = "synergies: demolition, executioner, blade dancer", oks[nres++] = misc_ok;
 
         /* Shop supply counter: a heart (refused at full health), a bomb and a key, paid in coins. */
         game_init(o->seed);
@@ -1139,7 +1381,7 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         Stats base;
         stats_compute(&base, false); /* nothing owned yet */
         static const int give[] = {UPG_HULL, UPG_GLASS_CANNON, UPG_RAPID, UPG_BIG_IRON, UPG_MULTI, UPG_FOUR_LEAF,
-                                   UPG_THRUSTER, UPG_TESLA, UPG_W_SEEKER, UPG_W_RAILGUN, UPG_SKELETON_KEY, UPG_DRONE};
+                                   UPG_THRUSTER, UPG_LEECH, UPG_W_SEEKER, UPG_W_RAILGUN, UPG_SKELETON_KEY, UPG_DRONE};
         for (int i = 0; i < ARRAY_LEN(give); i++) upgrade_apply(give[i]);
         Stats on;
         stats_compute(&on, false);
@@ -1152,7 +1394,7 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         for (int i = 0; i < n; i++) upgrade_toggle(list[i]);
         bool off_ok = pl->dmg_mult == base.dmg_mult && pl->rate_mult == base.rate_mult && pl->max_hp == base.max_hp &&
                       pl->extra_proj == 0 && pl->drones == 0 && pl->luck == base.luck && pl->speed == base.speed &&
-                      gun_main_mod() < 0 && upg_has(UPG_TESLA) == 0 && pl->upg_off[UPG_HULL] &&
+                      gun_main_mod() < 0 && upg_has(UPG_LEECH) == 0 && pl->upg_off[UPG_HULL] &&
                       !pl->upg_off[UPG_SKELETON_KEY] && !upgrade_toggleable(UPG_SKELETON_KEY) && stats_in_sync();
         int hp_off = pl->hp;
         for (int i = 0; i < n; i++) upgrade_toggle(list[i]);
@@ -1254,7 +1496,9 @@ int headless_run(const HeadlessOptions *o) {
                                 : actives_owned(start_acts) > 0 ? "run started with an active item (they must be found)" : NULL;
         for (int a = ACT_NONE + 1; a < ACT_COUNT; a++)
             if (o->actives & (1u << a)) active_give(a);
-        if (o->weapon >= 0 && !upgrade_capped(o->weapon)) upgrade_apply(o->weapon);
+        for (int u = UPG_W_SCATTER; u <= UPG_W_SWORD; u++)
+            if ((o->weapons & (1u << (u - UPG_W_SCATTER))) && !upgrade_capped(u)) upgrade_apply(u);
+        for (int i = 0; i < o->nupgrades; i++) upgrade_apply(o->upgrades[i]);
         G.bot_toggles = o->toggle_upgrades;
         G.pl.coins += o->coins;
         if (o->all_upgrades)

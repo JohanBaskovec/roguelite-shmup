@@ -29,7 +29,8 @@ typedef struct {
     bool no_bot;           /* --no-bot: screenshots without the autopilot (the ship stays put) */
     int character;         /* --char NAME: normal / shotgunner / knight */
     unsigned actives;      /* --active NAME (repeatable): start with these active items (bit per ActiveId) */
-    int weapon;            /* --weapon NAME: start with this weapon mod too (UpgradeId, -1 = none) */
+    int upgrades[24], nupgrades; /* --upgrade NAME (repeatable): start with these upgrades ("shadow-clone", "aegis"...) */
+    unsigned weapons;      /* --weapon NAME (repeatable): start with these shot upgrades (bit per UpgradeId - UPG_W_SCATTER) */
     bool toggle_upgrades;  /* --toggle-upgrades (headless): the bot keeps turning upgrades off and on */
     bool active_room;      /* --active-room: start in an active room (choice of 3 active items) */
     bool char_select;      /* --char-select: open the character select screen at startup */
@@ -53,7 +54,6 @@ static void parse_args(int argc, char **argv, Options *o) {
     o->frames = 300;
     o->ticks = 120 * 600;
     o->runs = 1;
-    o->weapon = -1;
     for (int i = 1; i < argc; i++) {
         const char *a = argv[i];
         bool more = i + 1 < argc;
@@ -101,12 +101,21 @@ static void parse_args(int argc, char **argv, Options *o) {
         else if (!strcmp(a, "--active-room")) o->active_room = true;
         else if (!strcmp(a, "--weapon") && more) {
             const char *name = argv[++i];
-            o->weapon = weapon_mod_by_name(name);
-            if (o->weapon < 0) {
+            int w = weapon_mod_by_name(name);
+            if (w < 0) {
                 fprintf(stderr, "unknown weapon mod '%s' (scatter, needler, seeker, bouncer, railgun, flamer, rockets,\n"
-                                "chakram, cluster, arc, vulcan, wave, sword)\n", name);
+                                "chakram, cluster, arc, vulcan, wave, laser, orbit, prism, graviton, sword)\n", name);
                 exit(2);
             }
+            o->weapons |= 1u << (w - UPG_W_SCATTER);
+        }
+        else if (!strcmp(a, "--upgrade") && more) {
+            int u = upgrade_by_name(argv[++i]);
+            if (u < 0) {
+                fprintf(stderr, "unknown upgrade '%s' (its name in the game, '-' for spaces: shadow-clone, aegis...)\n", argv[i]);
+                exit(2);
+            }
+            if (o->nupgrades < ARRAY_LEN(o->upgrades)) o->upgrades[o->nupgrades++] = u;
         }
         else if (!strcmp(a, "--toggle-upgrades")) o->toggle_upgrades = true;
         else if (!strcmp(a, "--all-upgrades")) o->all_upgrades = true;
@@ -219,7 +228,7 @@ int main(int argc, char **argv) {
             .runs = opt.runs, .max_ticks = opt.ticks, .depth = opt.depth, .stats_room = opt.stats_room,
             .shop_room = opt.shop_room, .coins = opt.coins, .debug_rooms = opt.debug_rooms, .secret = opt.secret,
             .all_upgrades = opt.all_upgrades, .hp = opt.hp, .character = opt.character, .workshop_room = opt.workshop_room, .boss_room = opt.boss_room,
-            .actives = opt.actives, .active_room = opt.active_room, .weapon = opt.weapon, .toggle_upgrades = opt.toggle_upgrades, .god = opt.god, .expect_rooms = opt.expect_rooms, .fail_shot = opt.fail_shot,
+            .actives = opt.actives, .active_room = opt.active_room, .weapons = opt.weapons, .upgrades = opt.upgrades, .nupgrades = opt.nupgrades, .toggle_upgrades = opt.toggle_upgrades, .god = opt.god, .expect_rooms = opt.expect_rooms, .fail_shot = opt.fail_shot,
         };
         return headless_run(&h);
     }
@@ -257,13 +266,15 @@ int main(int argc, char **argv) {
     G.reveal_secrets = opt.show_secret;
     G.show_stats = opt.show_stats;
     G.character = opt.character;
-    if (opt.stats_room || opt.shop_room || opt.workshop_room || opt.boss_room || opt.active_room || opt.actives || opt.weapon >= 0 || opt.cleared || opt.depth > 0 ||
+    if (opt.stats_room || opt.shop_room || opt.workshop_room || opt.boss_room || opt.active_room || opt.actives || opt.weapons || opt.nupgrades || opt.cleared || opt.depth > 0 ||
         opt.coins > 0 || opt.debug_menu || opt.all_upgrades || opt.upgrades_menu) {
         game_new_run();
         G.pl.coins += opt.coins;
         for (int a = ACT_NONE + 1; a < ACT_COUNT; a++)
             if (opt.actives & (1u << a)) active_give(a);
-        if (opt.weapon >= 0 && !upgrade_capped(opt.weapon)) upgrade_apply(opt.weapon);
+        for (int u = UPG_W_SCATTER; u <= UPG_W_SWORD; u++)
+            if ((opt.weapons & (1u << (u - UPG_W_SCATTER))) && !upgrade_capped(u)) upgrade_apply(u);
+        for (int i = 0; i < opt.nupgrades; i++) upgrade_apply(opt.upgrades[i]);
         if (opt.all_upgrades)
             for (int u = 0; u < UPG_COUNT; u++)
                 if (!upgrade_capped(u)) upgrade_apply(u);

@@ -38,7 +38,8 @@ add_executable(neon_breach
     src/characters.c
     src/workshop.c
     src/actives.c
-    src/maluses.c)
+    src/maluses.c
+    src/synergies.c)
 
 target_link_libraries(neon_breach PRIVATE SDL3::SDL3)
 
@@ -177,6 +178,48 @@ if(SHMUP_BUILD_TESTS)
     add_test(NAME sim_weapon_wave
              COMMAND neon_breach --headless --god --weapon wave --seed 200 --runs 2 --ticks 24000 --expect-rooms 3
                      --fail-shot ${_out}/fail_sim_weapon_wave.bmp)
+    foreach(_w laser orbit prism graviton)
+        add_test(NAME sim_weapon_${_w}
+                 COMMAND neon_breach --headless --god --weapon ${_w} --seed 200 --runs 2 --ticks 24000 --expect-rooms 3
+                         --fail-shot ${_out}/fail_sim_weapon_${_w}.bmp)
+    endforeach()
+    # The sword combines with every shot upgrade (lightsaber, greatsword, blade waves, whirlwind...).
+    foreach(_w laser railgun orbit prism graviton chakram rockets)
+        add_test(NAME sim_sword_${_w}
+                 COMMAND neon_breach --headless --god --char knight --weapon ${_w} --seed 210 --runs 2 --ticks 24000 --expect-rooms 3
+                         --fail-shot ${_out}/fail_sim_sword_${_w}.bmp)
+    endforeach()
+    # Synergies (extra effects of upgrades owned together): a few builds played by the bot; the
+    # --all-upgrades simulations run every synergy at once.
+    add_test(NAME sim_synergy_parry
+             COMMAND neon_breach --headless --god --char knight --upgrade deflector-shells --upgrade shadow-clone --upgrade return-vector
+                     --seed 220 --runs 2 --ticks 24000 --expect-rooms 3 --fail-shot ${_out}/fail_sim_synergy_parry.bmp)
+    add_test(NAME sim_synergy_elements
+             COMMAND neon_breach --headless --god --upgrade cryo-rounds --upgrade thermite --upgrade venom-tips --upgrade arc-emitter
+                     --upgrade voodoo-link --upgrade chrono-bubble --seed 221 --runs 2 --ticks 24000 --expect-rooms 3
+                     --fail-shot ${_out}/fail_sim_synergy_elements.bmp)
+    add_test(NAME sim_synergy_beams
+             COMMAND neon_breach --headless --god --weapon laser --weapon arc --weapon flamer --seed 222 --runs 2 --ticks 24000
+                     --expect-rooms 3 --fail-shot ${_out}/fail_sim_synergy_beams.bmp)
+    add_test(NAME sim_synergy_saws
+             COMMAND neon_breach --headless --god --weapon chakram --weapon orbit --seed 223 --runs 2 --ticks 24000
+                     --expect-rooms 3 --fail-shot ${_out}/fail_sim_synergy_saws.bmp)
+    add_test(NAME sim_synergy_heavy
+             COMMAND neon_breach --headless --god --weapon railgun --weapon graviton --upgrade black-hole --seed 224 --runs 2
+                     --ticks 24000 --expect-rooms 3 --fail-shot ${_out}/fail_sim_synergy_heavy.bmp)
+    add_test(NAME sim_synergy_mirv
+             COMMAND neon_breach --headless --god --weapon rockets --weapon seeker --weapon cluster --seed 225 --runs 2
+                     --ticks 24000 --expect-rooms 3 --fail-shot ${_out}/fail_sim_synergy_mirv.bmp)
+    add_test(NAME sim_synergy_defence
+             COMMAND neon_breach --headless --upgrade aegis --upgrade deflector-shells --upgrade spiked-hull --upgrade guardian-orb
+                     --upgrade tesla-field --upgrade wing-drone --upgrade point-defense --upgrade graze --seed 226 --runs 4
+                     --fail-shot ${_out}/fail_sim_synergy_defence.bmp)
+    add_test(NAME render_synergies_menu
+             COMMAND neon_breach --shot ${_out}/render_synergies_menu.bmp --all-upgrades --upgrades-menu --seed 5 --frames 30)
+    add_test(NAME render_laser
+             COMMAND neon_breach --shot ${_out}/render_laser.bmp --weapon laser --depth 6 --seed 5 --frames 300)
+    add_test(NAME render_lightsaber
+             COMMAND neon_breach --shot ${_out}/render_lightsaber.bmp --char knight --weapon laser --depth 6 --seed 5 --frames 300)
     foreach(_w scatter needler seeker bouncer)
         add_test(NAME sim_weapon_${_w}
                  COMMAND neon_breach --headless --god --weapon ${_w} --seed 200 --runs 2 --ticks 24000 --expect-rooms 3
@@ -229,7 +272,7 @@ if(SHMUP_BUILD_TESTS)
     add_test(NAME render_stats_room
              COMMAND neon_breach --shot ${_out}/render_stats.bmp --stats --seed 4 --frames 20)
     add_test(NAME render_stats_overlay
-             COMMAND neon_breach --shot ${_out}/render_stats_overlay.bmp --show-stats --all-upgrades --depth 6 --seed 9 --frames 600)
+             COMMAND neon_breach --shot ${_out}/render_stats_overlay.bmp --show-stats --all-upgrades --depth 6 --seed 9 --frames 200)
     add_test(NAME render_char_select
              COMMAND neon_breach --shot ${_out}/render_char_select.bmp --char-select --seed 4 --frames 30)
     add_test(NAME render_knight

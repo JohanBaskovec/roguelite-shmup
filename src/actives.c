@@ -105,6 +105,9 @@ static const int CHAOS_POOL[] = {
     UPG_SCOPE, UPG_POINT_BLANK, UPG_BULLY, UPG_GIANT_SLAYER, UPG_MOMENTUM, UPG_CHAIN_REACTION, UPG_TURRET_MODE,
     UPG_RUN_GUN, UPG_FROSTBITE, UPG_PYROMANIAC, UPG_TOXIC_CLOUD, UPG_OVERKILL, UPG_MISSILE_POD, UPG_ORBITAL,
     UPG_SPIKED_HULL, UPG_ECHO, UPG_EMERGENCY, UPG_RAMPAGE, UPG_BLACK_HOLE,
+    UPG_RICOCHET, UPG_SNOWBALL, UPG_STICKY, UPG_FIREWORKS, UPG_SHATTER, UPG_CONDUCTOR, UPG_ALCHEMIST, UPG_CRIT_MASS,
+    UPG_FIRST_BLOOD, UPG_HIVEMIND, UPG_CHARGE, UPG_GRAZE, UPG_BULLET_TIME, UPG_CLONE, UPG_BLOOD_MONEY,
+    UPG_POINT_DEFENSE, UPG_TRAIL, UPG_AEGIS, UPG_VENGEANCE,
 };
 
 /* -12% per level, and the RECHARGE stat. */
@@ -183,6 +186,7 @@ bool active_toggle(int a) {
     ActiveSlot *k = &p->act[a];
     k->off = !k->off;
     if (k->off && k->t > 0.0f) end_effect(a); /* off = no effect at all, a running one stops */
+    if (k->off && a == ACT_DASH) p->dash_t = 0.0f; /* ...a dash in progress too */
     G.toggles++;
     return true;
 }

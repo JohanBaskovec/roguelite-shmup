@@ -23,9 +23,10 @@ EBullet *ebullet_spawn(V2 pos, float angle, float speed, float radius, SDL_FColo
     EBullet *b = &G.eb[G.neb++];
     b->pos = pos;
     b->vel = v2_scale(v2_angle(angle), speed * upg_enemy_bullet_speed());
-    b->radius = radius;
+    b->radius = radius * (1.0f + malus_pct(MAL_BIG_BULLETS));
     b->life = 12.0f;
     b->age = 0.0f;
+    b->grazed = false;
     b->accel = 0.0f;
     b->curve = 0.0f;
     b->col = col;
@@ -74,7 +75,10 @@ static void update_player_bullets(void) {
         V2 n = v2(0, 0);
         b->life -= DT;
         b->age += DT;
-        if (b->life <= 0.0f) dead = true;
+        if (b->life <= 0.0f) {
+            dead = true;
+            if (b->life > -0.5f) upg_on_bullet_expire(b); /* out of range (not caught back): FIREWORKS, may append bullets */
+        }
 
         if (!dead) {
             if (b->homing > 0.0f && G.nen > 0 && !(b->flags & (PB_MINE | PB_VORTEX))) steer(b);
@@ -96,7 +100,42 @@ static void update_player_bullets(void) {
                 float dy = 28.0f * (sinf(12.0f * b->age) - sinf(12.0f * (b->age - DT))) * sgn;
                 b->pos = v2_add(b->pos, v2_scale(v2_perp(v2_norm(b->vel)), dy));
             }
-            b->pos = v2_add(b->pos, v2_scale(b->vel, DT));
+            if ((b->flags & PB_SPLIT) && b->age > 0.14f) { /* prism: two more shots fan out, once */
+                b->flags &= ~PB_SPLIT;
+                for (int k = -1; k <= 1 && G.npb < MAX_PBULLETS; k += 2) {
+                    PBullet *c = &G.pb[G.npb++];
+                    *c = *b;
+                    c->vel = v2_rotate(b->vel, 0.3f * (float)k);
+                    if (k > 0) c->flags ^= PB_FLIP;
+                }
+                fx_particle(b->pos, v2(0, 0), 0.12f, b->radius * 4.0f, col_a(b->col, 0.7f), 0.0f, PT_RING);
+            }
+            if (b->flags & PB_PULL) { /* graviton: enemies around are dragged along */
+                for (int j = 0; j < G.nen; j++) {
+                    Enemy *e = &G.en[j];
+                    V2 d = v2_sub(b->pos, e->pos);
+                    float dist = v2_len(d);
+                    if (e->hp > 0.0f && e->type != EN_BOSS && dist < 190.0f && dist > 1.0f)
+                        e->vel = v2_add(e->vel, v2_scale(d, 1400.0f * DT / dist));
+                }
+            }
+            const Player *pl = &G.pl;
+            V2 rel = v2_sub(b->pos, pl->pos);
+            float rd = v2_len(rel);
+            if ((b->flags & PB_ORBIT) && !(b->flags & PB_RETURNED) && rd > 1.0f) {
+                /* Orbit: around the ship (which it follows), drifting outwards. Slower close to the
+                 * ship so the spiral stays readable. */
+                V2 radial = v2_scale(rel, 1.0f / rd), tang = v2_perp(radial);
+                if (b->flags & PB_FLIP) tang = v2_scale(tang, -1.0f);
+                bool halo = syn(SYN_SAW_HALO); /* CHAKRAM + ORBIT: the saws stop at a ring and keep cutting */
+                if (halo && fmodf(b->age, 0.35f) < DT) b->last_hit = -1;
+                V2 dir = v2_norm(v2_add(tang, v2_scale(radial, halo && rd > 150.0f ? 0.0f : 0.2f)));
+                float spd = v2_len(b->vel), step = fminf(spd, 220.0f + 3.2f * rd);
+                b->vel = v2_scale(dir, spd);
+                b->pos = v2_add(b->pos, v2_add(v2_scale(dir, step * DT), v2_scale(pl->vel, DT)));
+            } else {
+                b->pos = v2_add(b->pos, v2_scale(b->vel, DT));
+            }
             /* PHASE ROUNDS fly through obstacles; only the arena walls stop them. */
             wall = upg_has(UPG_PHASE) ? arena_collide(&b->pos, b->radius, &n) : room_collide_circle(&b->pos, b->radius, &n);
             upg_reflect(b); /* may append bullets to G.pb: b stays valid (fixed array) */
@@ -118,8 +157,9 @@ static void update_player_bullets(void) {
                 if ((G.ticks + i) & 1)
                     fx_particle(b->pos, v2_scale(v2_rotate(dir, PI_F + frand(-0.7f, 0.7f)), frand(150, 400)), 0.15f, 2.0f, b->col, 4.0f, PT_SPARK);
                 b->last_hit = e->uid;
+                bool jumped = upg_ricochet(b, e); /* RICOCHET: off to another enemy instead of dying */
                 if (b->pierce > 0) b->pierce--;
-                else dead = true;
+                else if (!jumped) dead = true;
                 break;
             }
         }
@@ -183,15 +223,19 @@ static void update_enemy_bullets(void) {
                 }
             }
             if (b->curve != 0.0f) b->vel = v2_rotate(b->vel, b->curve * DT);
-            b->pos = v2_add(b->pos, v2_scale(b->vel, DT));
+            b->pos = v2_add(b->pos, v2_scale(b->vel, DT * upg_enemy_bullet_tempo(b->pos)));
             if (room_collide_circle(&b->pos, b->radius * 0.5f, NULL)) dead = true;
         }
 
         if (!dead && G.state == GS_PLAYING && pl->invuln <= 0.0f && pl->dash_t <= 0.0f && !active_shield_on()) {
-            float rr = b->radius * 0.75f + pl->hit_radius;
-            if (v2_dist2(b->pos, pl->pos) < rr * rr) {
+            float rr = b->radius * 0.75f + pl->hit_radius, gr = rr + 30.0f;
+            float d2 = v2_dist2(b->pos, pl->pos);
+            if (d2 < rr * rr) {
                 player_hurt(1);
                 dead = true;
+            } else if (!b->grazed && d2 < gr * gr && upg_graze_on()) { /* GRAZE: a near miss */
+                b->grazed = true;
+                upg_on_graze(b->pos);
             }
         }
 
@@ -220,6 +264,26 @@ void bullets_draw_player(void) {
                          G.time * (6.0f - (float)r) + (float)r * 2.0f + 3.6f, col_a(b->col, 0.55f - 0.12f * (float)r));
             draw_glow(b->pos, 70.0f * k, col_hex(0x6a2bff, 0.35f));
             draw_circle(b->pos, 12.0f * k, col_hex(0x05000f, 0.9f));
+        } else if (b->style == BS_LASER) { /* beam segments long enough to touch: one continuous ray */
+            float len = fminf(fmaxf(spd * 0.036f, 20.0f), spd * b->age) + b->radius; /* never behind the muzzle */
+            V2 tail = v2_sub(b->pos, v2_scale(dir, len));
+            float w = b->radius * (1.0f + 0.25f * sinf(G.time * 50.0f + (float)i));
+            draw_line(tail, b->pos, w * 4.0f, col_a(b->col, 0.22f));
+            draw_line(tail, b->pos, w * 1.8f, col_a(b->col, 0.7f));
+            draw_line(tail, b->pos, w * 0.7f, col_a(COL_WHITE, 0.95f));
+        } else if (b->style == BS_GRAVITON) {
+            draw_glow(b->pos, b->radius * 4.0f, col_hex(0x6a2bff, 0.35f));
+            for (int r = 0; r < 2; r++)
+                draw_arc(b->pos, b->radius * (1.5f + 0.7f * (float)r), 2.5f, -G.time * (7.0f - 2.0f * (float)r) + (float)i,
+                         -G.time * (7.0f - 2.0f * (float)r) + (float)i + 3.4f, col_a(b->col, 0.7f - 0.25f * (float)r));
+            draw_circle(b->pos, b->radius, col_hex(0x05000f, 0.95f));
+            draw_ring(b->pos, b->radius, 2.0f, col_a(b->col, 0.9f));
+        } else if (b->style == BS_CRESCENT) { /* the sword's blade wave */
+            float a = v2_heading(b->vel), r = b->radius * 1.6f;
+            V2 c = v2_sub(b->pos, v2_scale(dir, r * 0.6f));
+            draw_arc(c, r, 7.0f, a - 1.0f, a + 1.0f, col_a(b->col, 0.35f));
+            draw_arc(c, r, 3.0f, a - 0.9f, a + 0.9f, col_a(COL_WHITE, 0.9f));
+            draw_glow(b->pos, r * 1.5f, col_a(b->col, 0.3f));
         } else if (b->style == BS_FLAME) {
             float t = clampf(b->age / (b->age + b->life), 0.0f, 1.0f); /* 0 fresh -> 1 dying */
             SDL_FColor c = col_lerp(col_hex(0xffe08a, 1), col_hex(0xff3a1a, 1), t);

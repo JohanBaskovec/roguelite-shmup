@@ -30,18 +30,25 @@ int upgrade_menu_list(int *out) {
     return n;
 }
 
-/* Menu entries: active items (UPG_COUNT + ActiveId) first, then upgrades (UpgradeId). */
-#define ACT_ENTRY(e) ((e) >= UPG_COUNT ? (e) - UPG_COUNT : -1)
-#define MAX_ENTRIES (UPG_COUNT + ACT_COUNT)
+/* Menu entries: active items (UPG_COUNT + ActiveId) first, then the synergies active right now
+ * (UPG_COUNT + ACT_COUNT + SynergyId, shown for information: they follow their parts), then
+ * upgrades (UpgradeId). */
+#define ACT_ENTRY(e) ((e) >= UPG_COUNT && (e) < UPG_COUNT + ACT_COUNT ? (e) - UPG_COUNT : -1)
+#define SYN_ENTRY(e) ((e) >= UPG_COUNT + ACT_COUNT ? (e) - UPG_COUNT - ACT_COUNT : -1)
+#define MAX_ENTRIES (UPG_COUNT + ACT_COUNT + SYN_COUNT)
 
 static int entries(int *out) {
-    int acts[ACT_COUNT];
-    int na = actives_owned(acts);
-    for (int i = 0; i < na; i++) out[i] = UPG_COUNT + acts[i];
-    return na + upgrade_menu_list(out + na);
+    int acts[ACT_COUNT], syns[SYN_COUNT];
+    int n = actives_owned(acts);
+    for (int i = 0; i < n; i++) out[i] = UPG_COUNT + acts[i];
+    int ns = synergies_active(syns);
+    for (int i = 0; i < ns; i++) out[n++] = UPG_COUNT + ACT_COUNT + syns[i];
+    return n + upgrade_menu_list(out + n);
 }
 
-static bool entry_off(int e) { return ACT_ENTRY(e) >= 0 ? G.pl.act[ACT_ENTRY(e)].off : G.pl.upg_off[e]; }
+static bool entry_off(int e) {
+    return SYN_ENTRY(e) >= 0 ? false : ACT_ENTRY(e) >= 0 ? G.pl.act[ACT_ENTRY(e)].off : G.pl.upg_off[e];
+}
 
 static float grid_x(void) { return (SCREEN_W - (CELL_W * COLS + GAP * (COLS - 1))) * 0.5f; }
 
@@ -74,7 +81,7 @@ void upgrade_menu_open(void) {
 }
 
 static void toggle(int e) {
-    bool ok = ACT_ENTRY(e) >= 0 ? active_toggle(ACT_ENTRY(e)) : upgrade_toggle(e);
+    bool ok = SYN_ENTRY(e) >= 0 ? false : ACT_ENTRY(e) >= 0 ? active_toggle(ACT_ENTRY(e)) : upgrade_toggle(e);
     if (ok) sfx_play_ex(SFX_WEAPON_SWITCH, 1.0f, entry_off(e) ? 0.8f : 1.2f, 0.0f);
     else sfx_play(SFX_DENIED);
 }
@@ -138,15 +145,27 @@ void upgrade_menu_draw(void) {
         draw_text_centered(SCREEN_W * 0.5f, 480.0f, 3.0f, col_a(COL_WHITE, 0.5f), "NO UPGRADE FOUND YET");
         return;
     }
-    int off = 0, nact = 0;
+    int off = 0, nact = 0, nsyn = 0;
     for (int i = 0; i < n; i++) {
         off += entry_off(list[i]);
         nact += ACT_ENTRY(list[i]) >= 0;
+        nsyn += SYN_ENTRY(list[i]) >= 0;
     }
     for (int i = M.scroll * COLS; i < n && i < (M.scroll + ROWS_SHOWN) * COLS; i++) {
-        int u = list[i], a = ACT_ENTRY(u);
+        int u = list[i], a = ACT_ENTRY(u), sy = SYN_ENTRY(u);
         float x, y;
         cell_pos(i, &x, &y);
+        if (sy >= 0) { /* a synergy: no switch of its own */
+            SDL_FColor c = col_hex(SYNERGIES[sy].color, 1);
+            bool sel = i == M.sel;
+            draw_rect(x, y, CELL_W, CELL_H, col_a(col_mul(c, 0.22f), 1.0f));
+            draw_rect_outline(x, y, CELL_W, CELL_H, sel ? 3.0f : 1.5f, sel ? COL_WHITE : col_a(c, 0.8f));
+            draw_ngon(v2(x + 26.0f, y + CELL_H * 0.5f), 11.0f, 4, G.time * 2.0f, c);
+            draw_ngon(v2(x + 26.0f, y + CELL_H * 0.5f), 11.0f, 4, G.time * 2.0f + PI_F * 0.25f, col_a(COL_WHITE, 0.7f));
+            draw_text(x + 54.0f, y + 16.0f, 2.0f, c, "%s", SYNERGIES[sy].name);
+            draw_text(x + CELL_W - 14.0f - draw_text_width("SYNERGY", 1.25f), y + (CELL_H - 10.0f) * 0.5f, 1.25f, col_a(COL_WHITE, 0.8f), "SYNERGY");
+            continue;
+        }
         bool on = !entry_off(u), sel = i == M.sel, fixed = a < 0 && !upgrade_toggleable(u);
         SDL_FColor c = col_hex(a >= 0 ? ACTIVES[a].color : UPGRADES[u].color, 1);
         draw_rect(x, y, CELL_W, CELL_H, on ? col_a(col_mul(c, 0.16f), 1.0f) : col_hex(0x07080e, 1));
@@ -174,16 +193,21 @@ void upgrade_menu_draw(void) {
     }
 
     /* The selected entry, in full. */
-    int u = list[M.sel < n ? M.sel : n - 1], a = ACT_ENTRY(u);
+    int u = list[M.sel < n ? M.sel : n - 1], a = ACT_ENTRY(u), sy = SYN_ENTRY(u);
     float y = GRID_Y + ROWS_SHOWN * (CELL_H + GAP) + 18.0f;
-    if (a >= 0) {
+    if (sy >= 0) {
+        draw_text_centered(SCREEN_W * 0.5f, y, 3.0f, col_hex(SYNERGIES[sy].color, 1), "SYNERGY: %s", SYNERGIES[sy].name);
+        draw_desc(SCREEN_W * 0.5f, y + 36.0f, 1.75f, col_a(COL_WHITE, 0.8f), SYNERGIES[sy].desc);
+        draw_text_centered(SCREEN_W * 0.5f, y + 84.0f, 1.5f, col_hex(0x7dff9a, 0.9f), "%s", synergy_parts(sy));
+    } else if (a >= 0) {
         draw_text_centered(SCREEN_W * 0.5f, y, 3.0f, col_hex(ACTIVES[a].color, 1), "%s - LEVEL %d", ACTIVES[a].name, p->act[a].level);
         draw_desc(SCREEN_W * 0.5f, y + 42.0f, 2.0f, col_a(COL_WHITE, 0.8f), active_desc(a, p->act[a].level));
     } else {
         draw_text_centered(SCREEN_W * 0.5f, y, 3.0f, col_hex(UPGRADES[u].color, 1), "%s", UPGRADES[u].name);
         draw_upgrade_texts(SCREEN_W * 0.5f, y + 36.0f, 1.75f, 1.0f, u);
     }
-    int nupg = n - nact;
-    draw_text_centered(SCREEN_W * 0.5f, y + 134.0f, 1.5f, col_a(COL_WHITE, 0.45f), "%d ACTIVE ITEM%s (ALL GO OFF TOGETHER), %d UPGRADE%s, %d TURNED OFF",
-                       nact, nact != 1 ? "S" : "", nupg, nupg != 1 ? "S" : "", off);
+    int nupg = n - nact - nsyn;
+    draw_text_centered(SCREEN_W * 0.5f, y + 134.0f, 1.5f, col_a(COL_WHITE, 0.45f),
+                       "%d ACTIVE ITEM%s (ALL GO OFF TOGETHER), %d UPGRADE%s, %d TURNED OFF, %d SYNERG%s",
+                       nact, nact != 1 ? "S" : "", nupg, nupg != 1 ? "S" : "", off, nsyn, nsyn != 1 ? "IES" : "Y");
 }

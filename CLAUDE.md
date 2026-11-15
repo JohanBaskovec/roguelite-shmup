@@ -139,12 +139,25 @@ invariants / a CTest entry in `CMakeLists.txt`.
   its base numbers (weapon-mod behaviours, pierce, bounces, homing, size, on-spawn effects, and the damage /
   range / shot speed bonuses unless already derived from a volley). Only upgrade by-products
   (`PB_BYPRODUCT`: fragments, mines, vortex) skip it; headless fails on any other unarmed shot.
+- **Synergies** (`src/synergies.c`, `SYNERGIES` table, `SynergyId`): extra effects that exist only while a
+  set of upgrades is turned on together (`need[]` all required, `any1[]` / `any2[]` one of each group, e.g. any
+  fire source + any chill source). No pickup, no state: `syn(SYN_X)` is computed from `upg_has()` (so toggles and
+  CHAOS loans follow), and the effect lives next to the upgrades' own code, guarded by `syn()`. A banner names
+  each one once per run (`synergies_update`, `Player.syn_seen`); the TAB menu lists the active ones. A new
+  synergy needs: enum + table entry, its effect, a line in the README, and a scripted check or a
+  `sim_synergy_*` CTest (`--upgrade NAME` / `--weapon NAME`, both repeatable, build any combination).
+  Visual effects of explosions are capped per tick (`explode_at`): damage first, fireworks second.
+- **The sword combines with every weapon mod** (`sword_swing` / `sword_update` / `SWORD_WAVE_MODS` in
+  `weapons.c`): a new weapon mod must say what it does to the blade (a stat change like LASER's lightsaber, an
+  on-hit flag, or joining `SWORD_WAVE_MODS` so each swing throws a blade wave armed with it).
+- **A malus must change how the upgrade plays**, not be a rounding error: stat maluses of 10-25%, or a
+  behaviour kind (`MalusKind`: overheat, recoil, FRAGILE, REVENGE, BIG_BULLETS, NO_MERCY, MOVING_RATE...).
 - Weapon mods: `UPG_W_*` entry (between `UPG_W_SCATTER` and `UPG_W_SWORD`), its block in `gun_profile`
   (multiply / add to the gun's numbers so it combines with every other mod; the look comes from the
-  most striking mod, the order there and in `gun_main_mod`), option name (`--weapon NAME`), behaviour as
+  most striking mod, the order there and in `gun_main_mod`), option name (`--weapon NAME`, repeatable to test combos), behaviour as
   `PB_*` flags (motion in `bullets.c`, effects in `weapon_on_hit` / `weapon_bullet_death`, called for
-  every bullet death so the flags also work for upgrades), a `BulletStyle` if it looks different, and a
-  `sim_weapon_<name>` CTest. `gun_profile` clamps combos (cadence, shots per volley, reach): keep any
+  every bullet death so the flags also work for upgrades), a `BulletStyle` if it looks different, a
+  `sim_weapon_<name>` and a `sim_sword_<name>` CTest. `gun_profile` clamps combos (cadence, shots per volley, reach): keep any
   mix playable. Reuse `explode_at` / `chain_lightning` for area effects.
 - Upgrade descriptions with a random effect must show the exact chance: build them in `upgrade_desc_at`
   (respects `proc()`, i.e. LOADED DICE). A `|` splits a description over two lines (`draw_desc`).

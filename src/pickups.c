@@ -180,6 +180,7 @@ void reward_drop(RewardType r, V2 pos) {
     case RW_COINS: {
         /* Coins only come from rewards, so a coin room pays roughly one shop item. */
         float base = (float)irand(11, 16) + (float)G.room.depth * 0.5f;
+        if (upg_has(UPG_MAGNET)) base *= 1.5f; /* COIN MAGNET */
         int n = (int)roundf(base * luck_factor());
         for (int i = 0; i < n; i++) pickup_spawn(PK_COIN, 1, pos, random_vel(100.0f, 450.0f));
     } break;
