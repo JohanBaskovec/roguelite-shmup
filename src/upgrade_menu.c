@@ -127,7 +127,7 @@ void upgrade_menu_update(void) {
             M.sel = c;
             toggle(list[c]);
         }
-    } else if (in->confirm_pressed || in->active_pressed) {
+    } else if (in->confirm_pressed || in->bomb_pressed) { /* Enter / click / Space */
         toggle(list[M.sel]);
     }
 }

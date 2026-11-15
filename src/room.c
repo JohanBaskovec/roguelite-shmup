@@ -600,13 +600,7 @@ static void room_clear(bool instant) {
     sfx_play(SFX_ROOM_CLEAR);
     ebullets_clear(true);
     upg_on_room_clear();
-    /* Back to the entry spot, by the entry door: the reward appears in the middle of the
-     * room, never right under the ship (no item picked up by accident). */
-    fx_particle(G.pl.pos, v2(0, 0), 0.3f, 90.0f, col_hex(CHARACTERS[G.character].color, 0.8f), 0.0f, PT_RING);
-    G.pl.pos = room_entry_spot();
-    G.pl.vel = v2(0, 0);
-    G.pl.dash_t = 0.0f;
-    fx_particle(G.pl.pos, v2(0, 0), 0.35f, 120.0f, col_hex(CHARACTERS[G.character].color, 0.9f), 0.0f, PT_RING);
+    /* The ship stays where it is: items are only taken with E, never by walking over them. */
     if (instant) {
         room_obstacles_vanish();
         room_reveal();
@@ -656,7 +650,7 @@ void room_return_from_secret(void) {
     r->secret_open = false;
     r->secret_used = true; /* one visit per secret */
     r->revisit = true;
-    r->clear_t = 0.6f;     /* doors already open; give the player time to choose again */
+    r->clear_t = DOORS_AT + 0.25f; /* doors already open; give the player time to choose again */
     place_at_entry();      /* back through its entry door, the secret passage */
     actives_recharge_all();
 }
@@ -743,12 +737,12 @@ void room_update(void) {
     float prev_clear_t = r->clear_t;
     r->clear_t += DT;
     if (prev_clear_t < 0.0f && r->clear_t >= 0.0f) room_reveal(); /* the room has shattered */
-    if (r->clear_t < 0.0f) return;                                   /* doors still shut */
-    if (prev_clear_t < 0.35f && r->clear_t >= 0.35f) sfx_play(SFX_DOOR_OPEN);
+    if (r->clear_t < DOORS_AT) return;                               /* doors still shut */
+    if (prev_clear_t < DOORS_AT) sfx_play(SFX_DOOR_OPEN);
 
     /* Entry door: into the secret room once bombed open, or the secret room's exit. */
     Door entry = {.side = r->entry};
-    if ((r->secret_open || r->type == ROOM_SECRET) && r->clear_t > 0.35f && touching_door(&entry)) {
+    if ((r->secret_open || r->type == ROOM_SECRET) && touching_door(&entry)) {
         game_start_transition(r->type == ROOM_SECRET ? DOOR_RETURN : DOOR_SECRET);
         return;
     }
@@ -877,7 +871,7 @@ void room_draw_floor(void) {
         for (int i = 0; i < G.npk; i++) items |= G.pk[i].price > 0;
         if (items) {
             draw_text_centered(ARENA_CX, ARENA_CY - 200.0f, 3.0f, col_hex(COLOR_SHOP, 0.8f), "SHOP");
-            draw_text_centered(ARENA_CX, ARENA_CY - 160.0f, 2.0f, col_a(COL_WHITE, 0.4f), "walk into an item to buy it");
+            draw_text_centered(ARENA_CX, ARENA_CY - 160.0f, 2.0f, col_a(COL_WHITE, 0.4f), "press E next to an item to buy it");
         }
     }
     if (r->type == ROOM_START) {
@@ -885,8 +879,8 @@ void room_draw_floor(void) {
         float y = ARENA_CY - 70.0f;
         draw_text_centered(ARENA_CX, y, 2.0f, c, "WASD / ZQSD / ARROWS - MOVE");
         draw_text_centered(ARENA_CX, y + 30, 2.0f, c, "MOUSE - AIM & SHOOT");
-        draw_text_centered(ARENA_CX, y + 60, 2.0f, c, "SPACE / SHIFT / RIGHT CLICK - ACTIVE ITEM");
-        draw_text_centered(ARENA_CX, y + 90, 2.0f, c, "E - BOMB    TAB - UPGRADES (TURN THEM ON / OFF)");
+        draw_text_centered(ARENA_CX, y + 60, 2.0f, c, "SHIFT / RIGHT CLICK - ACTIVE ITEMS    SPACE - BOMB");
+        draw_text_centered(ARENA_CX, y + 90, 2.0f, c, "E - TAKE / BUY / USE    TAB - UPGRADES (ON / OFF)");
         draw_text_centered(ARENA_CX, y + 140, 2.0f, col_a(col_hex(0xffe066, 1), 0.5f), "LOCKED DOORS COST A KEY BUT HIDE BETTER LOOT");
     }
 }
@@ -1029,7 +1023,7 @@ void room_draw_walls(void) {
 
     /* Entry door: the way in, closed, unless it is (or leads to) a secret passage. */
     Door entry = {.side = r->entry, .pos = door_position(r->entry), .type = ROOM_SECRET};
-    bool open = r->cleared && r->clear_t >= 0.0f; /* not while the room shatters */
+    bool open = r->cleared && r->clear_t >= DOORS_AT; /* not while the room shatters, nor right after */
     draw_door(&entry, open, !(r->secret_open || r->type == ROOM_SECRET));
     for (int i = 0; i < r->ndoors; i++) draw_door(&r->doors[i], open, false);
 }

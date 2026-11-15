@@ -147,7 +147,7 @@ static void parse_args(int argc, char **argv, Options *o) {
 
 static void clear_edges(void) {
     Input *in = &G.in;
-    in->active_pressed = in->bomb_pressed = in->pause_pressed = in->restart_pressed = in->confirm_pressed = false;
+    in->active_pressed = in->bomb_pressed = in->interact_pressed = in->pause_pressed = in->restart_pressed = in->confirm_pressed = false;
     in->debug_pressed = in->char_pressed = in->menu_pressed = in->click_pressed = false;
     in->number = -1;
     in->wheel = 0;
@@ -178,10 +178,10 @@ static void handle_event(const SDL_Event *e, SDL_Window *win, bool bot) {
         if (e->key.repeat) break;
         switch (e->key.scancode) {
         case SDL_SCANCODE_ESCAPE: in->pause_pressed = true; break;
-        case SDL_SCANCODE_SPACE:
+        case SDL_SCANCODE_SPACE: in->bomb_pressed = true; break;
         case SDL_SCANCODE_LSHIFT:
         case SDL_SCANCODE_RSHIFT: in->active_pressed = true; break;
-        case SDL_SCANCODE_E: in->bomb_pressed = true; break;
+        case SDL_SCANCODE_E: in->interact_pressed = true; break;
         case SDL_SCANCODE_RETURN:
         case SDL_SCANCODE_KP_ENTER: in->confirm_pressed = true; break;
         case SDL_SCANCODE_TAB: in->menu_pressed = true; break;
@@ -338,6 +338,12 @@ int main(int argc, char **argv) {
             clear_edges();
             acc -= DT;
         }
+
+        /* In a run, the cursor stays inside the window (no stray click on the desktop mid-fight);
+         * it is let go in the pause menu, the main menu and on the game over screen. */
+        bool grab = !opt.shot_path && !opt.bot && (SDL_GetWindowFlags(win) & SDL_WINDOW_INPUT_FOCUS) &&
+                    (G.state == GS_PLAYING || G.state == GS_UPGRADES || G.state == GS_DEBUG);
+        if (grab != SDL_GetWindowMouseGrab(win)) SDL_SetWindowMouseGrab(win, grab);
 
         audio_flush();
         game_render();

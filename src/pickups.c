@@ -288,30 +288,67 @@ static void deny_purchase(const Pickup *k) {
     fx_popup(v2(k->pos.x, k->pos.y - 90.0f), col_hex(0xff4d6a, 1), "NEED %d COINS", k->price);
 }
 
+static void deny_take(const Pickup *k, const char *msg) {
+    sfx_play_at(SFX_DENIED, k->pos);
+    fx_popup(v2(k->pos.x, k->pos.y - 90.0f), col_hex(0xff4d6a, 1), "%s", msg);
+}
+
+/* What E acts on: the nearest item on a pedestal / shop counter, or workshop machine, within
+ * reach (nothing is ever taken by walking over it). */
+void interact_target(int *pk, int *mc) {
+    *pk = *mc = -1;
+    if (G.state != GS_PLAYING) return;
+    float best = 1e30f;
+    for (int i = 0; i < G.npk; i++) {
+        const Pickup *k = &G.pk[i];
+        float d2 = v2_dist2(G.pl.pos, k->pos);
+        if (on_pedestal(k) && k->t > 0.3f && d2 < INTERACT_R * INTERACT_R && d2 < best) {
+            best = d2;
+            *pk = i;
+        }
+    }
+    for (int i = 0; i < G.nmc; i++) {
+        float d2 = v2_dist2(G.pl.pos, G.mc[i].pos);
+        if (d2 < INTERACT_R_MACHINE * INTERACT_R_MACHINE && d2 < best) {
+            best = d2;
+            *pk = -1;
+            *mc = i;
+        }
+    }
+}
+
 void pickups_update(void) {
     const Player *pl = &G.pl;
     /* Once the room is cleared, resources fly to the player: no backtracking chores. */
     bool vacuum = G.room.cleared && G.room.clear_t > 0.6f;
     bool choice_taken = false;
     pickups_refresh_owned();
+    for (int i = 0; i < G.npk; i++) G.pk[i].t += DT;
+
+    /* E: take / buy the item in reach. */
+    int target, machine;
+    interact_target(&target, &machine);
+    if (G.in.interact_pressed && target >= 0) {
+        G.in.interact_pressed = false; /* used up (the machines read it next) */
+        Pickup *k = &G.pk[target];
+        if (k->price > G.pl.coins) {
+            deny_purchase(k);
+        } else if (collect(k)) {
+            if (k->price > 0) buy(k);
+            choice_taken = k->choice;
+            G.pk[target] = G.pk[--G.npk];
+        } else {
+            deny_take(k, k->type == PK_HEART ? "FULL HEALTH" : k->type == PK_AUGMENT ? "NOT ENOUGH HEARTS" : "CANNOT TAKE IT");
+        }
+    }
+
     for (int i = 0; i < G.npk; i++) {
         Pickup *k = &G.pk[i];
-        k->t += DT;
         V2 d = v2_sub(pl->pos, k->pos);
         float dist = v2_len(d);
         bool taken = false;
 
-        if (on_pedestal(k)) {
-            if (k->t > 0.5f && dist < 40.0f) {
-                if (k->price > G.pl.coins) {
-                    deny_purchase(k);
-                } else {
-                    taken = collect(k);
-                    if (taken && k->price > 0) buy(k);
-                    if (taken && k->choice) choice_taken = true;
-                }
-            }
-        } else {
+        if (!on_pedestal(k)) {
             bool wants = !(k->type == PK_HEART && pl->hp >= pl->max_hp);
             float radius = vacuum ? 1e9f : pl->magnet;
             if (wants && k->t > 0.35f && dist < radius) {
@@ -429,6 +466,43 @@ static SDL_FColor pickup_glow_color(const Pickup *k) {
     case PK_ACTIVE: return col_hex(ACTIVES[k->sub].color, 1);
     }
     return COL_WHITE;
+}
+
+/* The item / machine E would act on: corner brackets around it and a key cap above. */
+void interact_draw(void) {
+    int pk, mc;
+    interact_target(&pk, &mc);
+    if (pk < 0 && mc < 0) return;
+    V2 c;
+    float hw, top, bottom, cap_y;
+    SDL_FColor col;
+    if (pk >= 0) {
+        const Pickup *k = &G.pk[pk];
+        c = k->pos;
+        hw = 46.0f, top = 48.0f, bottom = 54.0f;
+        cap_y = c.y - (k->price > 0 || k->type == PK_ACTIVE || k->type == PK_AUGMENT ? 112.0f : 82.0f);
+        col = pickup_glow_color(k);
+    } else {
+        const Machine *m = &G.mc[mc];
+        c = m->pos;
+        hw = 76.0f, top = 84.0f, bottom = 84.0f;
+        cap_y = c.y - 112.0f;
+        col = m->broken ? col_a(COL_WHITE, 0.4f) : COL_WHITE;
+    }
+    float pulse = 0.5f + 0.5f * sinf(G.time * 7.0f), grow = 4.0f * pulse, arm = 16.0f, th = 3.0f;
+    float x0 = c.x - hw - grow, x1 = c.x + hw + grow, y0 = c.y - top - grow, y1 = c.y + bottom + grow;
+    SDL_FColor bc = col_a(col, 0.65f + 0.35f * pulse);
+    for (int s = 0; s < 4; s++) {
+        float x = s & 1 ? x1 : x0, y = s & 2 ? y1 : y0, dx = s & 1 ? -arm : arm, dy = s & 2 ? -arm : arm;
+        draw_rect(fminf(x, x + dx) - th * 0.5f, y - th * 0.5f, arm + th, th, bc);
+        draw_rect(x - th * 0.5f, fminf(y, y + dy) - th * 0.5f, th, arm + th, bc);
+    }
+    /* Key cap: "E". */
+    float s = 32.0f, bob = sinf(G.time * 5.0f) * 2.0f;
+    draw_rect(c.x - s * 0.5f, cap_y - s * 0.5f + bob + 3.0f, s, s, col_hex(0x05060c, 0.8f));
+    draw_rect(c.x - s * 0.5f, cap_y - s * 0.5f + bob, s, s, col_hex(0x1a1f33, 1));
+    draw_rect_outline(c.x - s * 0.5f, cap_y - s * 0.5f + bob, s, s, 2.0f, bc);
+    draw_text_centered(c.x, cap_y - 10.0f + bob, 2.5f, COL_WHITE, "E");
 }
 
 void pickups_draw(void) {

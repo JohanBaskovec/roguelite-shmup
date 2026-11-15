@@ -36,7 +36,7 @@ static void draw_upgrades_panel(void) {
 }
 
 /* Active items, next to the resources: one cell per item owned (icon, level pips, recharge
- * bar, or the effect draining), lit when ready; all of them go off with SPACE / right click. */
+ * bar, or the effect draining), lit when ready; all of them go off with SHIFT / right click. */
 static void draw_active_slot(void) {
     const Player *p = &G.pl;
     const float x = 380.0f, y = 14.0f, h = 60.0f, cw = 32.0f;

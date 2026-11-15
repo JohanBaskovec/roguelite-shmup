@@ -177,6 +177,7 @@ void game_render(void) {
     room_draw_walls();
     workshop_draw();
     pickups_draw();
+    interact_draw();
     enemies_draw();
     bullets_draw_player();
     if (G.state != GS_GAMEOVER) {

@@ -10,7 +10,7 @@
  *  - the AUGMENT pads: exclusive upgrades paid with 1, 2 or 3 heart containers
  *    (the more hearts, the stronger; take one, the others vanish - PK_AUGMENT pickups),
  *  - the SLOT MACHINE: bet GAMBLE_COST coins for a chance to win the item it shows.
- * A machine is used by stepping onto it; using it again needs a fresh step.
+ * A machine is used with E (interact_target: the nearest item or machine in reach).
  */
 
 #define PAD_SPACING 400.0f /* augment pads: a row through the middle of the room */
@@ -150,10 +150,11 @@ void workshop_update(void) {
             m->spin -= DT;
             if (m->spin <= 0.0f) resolve_gamble(m);
         }
-        bool in = v2_dist2(G.pl.pos, m->pos) < TRIGGER_R * TRIGGER_R;
-        bool fresh = in && !m->inside;
-        m->inside = in;
-        if (!fresh || m->spin > 0.0f) continue;
+        int pk, mc;
+        interact_target(&pk, &mc);
+        m->inside = mc == i;
+        if (!m->inside || !G.in.interact_pressed || m->spin > 0.0f) continue;
+        G.in.interact_pressed = false;
         if (m->broken) {
             deny(m, m->type == MC_SUPPLY ? "BROKEN" : "PRIZE WON");
             continue;

@@ -152,7 +152,7 @@ void bot_input(void) {
     bool secret_known = r->has_secret && (r->ghosts > 0 || upg_has(UPG_XRAY)) && !r->secret_used;
 
     /* Workshop machines: the supply press while healthy, a few slot machine plays while
-     * it has coins. A use needs a fresh step: walk on, step off below, repeat. */
+     * it has coins (E on it, one press at a time). */
     const Machine *machine = NULL;
     for (int i = 0; i < G.nmc && G.room.cleared && !offer; i++) {
         const Machine *m = &G.mc[i];
@@ -164,11 +164,16 @@ void bot_input(void) {
         }
     }
 
+    /* E takes / buys what is in reach: only press once the chosen one is the nearest. */
+    int reach_pk, reach_mc;
+    interact_target(&reach_pk, &reach_mc);
     if (offer) {
         goal = offer->pos;
+        in->interact_pressed = reach_pk >= 0 && &G.pk[reach_pk] == offer;
     } else if (machine) {
-        bool wait = machine->inside || machine->spin > 0.0f;
-        goal = wait ? v2_add(machine->pos, v2(0.0f, 140.0f)) : machine->pos;
+        goal = machine->pos;
+        in->interact_pressed = reach_mc >= 0 && &G.mc[reach_mc] == machine && machine->spin <= 0.0f &&
+                               machine->anim <= 0.0f && G.ticks % 30 == 0;
     } else if (G.room.cleared && secret_known && !r->secret_open && pl->bombs > 0) {
         goal = room_secret_spot();
         if (v2_dist(pl->pos, goal) < SECRET_BOMB_RADIUS * 0.5f) in->bomb_pressed = true;
@@ -191,7 +196,7 @@ void bot_input(void) {
         if (v2_dist2(pl->pos, stuck_ref) > 60.0f * 60.0f) {
             stuck_ref = pl->pos;
             stuck_t = 0.0f;
-        } else if (G.room.clear_t > 1.2f && (stuck_t += DT) > 3.0f) {
+        } else if (G.room.clear_t > DOORS_AT + 0.6f && (stuck_t += DT) > 3.0f) {
             stuck_t = 0.0f;
             give_ups++; /* next best door */
         }
@@ -221,7 +226,7 @@ void bot_input(void) {
             taken |= 1 << best;
             pick = best;
         }
-        goal = G.room.clear_t < 1.2f ? v2(ARENA_CX, ARENA_CY) : door_position(G.room.doors[pick].side);
+        goal = G.room.clear_t < DOORS_AT ? v2(ARENA_CX, ARENA_CY) : door_position(G.room.doors[pick].side);
     } else if (short_range && nearest) {
         V2 to = v2_sub(nearest->pos, pl->pos);
         float d = v2_len(to);

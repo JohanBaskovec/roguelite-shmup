@@ -364,9 +364,19 @@ static void save_failure_shot(const char *path) {
     SDL_QuitSubSystem(SDL_INIT_VIDEO);
 }
 
+/* Items waiting on a pedestal or a shop counter (taken with E only). */
+static int count_pedestals(void) {
+    int n = 0;
+    for (int i = 0; i < G.npk; i++) {
+        PickupType t = G.pk[i].type;
+        n += t == PK_UPGRADE || t == PK_STAT || t == PK_AUGMENT || t == PK_ACTIVE || G.pk[i].price > 0;
+    }
+    return n;
+}
+
 static void clear_edges(void) {
     Input *in = &G.in;
-    in->active_pressed = in->bomb_pressed = in->pause_pressed = in->restart_pressed = in->confirm_pressed = false;
+    in->active_pressed = in->bomb_pressed = in->interact_pressed = in->pause_pressed = in->restart_pressed = in->confirm_pressed = false;
     in->debug_pressed = in->char_pressed = in->menu_pressed = in->click_pressed = false;
     in->number = -1;
     in->wheel = 0;
@@ -1413,15 +1423,19 @@ static int debug_rooms_run(const HeadlessOptions *o) {
             supply_ok = supply_ok && idx >= 0;
             if (idx < 0) break;
             int price = G.pk[idx].price, coins = pl->coins, bombs = pl->bombs, keys = pl->keys, hp = pl->hp, n0 = G.npk;
-            if (sup[s] == PK_HEART) { /* full health: nothing happens */
-                pl->pos = G.pk[idx].pos;
-                for (int t = 0; t < 70; t++) TICK();
+            /* Walking over it takes nothing (E only); E at full health: refused. */
+            pl->pos = G.pk[idx].pos;
+            for (int t = 0; t < 70; t++) TICK();
+            supply_ok = supply_ok && G.npk == n0 && pl->coins == coins;
+            if (sup[s] == PK_HEART) {
+                in->interact_pressed = true;
+                TICK();
                 supply_ok = supply_ok && G.npk == n0 && pl->coins == coins;
                 pl->hp = pl->max_hp - 2;
                 hp = pl->hp;
             }
-            pl->pos = G.pk[idx].pos;
-            for (int t = 0; t < 70; t++) TICK();
+            in->interact_pressed = true;
+            TICK();
             supply_ok = supply_ok && pl->coins == coins - price && G.npk == n0 - 1 &&
                         (sup[s] == PK_HEART ? pl->hp == hp + 2 : sup[s] == PK_BOMB ? pl->bombs == bombs + 1 : pl->keys == keys + 1);
             pl->pos = v2(ARENA_CX, ARENA_Y1 - 80.0f);
@@ -1913,6 +1927,56 @@ static int debug_rooms_run(const HeadlessOptions *o) {
                barrel_ok ? "OK" : "FAILED", oil_ok ? "OK" : "FAILED", oil_burns_ok ? "OK" : "FAILED", spark_ok ? "OK" : "FAILED",
                shatter_ok ? "OK" : "FAILED", rooms, (double)walls / rooms, (double)blocks / rooms, bad, layout_ok ? "OK" : "FAILED");
         failures += !enemy_ok + !shot_ok + !sword_ok + !bomb_ok + !barrel_ok + !oil_ok + !oil_burns_ok + !spark_ok + !shatter_ok + !layout_ok;
+
+        /* End of a room: the ship stays where it is, the doors stay shut for DOORS_OPEN_T after the
+         * last kill (the reward shows first), and an item is only taken with E. */
+        BFRESH();
+        G.god = true;
+        G.room.wave = G.room.nwaves; /* the last wave: its death clears the room */
+        int exit_door = -1;
+        for (int i = 0; i < G.room.ndoors; i++)
+            if (!G.room.doors[i].locked) exit_door = i;
+        Side exit_side = exit_door >= 0 ? G.room.doors[exit_door].side : SIDE_TOP;
+        V2 door_in = door_position(exit_side), mid = v2(ARENA_CX, ARENA_CY);
+        door_in = v2_add(door_in, v2_scale(v2_norm(v2_sub(mid, door_in)), PLAYER_BODY_R + 2.0f));
+        V2 stand = v2(ARENA_CX + 250.0f, ARENA_CY + 120.0f);
+        pl->pos = stand;
+        BDUMMY(ARENA_CX - 360.0f, ARENA_CY, 30.0f);
+        G.en[0].hp = 1.0f;
+        enemy_damage(&G.en[0], 10.0f, v2(0, 0));
+        for (int t = 0; t < 600 && !G.room.cleared; t++) BTICK();
+        bool stayed = G.room.cleared && v2_dist(pl->pos, stand) < 2.0f;
+        float opened = -1.0f;
+        for (int t = 0; t < 600 && exit_door >= 0 && opened < 0.0f; t++) {
+            pl->pos = door_in; /* pushing into the door all along */
+            pl->vel = v2(0, 0);
+            float since = G.room.clear_t + ROOM_REVEAL_T;
+            BTICK();
+            if (G.transitioning) opened = since;
+        }
+        bool doors_ok = opened >= DOORS_OPEN_T - 0.05f && opened <= DOORS_OPEN_T + 0.05f;
+        game_init(o->seed);
+        game_new_run();
+        debug_teleport(ROOM_COMBAT, RW_UPGRADE, 3, false);
+        G.state = GS_PLAYING;
+        for (int t = 0; t < 70; t++) BTICK();
+        int offers = G.npk, owned0 = 0, owned1 = 0, tpk = -1, tmc = -1;
+        for (int u = 0; u < UPG_COUNT; u++) owned0 += pl->upg_count[u] > 0;
+        bool take_ok = offers == 3;
+        if (take_ok) {
+            pl->pos = G.pk[1].pos; /* standing on it: nothing happens... */
+            int sub = G.pk[1].sub;
+            for (int t = 0; t < 70; t++) BTICK();
+            interact_target(&tpk, &tmc);
+            take_ok = G.npk == 3 && tpk >= 0 && G.pk[tpk].sub == sub && tmc < 0; /* ...but it is the one E points at */
+            in->interact_pressed = true;
+            BTICK();
+            for (int u = 0; u < UPG_COUNT; u++) owned1 += pl->upg_count[u] > 0;
+            take_ok = take_ok && G.npk == 0 && owned1 == owned0 + 1 && pl->upg_count[sub] > 0;
+        }
+        printf("scripted room end: ship stays -> %s, doors open after %.2f s -> %s, items taken with E only -> %s\n",
+               stayed ? "OK" : "FAILED", (double)opened, doors_ok ? "OK" : "FAILED", take_ok ? "OK" : "FAILED");
+        failures += !stayed + !doors_ok + !take_ok;
 #undef BTICK
 #undef BFRESH
 #undef BDUMMY
@@ -1984,8 +2048,15 @@ int headless_run(const HeadlessOptions *o) {
         static char entry_msg[128];
         for (; !err && tick < o->max_ticks && G.state != GS_GAMEOVER; tick++) {
             bot_input();
+            /* Items on a pedestal / shop counter are only ever taken with E. */
+            int pedestals = count_pedestals(), pk_room = G.room.id;
+            bool pressed_e = G.in.interact_pressed;
             game_update();
             clear_edges();
+            if (G.room.id == pk_room && !G.transitioning && !pressed_e && count_pedestals() < pedestals) {
+                err = "an item was taken without pressing E";
+                break;
+            }
             if (G.transitioning && taken_side < 0 && G.trans_door >= 0 && G.trans_t < TRANS_TIME * 0.5f)
                 taken_side = G.room.doors[G.trans_door].side;
             hits += G.pl.hp + G.pl.shield < life; /* hull or shield damage taken this tick */
@@ -2046,10 +2117,6 @@ int headless_run(const HeadlessOptions *o) {
                     bosses_beaten++;
                     boss_time += room_time;
                     boss_hits += hits - hits_at_entry;
-                }
-                if (!G.room.revisit && v2_dist(G.pl.pos, room_entry_spot()) > 1.0f) {
-                    err = "room cleared but the ship was not moved back to the entry spot";
-                    break;
                 }
                 choices = count_choices();
             }

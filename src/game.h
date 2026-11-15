@@ -339,6 +339,9 @@ typedef struct {
  * like glass and fades away; the reward and the doors come ROOM_REVEAL_T later (clear_t < 0 until
  * then). The cleared room is always empty: rewards need no room left for them in the layout. */
 #define ROOM_REVEAL_T 1.2f
+/* The doors open this long after the last kill (the reward shows first: no rushing out without it). */
+#define DOORS_OPEN_T 1.8f
+#define DOORS_AT (DOORS_OPEN_T - ROOM_REVEAL_T) /* the clear_t at which they open */
 #define SHATTER_WAVE_T 0.5f /* the cracks reach the farthest obstacle */
 #define CRACK_TIME 0.28f    /* an obstacle cracks for that long before it bursts */
 
@@ -520,7 +523,7 @@ typedef enum { GS_TITLE, GS_CHAR_SELECT, GS_PLAYING, GS_PAUSED, GS_GAMEOVER, GS_
 typedef struct {
     bool up, down, left, right, fire;
     /* edge-triggered, cleared after each simulation tick */
-    bool active_pressed, bomb_pressed, pause_pressed, restart_pressed, confirm_pressed, debug_pressed;
+    bool active_pressed, bomb_pressed, interact_pressed /* E: take / buy / use */, pause_pressed, restart_pressed, confirm_pressed, debug_pressed;
     bool char_pressed; /* C: back to the character select screen */
     bool menu_pressed; /* TAB: upgrades menu */
     bool click_pressed; /* left click (also sets confirm_pressed) */
@@ -891,6 +894,10 @@ Enemy *enemy_nearest(V2 pos, float max_dist);
 void pickup_spawn(PickupType type, int sub, V2 pos, V2 vel);
 void pickups_update(void);
 void pickups_draw(void);
+#define INTERACT_R 80.0f          /* E reaches an item this close */
+#define INTERACT_R_MACHINE 100.0f /* ...or a workshop machine */
+void interact_target(int *pk, int *mc); /* what E would act on (-1: none) */
+void interact_draw(void);
 void reward_drop(RewardType r, V2 pos);
 /* Secret room loot: 1 item (rarely 2) plus coins / bombs / keys. */
 void secret_reward_drop(V2 center, bool items);

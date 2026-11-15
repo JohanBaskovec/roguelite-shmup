@@ -62,11 +62,19 @@ All graphics and sounds are generated in code. See README.md for controls and ar
 - **The ship enters a room by the door opposite the one it left by** (`Room.entry`, set from `G.entry_side`
   in the transition; out on the right = in on the left; the launch bay and debug teleports: bottom). The entry
   door stays closed - it only opens as the secret passage - and the other 3 sides are the exits (`gen_doors`;
-  the boss door is the one straight ahead). When a room is cleared the ship is teleported back to the entry
-  spot (`room_entry_spot`) (headless checks both).
+  the boss door is the one straight ahead). When a room is cleared the ship stays where it is (headless
+  checks the entry side).
+- **Nothing on a pedestal is taken by walking over it**: items (upgrades, stat trades, actives, augments),
+  shop articles and workshop machines are taken / bought / used with E (`Input.interact_pressed`), on the
+  nearest one in reach (`interact_target`, framed with an "E" key cap by `interact_draw`). Only resources
+  (coins, keys, bombs, reward hearts) are picked up / vacuumed automatically. Headless fails if an item
+  disappears on a tick without E; the bot presses E on the item it wants. A new kind of offer goes through
+  `interact_target` too.
+- **The doors open `DOORS_OPEN_T` (1.8 s) after the last kill** (`DOORS_AT` in `clear_t` terms), after the
+  reward has appeared (`ROOM_REVEAL_T`), so the player never rushes out without it.
 - **Active items** (`src/actives.c`, `Player.act[]` indexed by `ActiveId`): the ship starts with none
   (not even the dash). They are found in active rooms (combat rooms with `RW_ACTIVE`, a door like any
-  other): choice of 3 distinct items. **Every item taken is kept**: one press (SPACE / SHIFT / right
+  other): choice of 3 distinct items. **Every item taken is kept**: one press (SHIFT / right
   click) triggers all the ones turned on and ready, each then recharges on its own (`ActiveSlot.cd`).
   An item can be offered and taken again: it levels up (`ActiveSlot.level`, max `MAX_ACTIVE_LEVEL`,
   numbers in `active_duration` / `active_desc` / `active_cooldown`); an item at max level is no longer
@@ -195,4 +203,6 @@ invariants / a CTest entry in `CMakeLists.txt`.
   (`G.demo`), on its own generator (`G.demo_rng`, swapped with `G.rng` for each demo tick) with sounds
   suppressed (`audio_suppress`) and no HUD (`demo_visible()`); `game_new_run` wipes it. Any new per-run
   state must be reset by `game_new_run` (the demo leaves its own behind). `--title` renders the menu.
+- Controls: SHIFT / right click = active items, SPACE = bomb, E = take / buy / use, TAB = upgrades menu. The
+  mouse is grabbed during a run (`SDL_SetWindowMouseGrab` in `main.c`, released in pause / menus / game over).
 - In-game text is English and ASCII only (SDL's debug font has no accents). The user writes in French.

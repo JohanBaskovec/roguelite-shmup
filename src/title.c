@@ -197,8 +197,8 @@ void title_draw(void) {
     }
 
     const char *lines[] = {
-        "WASD / ZQSD / ARROWS  move     MOUSE  aim & shoot     SPACE / SHIFT / RMB  active items",
-        "E  bomb     TAB  upgrades on / off     ESC  pause     M  mute     F11  fullscreen",
+        "WASD / ZQSD / ARROWS  move     MOUSE  aim & shoot     SHIFT / RMB  active items     SPACE  bomb",
+        "E  take / buy / use     TAB  upgrades on / off     ESC  pause     M  mute     F11  fullscreen",
     };
     for (int i = 0; i < ARRAY_LEN(lines); i++)
         draw_text_centered(SCREEN_W * 0.5f, 900.0f + (float)i * 32.0f, 1.75f, col_a(COL_WHITE, 0.65f), "%s", lines[i]);
