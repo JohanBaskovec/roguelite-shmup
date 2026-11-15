@@ -303,8 +303,6 @@ static void draw_stats(float y) {
 
 void overlay_draw(void) {
     if (G.hurt_flash > 0.0f) draw_vignette(col_hex(0xff1030, 0.55f * G.hurt_flash));
-    else if (G.state == GS_PLAYING && G.pl.hp <= 2)
-        draw_vignette(col_hex(0xff1030, 0.12f + 0.08f * sinf(G.time * 6.0f)));
 
     if (G.bomb_flash > 0.0f) {
         draw_blend_add();

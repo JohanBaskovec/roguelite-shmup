@@ -179,13 +179,15 @@ void reward_drop(RewardType r, V2 pos) {
     switch (r) {
     case RW_COINS: {
         /* Coins only come from rewards, so a coin room pays roughly one shop item. */
-        float base = (float)irand(11, 16) + (float)G.room.depth * 0.5f;
+        float base = (float)irand(13, 18) + (float)G.room.depth * 0.55f;
         if (upg_has(UPG_MAGNET)) base *= 1.5f; /* COIN MAGNET */
         int n = (int)roundf(base * luck_factor());
         for (int i = 0; i < n; i++) pickup_spawn(PK_COIN, 1, pos, random_vel(100.0f, 450.0f));
     } break;
     case RW_KEY: {
-        int n = luck_adjust(1);
+        /* Usually one key, rarely two, even more rarely three. */
+        float roll = frand(0.0f, 1.0f);
+        int n = luck_adjust(roll < KEY_REWARD_3_CHANCE ? 3 : roll < KEY_REWARD_3_CHANCE + KEY_REWARD_2_CHANCE ? 2 : 1);
         for (int i = 0; i < n; i++) pickup_spawn(PK_KEY, 0, pos, random_vel(50.0f, 160.0f));
     } break;
     case RW_BOMBS: {

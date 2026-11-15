@@ -329,6 +329,8 @@ typedef struct {
 #define DOOR_SECRET (-1) /* bottom door into the secret room */
 #define DOOR_RETURN (-2) /* secret room exit, back to the room it was found in */
 #define SECRET_CHANCE 0.15f
+#define KEY_REWARD_2_CHANCE 0.14f /* key rooms: 2 keys */
+#define KEY_REWARD_3_CHANCE 0.04f /* key rooms: 3 keys */
 #define SECRET_BOMB_RADIUS 170.0f /* around room_secret_spot(), just above the bottom door */
 #define SECRET_FLASH_TIME 0.18f
 

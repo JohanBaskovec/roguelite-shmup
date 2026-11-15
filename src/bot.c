@@ -74,7 +74,8 @@ void bot_input(void) {
     /* Point-blank shots still connect (enemy hits are resolved before walls). */
     in->mouse = melee && nearest ? nearest->pos
               : t ? t->pos : over ? over->pos : hidden ? hidden->pos : v2(ARENA_CX, ARENA_Y0 + 120.0f);
-    in->fire = true;
+    /* Nothing left to shoot (cleared room): stop firing, recoil would only get in the way of the doors. */
+    in->fire = !(G.room.cleared && G.nen == 0);
 
     V2 goal;
     /* One-of-N choice (stat trades, weapon / upgrade rooms): take one (varies with depth), then leave. */
