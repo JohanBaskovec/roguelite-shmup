@@ -340,6 +340,7 @@ static void fire_volley(void) {
         b->style = g.style;
         b->flags |= g.flags;
         if ((g.flags & PB_WAVE) && (i & 1)) b->flags |= PB_FLIP;
+        b->armed = true;
         upg_on_bullet_spawn(b);
     }
     upg_on_volley(muzzle, p->aim_angle, dmg, col);
@@ -355,6 +356,26 @@ static void fire_volley(void) {
     if (kick > 0) p->vel = v2_sub(p->vel, v2_scale(fwd, 70.0f * (float)kick * fminf(1.0f, g.cooldown / 0.08f)));
 }
 
+void pbullet_arm(PBullet *b, bool scaled) {
+    const Player *p = &G.pl;
+    if (!scaled) {
+        b->damage *= p->dmg_mult * upg_volley_damage_mult();
+        b->life *= p->range_mult;
+        b->vel = v2_scale(b->vel, p->shot_speed_mult);
+    }
+    b->pierce += p->pierce;
+    b->bounces += p->bounce;
+    b->homing += p->homing;
+    if (!sword_on()) { /* the shot-shaping upgrades' behaviours (the sword's own effects stay on the blade) */
+        Gun g;
+        gun_profile(&g);
+        b->flags |= g.flags & ~PB_FLIP;
+        if ((g.flags & PB_WAVE) && chance(0.5f)) b->flags |= PB_FLIP;
+    }
+    b->armed = true;
+    upg_on_bullet_spawn(b);
+}
+
 void weapon_echo(float aim, float dmg) {
     const Player *p = &G.pl;
     Gun g;
@@ -367,11 +388,8 @@ void weapon_echo(float aim, float dmg) {
         PBullet *b = pbullet_spawn(p->pos, v2_scale(v2_angle(a), g.speed * p->shot_speed_mult), 4.0f, dmg, col_hex(0xb0a0ff, 1));
         if (!b) return;
         b->life = fmaxf(g.life, 0.4f) * p->range_mult;
-        b->pierce = p->pierce;
-        b->bounces = p->bounce / 2;
-        b->homing = p->homing;
         b->knockback = 30.0f;
-        upg_on_bullet_spawn(b);
+        pbullet_arm(b, true); /* damage and range come from the volley */
     }
 }
 
@@ -392,15 +410,11 @@ static void update_drones(void) {
         Enemy *t = enemy_nearest(dp, 900.0f);
         if (!t) continue;
         V2 dir = v2_norm(v2_sub(t->pos, dp));
-        PBullet *b = pbullet_spawn(dp, v2_scale(dir, 1300.0f * p->shot_speed_mult), 4.0f, 4.5f * p->dmg_mult,
-                                   col_hex(0xb6ffb0, 1));
+        PBullet *b = pbullet_spawn(dp, v2_scale(dir, 1300.0f), 4.0f, 4.5f, col_hex(0xb6ffb0, 1));
         if (!b) return;
-        b->life = 1.0f * p->range_mult;
-        b->pierce = p->pierce;
-        b->bounces = p->bounce / 2;
-        b->homing = p->homing;
+        b->life = 1.0f;
         b->knockback = 20.0f;
-        upg_on_bullet_spawn(b);
+        pbullet_arm(b, false);
         sfx_play_at(SFX_DRONE_SHOT, dp);
     }
 }

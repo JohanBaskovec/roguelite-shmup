@@ -47,7 +47,7 @@ static float base_duration(int a, int level) {
 /* ACTIVE TIME malus: every effect shorter. */
 float active_duration(int a, int level) { return base_duration(a, level) * fmaxf(0.3f, 1.0f - malus_pct(MAL_ACTIVE_TIME)); }
 
-int active_chaos_count(int level) { return 20 + 2 * lv(level); }
+int active_chaos_count(int level) { return 3 + 2 * lv(level); }
 static float shield_radius(int level) { return 34.0f + 5.0f * (float)lv(level); }
 static float boom_radius(int level) { return 70.0f * (1.0f + 0.15f * (float)lv(level)); }
 static float boom_power(int level) { return 1.0f + 0.25f * (float)lv(level); } /* damage multiplier */
@@ -258,7 +258,7 @@ static void use_chaos(void) {
 /* Every enemy bullet turns around as one of ours (marked dead, removed by its own loop). */
 static void use_reversal(void) {
     Player *p = &G.pl;
-    float dmg = 10.0f * p->dmg_mult * power(p->act[ACT_REVERSAL].level);
+    float dmg = 10.0f * power(p->act[ACT_REVERSAL].level); /* the damage bonuses come with pbullet_arm */
     for (int i = 0; i < G.neb; i++) {
         EBullet *e = &G.eb[i];
         if (e->life <= 0.0f) continue;
@@ -270,6 +270,7 @@ static void use_reversal(void) {
         b->life = 1.5f;
         b->knockback = 40.0f;
         b->flags = PB_REFLECTED;
+        pbullet_arm(b, false);
         fx_particle(e->pos, v2(0, 0), 0.2f, 14.0f, col_hex(ACTIVES[ACT_REVERSAL].color, 0.8f), 0.0f, PT_GLOW);
     }
     sfx_play(SFX_DEFLECT);
@@ -306,15 +307,15 @@ static void use_blink(void) {
 static void use_nova(void) {
     Player *p = &G.pl;
     int n = nova_count(p->act[ACT_NOVA].level);
-    float off = frand(0.0f, TAU_F), dmg = 14.0f * p->dmg_mult;
+    float off = frand(0.0f, TAU_F), dmg = 14.0f;
     for (int k = 0; k < n; k++) {
         PBullet *b = pbullet_spawn(p->pos, v2_scale(v2_angle(off + TAU_F * (float)k / (float)n), 1100.0f), 8.0f, dmg,
                                    col_hex(ACTIVES[ACT_NOVA].color, 1));
         if (!b) break;
-        b->life = 0.8f * p->range_mult;
+        b->life = 0.8f;
         b->pierce = 3;
         b->knockback = 120.0f;
-        upg_on_bullet_spawn(b);
+        pbullet_arm(b, false);
     }
     sfx_play_ex(SFX_SHOT_RAIL, 1.0f, 0.7f, 0.0f);
     fx_particle(p->pos, v2(0, 0), 0.35f, 200.0f, col_hex(ACTIVES[ACT_NOVA].color, 0.8f), 0.0f, PT_RING);
@@ -418,11 +419,12 @@ void actives_update(void) {
             Enemy *t = enemy_nearest(p->turret_pos, 1200.0f);
             if (!t) break;
             V2 dir = v2_norm(v2_sub(t->pos, p->turret_pos));
-            PBullet *b = pbullet_spawn(v2_add(p->turret_pos, v2_scale(dir, 20.0f)), v2_scale(dir, 1500.0f), 4.5f, 8.0f * p->dmg_mult,
+            PBullet *b = pbullet_spawn(v2_add(p->turret_pos, v2_scale(dir, 20.0f)), v2_scale(dir, 1500.0f), 4.5f, 8.0f,
                                        col_hex(ACTIVES[ACT_TURRET].color, 1));
             if (!b) break;
             b->life = 0.9f;
             b->knockback = 30.0f;
+            pbullet_arm(b, false);
             sfx_play_ex(SFX_DRONE_SHOT, 0.6f, 0.8f, 0.0f);
         }
     }

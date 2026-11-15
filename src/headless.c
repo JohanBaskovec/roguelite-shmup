@@ -164,6 +164,9 @@ static const char *check_invariants(float room_time) {
         if (!finite_v2(G.eb[i].pos)) return "enemy bullet position is not finite";
     for (int i = 0; i < G.npb; i++)
         if (!finite_v2(G.pb[i].pos)) return "player bullet position is not finite";
+    for (int i = 0; i < G.npb; i++)
+        if (!G.pb[i].armed && !(G.pb[i].flags & PB_BYPRODUCT))
+            return "player shot spawned without the upgrades (every shot goes through pbullet_arm)";
     for (int i = 0; i < G.npk; i++)
         if (!finite_v2(G.pk[i].pos) || !in_arena(G.pk[i].pos, 0.0f)) return "pickup outside the arena";
     /* Rules: every room starts with enemies; enemies never drop anything - every pickup
@@ -461,6 +464,63 @@ static int debug_rooms_run(const HeadlessOptions *o) {
                phase_ok ? "OK" : "FAILED", inv_ok ? "OK" : "FAILED", death_ok ? "OK" : "FAILED");
         failures += !door_ok + !enter_ok + !phase_ok + !inv_ok + !death_ok;
 #undef STEP
+    }
+
+    /* Scripted: every player shot carries the upgrades - tail gun shots, turret shots, enemy
+     * bullets turned around by REVERSAL - not only the main gun's. */
+    {
+        game_init(o->seed);
+        G.god = true;
+        game_new_run();
+        debug_teleport(ROOM_COMBAT, RW_COINS, 3, false);
+        G.state = GS_PLAYING;
+        Player *pl = &G.pl;
+        Input *in = &G.in;
+        upgrade_apply(UPG_W_ARC);
+        upgrade_apply(UPG_PIERCE);
+        upgrade_apply(UPG_TAIL_GUN);
+        Enemy dummy = {.type = EN_TANK, .uid = ++G.next_uid, .pos = v2(ARENA_CX, ARENA_Y0 + 120.0f), .radius = 30.0f,
+                       .hp = 5000.0f, .max_hp = 5000.0f};
+        G.en[G.nen++] = dummy;
+#define CARRIES(b) ((b)->armed && ((b)->flags & PB_ARC) && (b)->pierce >= pl->pierce)
+        int shots[3] = {0}, bad = 0;
+        G.npb = 0;
+        pl->fire_cd = 0.0f;
+        in->mouse = v2(ARENA_CX, ARENA_Y0 + 120.0f);
+        in->fire = true;
+        G.hitstop = 0.0f;
+        game_update();
+        clear_edges();
+        in->fire = false;
+        for (int i = 0; i < G.npb; i++) {
+            shots[0] += G.pb[i].vel.y > 0.0f; /* the tail gun fires backwards */
+            bad += !CARRIES(&G.pb[i]);
+        }
+        G.npb = 0;
+        active_give(ACT_TURRET);
+        in->active_pressed = true;
+        for (int t = 0; t < 60 && G.npb == 0; t++) { G.hitstop = 0.0f; game_update(); clear_edges(); }
+        for (int i = 0; i < G.npb; i++) {
+            shots[1]++;
+            bad += !CARRIES(&G.pb[i]);
+        }
+        memset(pl->act, 0, sizeof pl->act);
+        active_give(ACT_REVERSAL);
+        G.npb = G.neb = 0;
+        for (int k = 0; k < 5; k++) ebullet_spawn(v2(ARENA_CX + 200.0f, ARENA_CY), frand(0.0f, TAU_F), 50.0f, 7.0f, COL_WHITE);
+        in->active_pressed = true;
+        G.hitstop = 0.0f;
+        game_update();
+        clear_edges();
+        for (int i = 0; i < G.npb; i++) {
+            shots[2] += (G.pb[i].flags & PB_REFLECTED) != 0;
+            bad += !CARRIES(&G.pb[i]);
+        }
+#undef CARRIES
+        bool ok = shots[0] > 0 && shots[1] > 0 && shots[2] > 0 && bad == 0;
+        printf("scripted: upgrades on every shot (tail gun %d, turret %d, reversal %d, %d without them) -> %s\n", shots[0],
+               shots[1], shots[2], bad, ok ? "OK" : "FAILED");
+        failures += !ok;
     }
 
     /* Scripted: the character select screen, driven with the keyboard like a player. */

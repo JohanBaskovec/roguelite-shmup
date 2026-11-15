@@ -134,6 +134,11 @@ invariants / a CTest entry in `CMakeLists.txt`.
   and a `sim_active_<name>` CTest. CHAOS may only lend upgrades listed in `CHAOS_POOL` (hook-only, so
   removal is exact). TIME STOP (`active_time_stop_on()`) freezes enemies and enemy bullets: new enemy
   or enemy-bullet behaviour must respect it.
+- **Upgrades apply to every player shot**, not just the main gun's: any new source of player shots
+  (turret, extra shots, drones, converted enemy bullets...) calls `pbullet_arm(b, scaled)` after setting
+  its base numbers (weapon-mod behaviours, pierce, bounces, homing, size, on-spawn effects, and the damage /
+  range / shot speed bonuses unless already derived from a volley). Only upgrade by-products
+  (`PB_BYPRODUCT`: fragments, mines, vortex) skip it; headless fails on any other unarmed shot.
 - Weapon mods: `UPG_W_*` entry (between `UPG_W_SCATTER` and `UPG_W_SWORD`), its block in `gun_profile`
   (multiply / add to the gun's numbers so it combines with every other mod; the look comes from the
   most striking mod, the order there and in `gun_main_mod`), option name (`--weapon NAME`), behaviour as

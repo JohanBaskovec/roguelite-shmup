@@ -107,6 +107,7 @@ typedef struct {
     int flags;      /* PB_* */
     float age;
     SDL_FColor col;
+    bool armed;     /* went through pbullet_arm (or is the main gun's): carries every upgrade */
 } PBullet;
 
 enum {
@@ -619,6 +620,12 @@ void sword_draw(void);
 void weapon_on_hit(PBullet *b, Enemy *e, float dmg); /* flamer burn, arc chains */
 void weapon_bullet_death(PBullet *b);  /* explosive / cluster shots */
 void weapon_echo(float aim, float dmg); /* ECHO: a weaker copy of the last volley */
+/* Every player shot (turret, tail / side shots, echo, drones, nova, enemy bullets turned around...)
+ * carries the upgrades like the main gun's: shot-shaping behaviours, pierce, bounces, homing, size,
+ * on-spawn effects (crit...), and - unless `scaled` (damage / range / speed already derived from a
+ * volley) - the damage, range and shot speed bonuses. Only upgrade by-products (fragments, mines, vortex) skip it. */
+void pbullet_arm(PBullet *b, bool scaled);
+#define PB_BYPRODUCT (PB_FRAGMENT | PB_MINE | PB_VORTEX)
 int weapon_mod_by_name(const char *name); /* --weapon NAME: UpgradeId of that weapon mod, or -1 */
 const char *weapon_option_name(int u);    /* lowercase name of a weapon mod */
 int gun_main_mod(void);                  /* that weapon mod (UpgradeId), -1 for the plain blaster */

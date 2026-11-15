@@ -432,11 +432,8 @@ static PBullet *extra_shot(V2 pos, float angle, float speed, float radius, float
     PBullet *b = pbullet_spawn(pos, v2_scale(v2_angle(angle), speed * p->shot_speed_mult), radius, dmg, col);
     if (!b) return NULL;
     b->life = life * p->range_mult;
-    b->pierce = p->pierce;
-    b->bounces = p->bounce / 2;
-    b->homing = p->homing;
     b->knockback = 30.0f;
-    upg_on_bullet_spawn(b);
+    pbullet_arm(b, true); /* damage and range come from the volley */
     return b;
 }
 
@@ -711,11 +708,12 @@ void upg_reflect(PBullet *b) {
         e->life = -1.0f;
         float spd = fmaxf(v2_len(e->vel) * 1.3f, 700.0f);
         V2 vel = v2_len2(e->vel) > 1.0f ? v2_scale(v2_norm(e->vel), -spd) : v2_scale(v2_norm(v2_sub(e->pos, b->pos)), spd);
-        PBullet *nb = pbullet_spawn(e->pos, vel, fmaxf(e->radius, 5.0f), 10.0f * G.pl.dmg_mult, col_hex(0x7dffef, 1));
+        PBullet *nb = pbullet_spawn(e->pos, vel, fmaxf(e->radius, 5.0f), 10.0f, col_hex(0x7dffef, 1));
         if (!nb) break;
         nb->life = 1.2f;
         nb->knockback = 40.0f;
         nb->flags = PB_REFLECTED;
+        pbullet_arm(nb, false);
         turned++;
     }
     if (turned) {
@@ -823,13 +821,14 @@ void upg_update(void) {
         if (p->missile_cd <= 0.0f && t) {
             p->missile_cd = 1.5f / (float)n;
             V2 dir = v2_norm(v2_sub(t->pos, p->pos));
-            PBullet *b = pbullet_spawn(p->pos, v2_scale(v2_rotate(dir, frand(-0.6f, 0.6f)), 650.0f), 6.0f, 22.0f * aura_scale(),
+            PBullet *b = pbullet_spawn(p->pos, v2_scale(v2_rotate(dir, frand(-0.6f, 0.6f)), 650.0f), 6.0f, 22.0f,
                                        col_hex(0xffb04d, 1));
             if (b) {
                 b->life = 2.5f;
                 b->homing = 6.0f;
                 b->knockback = 60.0f;
                 b->flags = PB_EXPLOSIVE;
+                pbullet_arm(b, false);
                 sfx_play_ex(SFX_SHOT_ROCKET, 0.6f, 1.3f, 0.0f);
             }
         }
