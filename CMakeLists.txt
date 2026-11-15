@@ -27,6 +27,7 @@ add_executable(neon_breach
     src/draw.c
     src/fx.c
     src/room.c
+    src/blocks.c
     src/player.c
     src/weapons.c
     src/upgrade_menu.c
@@ -152,6 +153,15 @@ if(SHMUP_BUILD_TESTS)
              COMMAND neon_breach --shot ${_out}/render_enemies_moves.bmp --depth 12 --god --seed 9 --frames 520
                      --enemy lancer --enemy serpent --enemy boomerang --enemy top --enemy rammer --enemy blinker
                      --enemy crawler --enemy mirror)
+    # Rooms packed with breakable blocks and gates: the bot shoots its way to the doors.
+    add_test(NAME sim_dense_blocks
+             COMMAND neon_breach --headless --god --dense-blocks --seed 41 --runs 2 --ticks 40000 --expect-rooms 8
+                     --fail-shot ${_out}/fail_sim_dense_blocks.bmp)
+    add_test(NAME sim_dense_blocks_knight
+             COMMAND neon_breach --headless --god --dense-blocks --char knight --seed 42 --runs 2 --ticks 40000 --expect-rooms 8
+                     --fail-shot ${_out}/fail_sim_dense_blocks_knight.bmp)
+    add_test(NAME render_blocks
+             COMMAND neon_breach --shot ${_out}/render_blocks.bmp --dense-blocks --depth 4 --seed 12 --frames 400)
     add_test(NAME render_boss_door
              COMMAND neon_breach --shot ${_out}/render_boss_door.bmp --depth 9 --cleared --no-bot --seed 5 --frames 120)
     add_test(NAME render_deep_enemies

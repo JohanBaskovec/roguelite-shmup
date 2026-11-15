@@ -57,6 +57,28 @@ static const char *check_invariants(float room_time) {
         if (p->upg_off[u] && upg_has(u) != 0) return "upgrade turned off but still in effect";
     }
     if (!stats_in_sync()) return "player stats differ from base + upgrades turned on (stat written directly?)";
+    { /* Room layout: every spot reachable when only the walls count, walls never break, blocks in range. */
+        static int layout_room = -1, walls = 0;
+        if (G.room.layout_id != layout_room) {
+            layout_room = G.room.layout_id;
+            walls = room_count_obstacles(OB_WALL);
+            if (!room_walls_connected()) return "room layout: walls cut off a door or a part of the room";
+        }
+        if (!G.room.cleared && room_count_obstacles(OB_WALL) != walls) return "a wall was broken (walls are indestructible)";
+        if (G.room.nobs < 0 || G.room.nobs > MAX_OBSTACLES || G.room.nfires < 0 || G.room.nfires > MAX_FIRES) return "obstacle / fire count out of range";
+        for (int i = 0; i < G.room.nobs; i++) {
+            const Obstacle *o = &G.room.obs[i];
+            if (o->kind >= OB_KIND_COUNT) return "obstacle of an unknown kind";
+            if (obstacle_breakable(o) && (!(o->hp >= 0.0f) || o->hp > o->max_hp)) return "block hp out of range";
+            if (o->r.x < ARENA_X0 || o->r.y < ARENA_Y0 || o->r.x + o->r.w > ARENA_X1 || o->r.y + o->r.h > ARENA_Y1) return "obstacle outside the arena";
+        }
+        for (int i = 0; i < G.room.nfires; i++)
+            if (!(G.room.fires[i].t > 0.0f) || G.room.fires[i].t > G.room.fires[i].life) return "burning oil pool with a bad timer";
+        if (G.room.type == ROOM_BOSS && G.room.nfires) return "burning oil in the boss room (open floor)";
+        if (G.room.cleared && G.room.clear_t >= 0.0f && (G.room.nobs || G.room.nfires))
+            return "cleared room not empty (every obstacle shatters before the reward shows up)";
+        if (G.room.cleared && G.room.clear_t < 0.0f && G.npk && !G.room.revisit) return "reward out while the room still shatters";
+    }
     for (int i = 0; i < G.npk; i++) {
         const Pickup *k = &G.pk[i];
         if ((k->type == PK_UPGRADE || k->type == PK_AUGMENT) && (k->sub < 0 || k->sub >= UPG_COUNT)) return "invalid upgrade offered";
@@ -213,7 +235,7 @@ static const char *check_invariants(float room_time) {
         }
     }
     for (int i = 0; i < G.neb; i++)
-        if (G.eb[i].kind > EB_WAVY) return "enemy bullet of an unknown kind";
+        if (G.eb[i].kind > EB_BALL) return "enemy bullet of an unknown kind";
     if (G.room.type == ROOM_SECRET && G.room.ndoors != 0) return "secret room has regular doors (its only exit leads back)";
     for (int i = 0; i < G.npk; i++)
         if (G.pk[i].price < 0 || (G.pk[i].price > 0 && G.room.type != ROOM_SHOP && !G.room.secret_shop))
@@ -352,6 +374,24 @@ static void clear_edges(void) {
 
 /* Debug-menu teleports: every room type, with and without enemies, must land in a
  * coherent state, and the bot must be able to finish the room and leave it. */
+/* Scripted block checks: put one block (or wall) in the room. */
+static int test_block(float cx, float cy, int kind) {
+    Obstacle *o = &G.room.obs[G.room.nobs];
+    memset(o, 0, sizeof *o);
+    o->r = (SDL_FRect){cx - BLOCK_TILE * 0.5f, cy - BLOCK_TILE * 0.5f, BLOCK_TILE, BLOCK_TILE};
+    o->kind = (uint8_t)kind;
+    o->hp = o->max_hp = kind == OB_WALL ? 1.0f : 20.0f;
+    o->swing_id = -1;
+    room_nav_reset();
+    return G.room.nobs++;
+}
+
+static int count_ebullets(int kind) {
+    int n = 0;
+    for (int i = 0; i < G.neb; i++) n += G.eb[i].kind == kind && G.eb[i].life > 0.0f;
+    return n;
+}
+
 static int debug_rooms_run(const HeadlessOptions *o) {
     static const RoomType types[] = {ROOM_START, ROOM_COMBAT, ROOM_COMBAT, ROOM_COMBAT, ROOM_STATS, ROOM_SHOP, ROOM_WORKSHOP, ROOM_BOSS, ROOM_SECRET, ROOM_SECRET};
     static const RewardType rewards[] = {RW_NONE, RW_NONE, RW_UPGRADE, RW_ACTIVE, RW_NONE, RW_NONE, RW_NONE, RW_NONE, RW_NONE, RW_NONE};
@@ -486,7 +526,7 @@ static int debug_rooms_run(const HeadlessOptions *o) {
                 STEP();
                 int last_phase = b->phase, minions = G.nen - 1;
                 enemy_damage(b, b->max_hp, v2(0, 0));
-                for (int t = 0; t < 10; t++) STEP();
+                for (int t = 0; t < 10 + (int)(ROOM_REVEAL_T * TICK_RATE); t++) STEP(); /* the room shatters first */
                 death_ok = phase_ok && last_phase == BOSS_PHASES - 1 && minions > 0 && G.room.cleared && G.nen == 0 && count_choices() == REWARD_CHOICES &&
                            check_room_reward() == NULL;
             }
@@ -1518,7 +1558,9 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         float moved = 0.0f;
         for (int t = 0; t < 600 && walls_ok; t++) {
             V2 before = G.en[0].pos;
-            if (t % 120 == 0) pl->pos = v2(frand(ARENA_X0 + 200, ARENA_X1 - 200), frand(ARENA_Y0 + 200, ARENA_Y1 - 200));
+            static const float corners[4][2] = {{0.2f, 0.25f}, {0.8f, 0.75f}, {0.25f, 0.8f}, {0.75f, 0.2f}};
+            if (t % 120 == 0) /* far corners in turn: it has to slide a long way */
+                pl->pos = v2(ARENA_X0 + (ARENA_X1 - ARENA_X0) * corners[t / 120 % 4][0], ARENA_Y0 + (ARENA_Y1 - ARENA_Y0) * corners[t / 120 % 4][1]);
             TICK();
             V2 d = v2_sub(G.en[0].pos, before);
             walls_ok = G.nen == 1 && (fabsf(d.x) < 0.01f || fabsf(d.y) < 0.01f);
@@ -1648,7 +1690,8 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         uint64_t rng0 = G.rng.s;
         int kills = 0, rooms0 = -1;
         bool demo_ok = true;
-        for (int t = 0; t < 120 * 60; t++) {
+        /* At least 20 s, until it moved on to another room (a cleared room or a new demo run). */
+        for (int t = 0; t < 120 * 150 && !(t > 120 * 20 && rooms0 >= 0 && G.room.id != rooms0); t++) {
             game_update();
             clear_edges();
             if (rooms0 < 0) rooms0 = G.room.id;
@@ -1728,11 +1771,159 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         failures += !timing_ok + !fade_ok + !stop_ok;
     }
 
+    {
+        /* Blocks: the ship's shots / blade / bomb break them, the enemies' bullets never do; a barrel
+         * blows up (enemies, the ship, the blocks around), an oil drum leaves burning oil (sets enemies
+         * and the ship on fire, burns the blocks in it), a spark pod throws a ring of balls that hurt
+         * the enemies too. And the layouts: every spot reachable when only the walls count. */
+#define BTICK() do { game_update(); clear_edges(); } while (0)
+#define BFRESH() do { game_init(o->seed); game_new_run(); debug_teleport(ROOM_COMBAT, RW_COINS, 3, false); \
+                      G.state = GS_PLAYING; G.npk = 0; G.room.nobs = 0; G.room.nfires = 0; room_nav_reset(); \
+                      G.room.cleared = false; G.room.wave = 0; G.room.nwaves = 1; /* a fight, no wave coming */ \
+                      G.room.wave_t = 1e6f; G.room.since_wave = -1e6f; \
+                      G.pl.pos = v2(ARENA_X0 + 200.0f, ARENA_Y1 - 150.0f); G.pl.invuln = 0.0f; \
+                      G.in.mouse = v2(ARENA_X0 + 200.0f, ARENA_Y0 + 100.0f); } while (0)
+#define BDUMMY(x, y, r) do { Enemy d = {.type = EN_TANK, .uid = ++G.next_uid, .pos = v2(x, y), .radius = r, \
+                                        .hp = 5000.0f, .max_hp = 5000.0f}; G.en[G.nen++] = d; } while (0)
+        Player *pl = &G.pl;
+        Input *in = &G.in;
+
+        BFRESH(); /* enemy bullets: stopped, no damage */
+        test_block(ARENA_CX, ARENA_CY, OB_CRATE);
+        for (int k = 0; k < 6; k++) ebullet_spawn(v2(ARENA_CX - 200.0f, ARENA_CY - 10.0f + (float)k * 4.0f), 0.0f, 600.0f, 6.0f, COL_WHITE);
+        for (int t = 0; t < 90; t++) BTICK();
+        bool enemy_ok = G.room.nobs == 1 && G.room.obs[0].hp == G.room.obs[0].max_hp && G.neb == 0;
+
+        BFRESH(); /* the ship's shots */
+        test_block(ARENA_CX, ARENA_CY, OB_CRATE);
+        pl->pos = v2(ARENA_CX - 300.0f, ARENA_CY);
+        in->mouse = v2(ARENA_CX, ARENA_CY);
+        for (int t = 0; t < 180 && G.room.nobs > 0; t++) {
+            in->fire = true;
+            BTICK();
+        }
+        in->fire = false;
+        bool shot_ok = G.room.nobs == 0;
+
+        BFRESH(); /* the blade */
+        upgrade_apply(UPG_W_SWORD);
+        pl->pos = v2(ARENA_CX - 60.0f, ARENA_CY);
+        test_block(ARENA_CX, ARENA_CY, OB_CRATE);
+        in->mouse = v2(ARENA_CX, ARENA_CY);
+        for (int t = 0; t < 240 && G.room.nobs > 0; t++) {
+            in->fire = true;
+            BTICK();
+        }
+        in->fire = false;
+        bool sword_ok = G.room.nobs == 0;
+
+        BFRESH(); /* a bomb breaks every block, not the walls */
+        test_block(ARENA_X1 - 200.0f, ARENA_Y0 + 150.0f, OB_CRATE);
+        test_block(ARENA_X1 - 400.0f, ARENA_Y0 + 150.0f, OB_BARREL);
+        test_block(ARENA_X1 - 600.0f, ARENA_Y0 + 150.0f, OB_OIL);
+        test_block(ARENA_X1 - 800.0f, ARENA_Y0 + 150.0f, OB_SPARK);
+        test_block(ARENA_CX, ARENA_CY, OB_WALL);
+        pl->bombs = 1;
+        in->bomb_pressed = true;
+        for (int t = 0; t < 3; t++) BTICK();
+        bool bomb_ok = room_count_obstacles(-1) == 0 && room_count_obstacles(OB_WALL) == 1 && G.room.nfires == 1;
+
+        BFRESH(); /* barrel */
+        int barrel = test_block(ARENA_CX, ARENA_CY, OB_BARREL);
+        test_block(ARENA_CX + 90.0f, ARENA_CY, OB_CRATE);
+        test_block(ARENA_CX + 450.0f, ARENA_CY, OB_CRATE);
+        BDUMMY(ARENA_CX, ARENA_CY - 100.0f, 30.0f);
+        pl->pos = v2(ARENA_CX - 100.0f, ARENA_CY + 40.0f);
+        int hp0 = pl->hp;
+        room_block_damage(barrel, 100.0f);
+        for (int t = 0; t < 3; t++) BTICK();
+        bool barrel_ok = G.en[0].hp < 5000.0f && room_count_obstacles(OB_CRATE) == 1 && pl->hp < hp0;
+
+        BFRESH(); /* oil */
+        int oil = test_block(ARENA_CX, ARENA_CY, OB_OIL);
+        test_block(ARENA_CX + 50.0f, ARENA_CY, OB_CRATE);
+        BDUMMY(ARENA_CX + 30.0f, ARENA_CY + 60.0f, 30.0f);
+        pl->pos = v2(ARENA_CX - 40.0f, ARENA_CY + 50.0f);
+        hp0 = pl->hp;
+        room_block_damage(oil, 100.0f);
+        for (int t = 0; t < 40; t++) BTICK();
+        bool oil_ok = G.room.nfires == 1 && G.en[0].burn_t > 0.0f && pl->hp < hp0 && pl->burn_t > 0.0f;
+        pl->pos = v2(ARENA_X0 + 200.0f, ARENA_Y1 - 150.0f); /* out of it */
+        for (int t = 0; t < 360; t++) BTICK();
+        bool oil_burns_ok = room_count_obstacles(OB_CRATE) == 0 && G.en[0].hp < 5000.0f && pl->burn_t <= 0.0f;
+
+        BFRESH(); /* spark pod */
+        int spark = test_block(ARENA_CX, ARENA_CY, OB_SPARK);
+        BDUMMY(ARENA_CX + 160.0f, ARENA_CY, 40.0f);
+        room_block_damage(spark, 100.0f);
+        BTICK();
+        int balls = count_ebullets(EB_BALL);
+        for (int t = 0; t < 90; t++) BTICK();
+        bool spark_ok = balls == SPARK_BALLS && G.en[0].hp < 5000.0f;
+
+        BFRESH(); /* cleared: a wave of glass from the last kill, nothing goes off, then the reward */
+        G.room.wave = G.room.nwaves;
+        G.room.reward = RW_COINS;
+        test_block(ARENA_CX - 280.0f, ARENA_CY, OB_CRATE);
+        test_block(ARENA_X1 - 200.0f, ARENA_Y0 + 200.0f, OB_WALL);
+        test_block(pl->pos.x + 70.0f, pl->pos.y, OB_BARREL);
+        test_block(pl->pos.x, pl->pos.y - 70.0f, OB_OIL);
+        BDUMMY(ARENA_CX - 360.0f, ARENA_CY, 30.0f);
+        G.en[0].hp = 1.0f;
+        hp0 = pl->hp;
+        enemy_damage(&G.en[0], 10.0f, v2(0, 0));
+        bool order_ok = false, early_reward = false, reward = false;
+        int shards = 0;
+        for (int t = 0; t < 300; t++) {
+            BTICK();
+            for (int i = 0; i < G.npt; i++) shards += G.pt[i].shape == PT_SHARD;
+            if (G.room.cleared && G.room.clear_t < 0.0f) {
+                early_reward |= G.npk > 0;
+                /* the crate by the last kill went first, the far wall still stands */
+                if (room_count_obstacles(OB_CRATE) == 0 && room_count_obstacles(OB_WALL) == 1) order_ok = true;
+            } else if (G.room.cleared) {
+                reward |= G.npk > 0; /* the coins come out once it has shattered (then get vacuumed up) */
+            }
+        }
+        bool shatter_ok = G.room.cleared && G.room.nobs == 0 && G.room.nfires == 0 && order_ok && !early_reward &&
+                          reward && shards > 0 && pl->hp == hp0;
+
+        /* Layouts: many rooms of every kind, from every side. */
+        int rooms = 0, bad = 0, walls = 0, blocks = 0, kinds = 0;
+        game_init(o->seed);
+        game_new_run();
+        const RoomType types[] = {ROOM_COMBAT, ROOM_COMBAT, ROOM_STATS, ROOM_SHOP, ROOM_WORKSHOP};
+        for (int k = 0; k < 400; k++) {
+            G.entry_side = (Side)irand(SIDE_LEFT, SIDE_BOTTOM);
+            G.force_secret = k % 3 == 0;
+            RoomType ty = types[k % ARRAY_LEN(types)];
+            room_enter(ty, ty == ROOM_COMBAT ? room_roll_reward() : RW_NONE, irand(1, 9));
+            G.force_secret = false;
+            rooms++;
+            V2 q = G.pl.pos;
+            if (!room_walls_connected() || room_collide_circle(&q, PLAYER_BODY_R, NULL)) bad++;
+            walls += room_count_obstacles(OB_WALL);
+            blocks += room_count_obstacles(-1);
+            for (int i = 0; i < G.room.nobs; i++) kinds |= 1 << G.room.obs[i].kind;
+        }
+        bool layout_ok = bad == 0 && walls > rooms * 3 && blocks > rooms * 6 && kinds == (1 << OB_KIND_COUNT) - 1;
+        printf("scripted blocks: enemy bullets -> %s, shots -> %s, blade -> %s, bomb -> %s, barrel -> %s, oil -> %s, "
+               "oil burns -> %s, spark pod -> %s, cleared room shatters -> %s, %d layouts (%.1f walls, %.1f blocks avg, %d bad) -> %s\n",
+               enemy_ok ? "OK" : "FAILED", shot_ok ? "OK" : "FAILED", sword_ok ? "OK" : "FAILED", bomb_ok ? "OK" : "FAILED",
+               barrel_ok ? "OK" : "FAILED", oil_ok ? "OK" : "FAILED", oil_burns_ok ? "OK" : "FAILED", spark_ok ? "OK" : "FAILED",
+               shatter_ok ? "OK" : "FAILED", rooms, (double)walls / rooms, (double)blocks / rooms, bad, layout_ok ? "OK" : "FAILED");
+        failures += !enemy_ok + !shot_ok + !sword_ok + !bomb_ok + !barrel_ok + !oil_ok + !oil_burns_ok + !spark_ok + !shatter_ok + !layout_ok;
+#undef BTICK
+#undef BFRESH
+#undef BDUMMY
+    }
+
     printf("debug teleports - %s\n", failures ? "FAILED" : "OK");
     return failures ? 1 : 0;
 }
 
 int headless_run(const HeadlessOptions *o) {
+
     if (o->debug_rooms) return debug_rooms_run(o);
     int failures = 0;
     int runs = o->runs > 0 ? o->runs : 1;
@@ -1845,8 +2036,12 @@ int headless_run(const HeadlessOptions *o) {
                     was_cleared = false;
                 }
             }
-            if (G.room.cleared && !was_cleared) {
+            /* The reward comes once the room has shattered (clear_t back to 0). */
+            if (G.room.cleared && G.room.clear_t >= 0.0f && G.room.clear_t < DT * 1.5f && !G.room.revisit) {
                 if ((err = check_room_reward()) != NULL) break;
+                choices = count_choices();
+            }
+            if (G.room.cleared && !was_cleared) {
                 if (G.room.type == ROOM_BOSS) {
                     bosses_beaten++;
                     boss_time += room_time;

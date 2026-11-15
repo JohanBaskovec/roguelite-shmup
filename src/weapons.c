@@ -375,6 +375,17 @@ static void sword_sweep(V2 center, float lo, float hi, float dmg_k, bool clone) 
         for (int s = 0; s < 4; s++)
             fx_particle(e->pos, v2_scale(v2_rotate(dir, frand(-0.9f, 0.9f)), frand(200, 500)), 0.18f, 2.5f, col, 4.0f, PT_SPARK);
     }
+    /* Blocks: the blade breaks them like shots do (once per swing). */
+    for (int i = 0; i < G.room.nobs && !clone; i++) {
+        Obstacle *o = &G.room.obs[i];
+        if (!obstacle_breakable(o) || o->hp <= 0.0f || o->swing_id == p->swing_id) continue;
+        V2 c = v2(o->r.x + o->r.w * 0.5f, o->r.y + o->r.h * 0.5f);
+        if (!in_sweep(center, c, o->r.w * 0.6f, lo, hi)) continue;
+        o->swing_id = p->swing_id;
+        room_block_damage(i, p->swing_dmg * dmg_k);
+        for (int s = 0; s < 3; s++)
+            fx_particle(c, v2_scale(v2_angle(frand(0, TAU_F)), frand(150, 350)), 0.18f, 2.5f, col, 4.0f, PT_SPARK);
+    }
     bool parry = syn(SYN_PARRY); /* with DEFLECTOR SHELLS the blade sends the bullets back */
     int cut = 0;
     for (int i = 0; i < G.neb; i++) {

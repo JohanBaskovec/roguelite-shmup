@@ -73,6 +73,7 @@ static void parse_args(int argc, char **argv, Options *o) {
         else if (!strcmp(a, "--debug-rooms")) o->debug_rooms = true;
         else if (!strcmp(a, "--debug-menu")) o->debug_menu = true;
         else if (!strcmp(a, "--secret")) o->secret = true;
+        else if (!strcmp(a, "--dense-blocks")) g_dense_blocks = true; /* rooms packed with blocks and gates */
         else if (!strcmp(a, "--show-secret")) o->show_secret = true;
         else if (!strcmp(a, "--show-stats")) o->show_stats = true;
         else if (!strcmp(a, "--char-select")) o->char_select = true;
@@ -343,8 +344,8 @@ int main(int argc, char **argv) {
         frame++;
         if (opt.shot_path && frame >= opt.frames) {
             if (!save_screenshot(ren, opt.shot_path)) SDL_Log("Screenshot failed: %s", SDL_GetError());
-            else SDL_Log("Saved %s (room %d type %d, %d enemy bullets, cleared %d, secret %d open %d ghost %.2f, coins %d, doors %s/%s/%s)",
-                         opt.shot_path, G.room.depth, G.room.type, G.neb, G.room.cleared, G.room.has_secret,
+            else SDL_Log("Saved %s (room %d type %d, %d enemy bullets, cleared %d clear_t %.2f, secret %d open %d ghost %.2f, coins %d, doors %s/%s/%s)",
+                         opt.shot_path, G.room.depth, G.room.type, G.neb, G.room.cleared, (double)G.room.clear_t, G.room.has_secret,
                          G.room.secret_open, (double)room_ghost_alpha(), G.pl.coins, door_label(&G.room.doors[0]), door_label(&G.room.doors[1]),
                          door_label(&G.room.doors[2]));
             G.quit = true;

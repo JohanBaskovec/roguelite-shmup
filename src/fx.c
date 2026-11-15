@@ -14,6 +14,15 @@ void fx_particle(V2 pos, V2 vel, float life, float size, SDL_FColor col, float d
     p->col = col;
     p->drag = drag;
     p->shape = (uint8_t)shape;
+    p->rot = p->spin = 0.0f;
+}
+
+void fx_shard(V2 pos, V2 vel, float life, float size, SDL_FColor col, float spin) {
+    fx_particle(pos, vel, life, size, col, 2.5f, PT_SHARD);
+    if (G.npt > 0 && G.pt[G.npt - 1].shape == PT_SHARD) {
+        G.pt[G.npt - 1].rot = frand(0.0f, TAU_F);
+        G.pt[G.npt - 1].spin = spin;
+    }
 }
 
 void fx_burst(V2 pos, int n, float smin, float smax, float life, float size, SDL_FColor col) {
@@ -75,6 +84,7 @@ void fx_update(void) {
         }
         p->pos = v2_add(p->pos, v2_scale(p->vel, DT));
         p->vel = v2_scale(p->vel, fmaxf(0.0f, 1.0f - p->drag * DT));
+        p->rot += p->spin * DT;
     }
     for (int i = 0; i < G.npop; i++) {
         Popup *p = &G.pop[i];
@@ -106,6 +116,18 @@ void fx_draw(void) {
             float r = p->size * (1.0f - k * k) + 4.0f;
             float thick = (2.0f + p->size * 0.03f) * k + 1.5f;
             draw_ring(p->pos, r, thick, col_a(p->col, p->col.a * k * 0.9f));
+        } break;
+        case PT_SHARD: { /* a thin glass triangle: glowing face, bright edge, fading to nothing */
+            float a = p->col.a * k * k * (3.0f - 2.0f * k); /* smooth fade */
+            V2 c[3];
+            for (int v = 0; v < 3; v++) {
+                float ang = p->rot + (float)v * 2.2f + (v == 2 ? 0.5f : 0.0f);
+                float r = p->size * (v == 0 ? 1.0f : 0.55f);
+                c[v] = v2_add(p->pos, v2_scale(v2_angle(ang), r));
+            }
+            draw_tri(c[0], c[1], c[2], col_a(p->col, 0.45f * a));
+            draw_line(c[0], c[1], 1.5f, col_a(COL_WHITE, 0.8f * a));
+            draw_line(c[1], c[2], 1.0f, col_a(p->col, 0.9f * a));
         } break;
         default:
             break;

@@ -100,6 +100,7 @@ static void update_player_bullets(void) {
     for (int i = 0; i < G.npb; i++) {
         PBullet *b = &G.pb[i];
         bool dead = false, wall = false;
+        int block = -1; /* breakable block hit (its wall stops the shot) */
         V2 n = v2(0, 0);
         b->life -= DT;
         b->age += DT;
@@ -165,7 +166,17 @@ static void update_player_bullets(void) {
                 b->pos = v2_add(b->pos, v2_scale(b->vel, DT));
             }
             /* PHASE ROUNDS fly through obstacles; only the arena walls stop them. */
-            wall = upg_has(UPG_PHASE) ? arena_collide(&b->pos, b->radius, &n) : room_collide_circle(&b->pos, b->radius, &n);
+            wall = upg_has(UPG_PHASE) ? arena_collide(&b->pos, b->radius, &n) : room_collide_obstacle(&b->pos, b->radius, &n, &block);
+            if (upg_has(UPG_PHASE) && !wall) { /* through the walls, but a breakable block stops it (and takes the hit) */
+                V2 q = b->pos;
+                int k;
+                if (room_collide_obstacle(&q, b->radius, &n, &k) && k >= 0 && obstacle_breakable(&G.room.obs[k])) {
+                    wall = true;
+                    block = k;
+                    b->pos = q;
+                }
+            }
+            if (block >= 0 && !obstacle_breakable(&G.room.obs[block])) block = -1;
             upg_reflect(b); /* may append bullets to G.pb: b stays valid (fixed array) */
         }
 
@@ -204,6 +215,10 @@ static void update_player_bullets(void) {
         /* Walls are resolved after enemy hits, so point-blank shots at an enemy
          * pressed against a wall still connect. */
         if (!dead && wall) {
+            if (block >= 0) { /* the ship's shots break blocks (never the enemies') */
+                room_block_damage(block, b->damage);
+                fx_particle(b->pos, v2(0, 0), 0.1f, b->radius * 3.0f, col_a(b->col, 0.7f), 0.0f, PT_GLOW);
+            }
             if ((b->flags & PB_RETURNS) && !(b->flags & PB_RETURNED)) {
                 /* chakram: a wall sends it straight back */
                 b->flags |= PB_RETURNED;
@@ -287,6 +302,17 @@ static void update_enemy_bullets(void) {
                     float diff = atan2f(sinf(want - have), cosf(want - have));
                     float turn = clampf(diff, -2.2f * DT, 2.2f * DT);
                     b->vel = v2_rotate(b->vel, turn * tempo);
+                }
+                break;
+            case EB_BALL: /* a spark pod's ball hurts the enemies too */
+                for (int k = 0; k < G.nen; k++) {
+                    Enemy *e = &G.en[k];
+                    float rr = e->radius + b->radius;
+                    if (e->hp <= 0.0f || enemy_untouchable(e) || v2_dist2(e->pos, b->pos) >= rr * rr) continue;
+                    enemy_damage(e, 20.0f, v2_scale(v2_norm(b->vel), 200.0f));
+                    fx_particle(b->pos, v2(0, 0), 0.2f, 40.0f, col_a(b->col, 0.8f), 0.0f, PT_RING);
+                    dead = true;
+                    break;
                 }
                 break;
             case EB_WAVY:
@@ -488,6 +514,12 @@ void bullets_draw_enemy(void) {
             for (int k = 0; k < 3; k++)
                 draw_line(b->pos, v2_add(b->pos, v2_scale(v2_angle(a + TAU_F * (float)k / 3.0f), b->radius * 1.5f)), 4.0f, b->col);
             draw_circle(b->pos, b->radius * 0.5f, COL_WHITE);
+        } break;
+        case EB_BALL: { /* a crackling violet orb with a white core */
+            float wob = 1.0f + 0.15f * sinf(b->age * 40.0f + (float)i);
+            draw_circle(b->pos, b->radius * wob * s, b->col);
+            draw_ring(b->pos, b->radius * 1.45f * s, 1.5f, col_a(COL_WHITE, 0.6f));
+            draw_circle(b->pos, b->radius * 0.45f * s, COL_WHITE);
         } break;
         case EB_SPLIT: {
             float k = clampf(b->age / fmaxf(b->t1, 0.01f), 0.0f, 1.0f);

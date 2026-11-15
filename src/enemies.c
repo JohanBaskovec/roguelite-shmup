@@ -188,8 +188,16 @@ static void move_towards(Enemy *e, V2 desired_vel, float responsiveness) {
 }
 
 /* Direction towards goal that goes around obstacles instead of grinding into them. */
-static V2 nav_dir(const Enemy *e, V2 goal) {
-    return v2_norm(v2_sub(room_navigate(e->pos, goal, e->radius + 6.0f), e->pos));
+static V2 nav_dir(Enemy *e, V2 goal) {
+    /* The path is worked out again every few ticks (staggered), or when the waypoint is reached /
+     * the goal moved: rooms full of blocks make it costly, and a waypoint stays good for a while. */
+    if (!e->nav_ok || (G.ticks + e->uid) % 6 == 0 || v2_dist2(e->pos, e->nav_pt) < 12.0f * 12.0f ||
+        v2_dist2(goal, e->nav_goal) > 50.0f * 50.0f) {
+        e->nav_pt = room_navigate(e->pos, goal, e->radius + 6.0f);
+        e->nav_goal = goal;
+        e->nav_ok = true;
+    }
+    return v2_norm(v2_sub(e->nav_pt, e->pos));
 }
 
 static void wander(Enemy *e, float dmin, float dmax, float speed) {
@@ -1384,6 +1392,7 @@ static void on_death(Enemy *e) {
     SDL_FColor c = col_hex(ENEMIES[e->type].color, 1);
     fx_explosion(e->pos, e->radius, c);
     fx_shake(0.06f + e->radius * 0.004f);
+    G.room.last_death = e->pos; /* the shatter wave starts from the last one */
     G.kills++;
     if (e->type == EN_TANK) G.hitstop = fmaxf(G.hitstop, 0.05f);
     if (e->type == EN_BOSS) {

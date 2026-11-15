@@ -80,6 +80,20 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   stats rooms, shops and the slot machine never offer one (headless checks). Only workshop augments cost max HP.
 - A shop always sells exactly 5 items (upgrades, stat trades), plus a supply counter (`SHOP_SUPPLIES`,
   `shop_supply_spot`): one heart, one bomb, one key, flat prices; all paid with coins, descriptions shown like on any pedestal.
+- **Room layouts** (`src/blocks.c`, `room_gen_layout`; every room with enemies except the boss room):
+  indestructible walls (`OB_WALL`) plus breakable blocks: crate, barrel (explodes, `BARREL_BLAST_R`), oil drum
+  (leaves a `FirePool` that sets the ship and enemies on fire; a dash jumps over), spark pod (ring of `EB_BALL`
+  that hurt enemies too). Blocks only break under player shots / the blade / explosions, never enemy bullets,
+  and a bomb breaks them all (`room_blocks_break_all`). A broken block goes off in `blocks_update`, outside
+  the entity loops (chains on the next tick); call `room_nav_reset()` whenever obstacles change. Connectivity
+  counts walls only (`room_walls_connected`: every free cell and door reachable from the entry spot), so
+  blocks may close a passage but can always be shot through; only the entry spot is kept clear. The bot
+  digs through blocks and never fires at a barrel / oil drum within its reach.
+- **A cleared room shatters**: when the last enemy dies every obstacle (walls too) cracks and breaks like
+  glass in a wave from `Room.last_death` (`room_shatter_start`, no effects, fire put out), and only after
+  `ROOM_REVEAL_T` (`Room.clear_t` goes from -1.2 to 0) does `room_reveal()` spawn the reward / shop /
+  machines and the doors open. A cleared room is therefore always empty: rewards and pedestals never need
+  to dodge the layout (headless checks no obstacle / fire once revealed and no reward before).
 - After a room is cleared the player chooses between 3 doors; each door previews what the next
   room gives. One door may be locked (costs a key). The 3 doors are always different (no reward or
   special room behind two doors, locked or not).
@@ -102,7 +116,7 @@ the `--debug-rooms` test too.
 
 ```sh
 cmake --preset release && cmake --build --preset release -j
-ctest --preset release            # ~50 s
+ctest --preset release            # ~90 s
 cmake --preset asan && cmake --build --preset asan -j && ctest --preset asan   # ASan + UBSan
 ```
 
@@ -119,6 +133,7 @@ Do not launch the game in a real window to test it. Use:
   upgrades off / on (the bot also turns a weapon mod off by itself when its shots hit nothing for 10 s).
 - `neon_breach --shot out.bmp --frames N [...]` — offscreen render (SDL offscreen driver).
 - `neon_breach --dump-sfx DIR` — writes every synthesized sound as WAV.
+- `--dense-blocks` fills rooms with the maximum block budget (stress test for the layouts and the bot).
 
 When adding a room type or mechanic, teach the bot to use it (so the simulations cover it) and add
 invariants / a CTest entry in `CMakeLists.txt`.

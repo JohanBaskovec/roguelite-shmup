@@ -53,8 +53,11 @@ static V2 side_inward(Side side) {
 
 /* ---- Collision ----------------------------------------------------------- */
 
-bool room_collide_circle(V2 *p, float r, V2 *normal) {
+bool room_collide_circle(V2 *p, float r, V2 *normal) { return room_collide_obstacle(p, r, normal, NULL); }
+
+bool room_collide_obstacle(V2 *p, float r, V2 *normal, int *which) {
     bool hit = false;
+    if (which) *which = -1;
     V2 n = v2(0, 0);
     if (p->x < ARENA_X0 + r) { p->x = ARENA_X0 + r; n.x = 1; hit = true; }
     if (p->x > ARENA_X1 - r) { p->x = ARENA_X1 - r; n.x = -1; hit = true; }
@@ -63,13 +66,15 @@ bool room_collide_circle(V2 *p, float r, V2 *normal) {
 
     const Room *room = &G.room;
     for (int i = 0; i < room->nobs; i++) {
-        const SDL_FRect *o = &room->obs[i];
+        if (!obstacle_solid(&room->obs[i])) continue;
+        const SDL_FRect *o = &room->obs[i].r;
         float cx = clampf(p->x, o->x, o->x + o->w);
         float cy = clampf(p->y, o->y, o->y + o->h);
         float dx = p->x - cx, dy = p->y - cy;
         float d2 = dx * dx + dy * dy;
         if (d2 >= r * r) continue;
         hit = true;
+        if (which) *which = i;
         if (d2 > 1e-6f) {
             float d = sqrtf(d2);
             n = v2(dx / d, dy / d);
@@ -111,7 +116,7 @@ static float segment_entry(V2 a, V2 b, SDL_FRect r) {
 }
 
 static SDL_FRect obs_inflated(int i, float m) {
-    SDL_FRect o = G.room.obs[i];
+    SDL_FRect o = G.room.obs[i].r;
     SDL_FRect r = {o.x - m, o.y - m, o.w + 2 * m, o.h + 2 * m};
     return r;
 }
@@ -127,11 +132,20 @@ static float box_dist(V2 p, SDL_FRect r) {
 /* Nearest obstacle crossed by the segment, or -1. When an endpoint already sits
  * inside an obstacle's safety margin (a mover hugging it, or a target standing
  * next to it), that margin is shrunk so the segment is not blocked forever. */
-static int nearest_blocker(V2 a, V2 b, float margin) {
+static bool nav_counts(int i, bool walls_only) {
+    const Obstacle *o = &G.room.obs[i];
+    return obstacle_solid(o) && (!walls_only || o->kind == OB_WALL);
+}
+
+static int nearest_blocker_ex(V2 a, V2 b, float margin, bool walls_only) {
     int best = -1;
     float best_t = 2.0f;
+    /* Quick reject: obstacles out of the segment's bounding box (grown by the margin). */
+    float x0 = fminf(a.x, b.x) - margin, x1 = fmaxf(a.x, b.x) + margin;
+    float y0 = fminf(a.y, b.y) - margin, y1 = fmaxf(a.y, b.y) + margin;
     for (int i = 0; i < G.room.nobs; i++) {
-        SDL_FRect o = G.room.obs[i];
+        SDL_FRect o = G.room.obs[i].r;
+        if (o.x > x1 || o.x + o.w < x0 || o.y > y1 || o.y + o.h < y0 || !nav_counts(i, walls_only)) continue;
         float m = fminf(margin, fmaxf(0.0f, fminf(box_dist(a, o), box_dist(b, o)) - 0.5f));
         float t = segment_entry(a, b, obs_inflated(i, m));
         if (t >= 0.0f && t < best_t) {
@@ -142,7 +156,15 @@ static int nearest_blocker(V2 a, V2 b, float margin) {
     return best;
 }
 
+static int nearest_blocker(V2 a, V2 b, float margin) { return nearest_blocker_ex(a, b, margin, false); }
+
 bool room_line_clear(V2 a, V2 b, float margin) { return nearest_blocker(a, b, margin) < 0; }
+bool room_line_clear_walls(V2 a, V2 b, float margin) { return nearest_blocker_ex(a, b, margin, true) < 0; }
+
+int room_block_between(V2 a, V2 b, float margin) {
+    int i = nearest_blocker(a, b, margin);
+    return i >= 0 && obstacle_breakable(&G.room.obs[i]) ? i : -1;
+}
 
 /* Visibility graph between obstacle corners, built lazily per mover margin and
  * cached until the next room. Shortest paths on it never oscillate. */
@@ -151,6 +173,7 @@ bool room_line_clear(V2 a, V2 b, float margin) { return nearest_blocker(a, b, ma
 
 typedef struct {
     float margin;
+    bool walls_only;
     int n;
     V2 pt[NAV_MAX_NODES];
     uint8_t vis[NAV_MAX_NODES][NAV_MAX_NODES];
@@ -160,14 +183,17 @@ static NavGraph nav_graphs[NAV_CACHE];
 static int nav_count;
 
 static void nav_reset(void) { nav_count = 0; }
+void room_nav_reset(void) { nav_reset(); }
 
-static NavGraph *nav_graph(float margin) {
+static NavGraph *nav_graph(float margin, bool walls_only) {
     for (int i = 0; i < nav_count; i++)
-        if (nav_graphs[i].margin == margin) return &nav_graphs[i];
+        if (nav_graphs[i].margin == margin && nav_graphs[i].walls_only == walls_only) return &nav_graphs[i];
     NavGraph *g = &nav_graphs[nav_count < NAV_CACHE ? nav_count++ : NAV_CACHE - 1];
     g->margin = margin;
+    g->walls_only = walls_only;
     g->n = 0;
     for (int i = 0; i < G.room.nobs; i++) {
+        if (!nav_counts(i, walls_only)) continue;
         SDL_FRect r = obs_inflated(i, margin + 6.0f);
         V2 c[4] = {v2(r.x, r.y), v2(r.x + r.w, r.y), v2(r.x + r.w, r.y + r.h), v2(r.x, r.y + r.h)};
         for (int k = 0; k < 4; k++) {
@@ -176,8 +202,11 @@ static NavGraph *nav_graph(float margin) {
                 continue;
             bool inside = false;
             for (int j = 0; j < G.room.nobs && !inside; j++) {
-                SDL_FRect q = obs_inflated(j, margin);
-                inside = c[k].x > q.x && c[k].x < q.x + q.w && c[k].y > q.y && c[k].y < q.y + q.h;
+                if (j == i || !nav_counts(j, walls_only)) continue;
+                /* Grown like the corners, edges included: the corners blocks side by side share
+                 * (on each other's edge) are useless, and would make the graph huge. */
+                SDL_FRect q = obs_inflated(j, margin + 6.0f);
+                inside = c[k].x > q.x - 0.5f && c[k].x < q.x + q.w + 0.5f && c[k].y > q.y - 0.5f && c[k].y < q.y + q.h + 0.5f;
             }
             if (!inside) g->pt[g->n++] = c[k];
         }
@@ -185,14 +214,17 @@ static NavGraph *nav_graph(float margin) {
     for (int i = 0; i < g->n; i++) {
         g->vis[i][i] = 0;
         for (int j = i + 1; j < g->n; j++)
-            g->vis[i][j] = g->vis[j][i] = (uint8_t)(nearest_blocker(g->pt[i], g->pt[j], margin) < 0);
+            g->vis[i][j] = g->vis[j][i] = (uint8_t)(nearest_blocker_ex(g->pt[i], g->pt[j], margin, walls_only) < 0);
     }
     return g;
 }
 
-V2 room_navigate(V2 from, V2 goal, float margin) {
-    if (nearest_blocker(from, goal, margin) < 0) return goal;
-    NavGraph *g = nav_graph(margin);
+V2 room_navigate(V2 from, V2 goal, float margin) { return room_navigate_ex(from, goal, margin, false, NULL); }
+
+V2 room_navigate_ex(V2 from, V2 goal, float margin, bool walls_only, bool *reached) {
+    if (reached) *reached = true;
+    if (nearest_blocker_ex(from, goal, margin, walls_only) < 0) return goal;
+    NavGraph *g = nav_graph(margin, walls_only);
     int n = g->n, goal_node = n;
     float dist[NAV_MAX_NODES + 1];
     int prev[NAV_MAX_NODES + 1];
@@ -203,8 +235,8 @@ V2 room_navigate(V2 from, V2 goal, float margin) {
         done[i] = false;
     }
     for (int i = 0; i < n; i++) {
-        if (nearest_blocker(from, g->pt[i], margin) < 0) dist[i] = v2_dist(from, g->pt[i]);
-        sees_goal[i] = nearest_blocker(g->pt[i], goal, margin) < 0;
+        if (nearest_blocker_ex(from, g->pt[i], margin, walls_only) < 0) dist[i] = v2_dist(from, g->pt[i]);
+        sees_goal[i] = nearest_blocker_ex(g->pt[i], goal, margin, walls_only) < 0;
     }
     /* Dijkstra (dense, O(n^2) with n <= ~100). */
     for (;;) {
@@ -223,7 +255,10 @@ V2 room_navigate(V2 from, V2 goal, float margin) {
             if (d < dist[goal_node]) { dist[goal_node] = d; prev[goal_node] = u; }
         }
     }
-    if (dist[goal_node] >= 1e29f) return goal; /* unreachable: push straight and slide along walls */
+    if (dist[goal_node] >= 1e29f) { /* unreachable: push straight and slide along walls */
+        if (reached) *reached = false;
+        return goal;
+    }
 
     /* Walk back to find the first waypoints of the path. */
     int path[NAV_MAX_NODES + 1], len = 0;
@@ -236,99 +271,6 @@ V2 room_navigate(V2 from, V2 goal, float margin) {
 }
 
 /* ---- Generation ---------------------------------------------------------- */
-
-static bool rect_overlaps(SDL_FRect a, SDL_FRect b) {
-    return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
-}
-
-static bool rect_ok(SDL_FRect r) {
-    const float margin = 80.0f;
-    if (r.x < ARENA_X0 + margin || r.y < ARENA_Y0 + margin || r.x + r.w > ARENA_X1 - margin ||
-        r.y + r.h > ARENA_Y1 - margin)
-        return false;
-    /* Keep door lanes, the entry point and the reward spot clear. */
-    const SDL_FRect keep_out[] = {
-        {ARENA_X0, ARENA_CY - 170, 280, 340},           /* left door */
-        {ARENA_X1 - 280, ARENA_CY - 170, 280, 340},     /* right door */
-        {ARENA_CX - 200, ARENA_Y0, 400, 280},           /* top door */
-        {ARENA_CX - 200, ARENA_Y1 - 280, 400, 280},     /* bottom door */
-        {ARENA_CX - 120, ARENA_CY - 120, 240, 240},     /* reward */
-    };
-    for (int i = 0; i < ARRAY_LEN(keep_out); i++)
-        if (rect_overlaps(r, keep_out[i])) return false;
-    /* Rooms whose reward is a row of pedestals keep that row free. */
-    const SDL_FRect pedestal_row = {ARENA_X0 + 150, ARENA_CY - 150, ARENA_X1 - ARENA_X0 - 300, 300};
-    /* The secret spot (next to the entry door) must stay reachable to drop a bomb there. */
-    if (G.room.has_secret) {
-        V2 c = room_secret_spot();
-        SDL_FRect k = {c.x - 200, c.y - 200, 400, 400};
-        if (rect_overlaps(r, k)) return false;
-    }
-    if (G.room.type == ROOM_WORKSHOP)
-        for (int i = 0; i < 2; i++) {
-            V2 m = workshop_machine_spot(i);
-            SDL_FRect k = {m.x - 190, m.y - 210, 380, 380};
-            if (rect_overlaps(r, k)) return false;
-        }
-    bool row = G.room.type == ROOM_STATS || G.room.type == ROOM_SHOP || G.room.type == ROOM_WORKSHOP ||
-               G.room.reward == RW_UPGRADE || G.room.reward == RW_ACTIVE;
-    if (row && rect_overlaps(r, pedestal_row)) return false;
-    if (G.room.type == ROOM_SHOP) { /* the supply counter */
-        V2 a = shop_supply_spot(0), b = shop_supply_spot(SHOP_SUPPLIES - 1);
-        SDL_FRect k = {a.x - 150, a.y - 130, b.x - a.x + 300, 260};
-        if (rect_overlaps(r, k)) return false;
-    }
-    for (int i = 0; i < G.room.nobs; i++) {
-        SDL_FRect o = G.room.obs[i];
-        /* Gaps of at least 100 px: wide enough to fly through, and for the bot's path finder
-         * (it keeps ~42 px off each obstacle) to see the passage. */
-        SDL_FRect grown = {o.x - 100, o.y - 100, o.w + 200, o.h + 200};
-        if (rect_overlaps(r, grown)) return false;
-    }
-    return true;
-}
-
-static void add_obs(float cx, float cy, float w, float h) {
-    if (G.room.nobs >= MAX_OBSTACLES) return;
-    SDL_FRect r = {cx - w * 0.5f, cy - h * 0.5f, w, h};
-    if (rect_ok(r)) G.room.obs[G.room.nobs++] = r;
-}
-
-static void add_mirrored(float cx, float cy, float w, float h) {
-    add_obs(cx, cy, w, h);
-    add_obs(2.0f * ARENA_CX - cx, cy, w, h);
-}
-
-static void gen_obstacles(void) {
-    G.room.nobs = 0;
-    switch (irand(0, 5)) {
-    case 0: /* open arena */
-        break;
-    case 1: /* four pillars */
-        add_mirrored(ARENA_X0 + ARENA_W * 0.27f, ARENA_Y0 + ARENA_H * 0.3f, 100, 100);
-        add_mirrored(ARENA_X0 + ARENA_W * 0.27f, ARENA_Y0 + ARENA_H * 0.72f, 100, 100);
-        break;
-    case 2: /* two vertical walls */
-        add_mirrored(ARENA_X0 + ARENA_W * 0.33f, ARENA_CY, 50, 340);
-        break;
-    case 3: { /* random mirrored blocks */
-        int n = irand(2, 5);
-        for (int i = 0; i < n; i++)
-            add_mirrored(frand(ARENA_X0 + 150, ARENA_CX - 130), frand(ARENA_Y0 + 140, ARENA_Y1 - 140),
-                         frand(50, 150), frand(50, 150));
-    } break;
-    case 4: /* horizontal bars */
-        add_mirrored(ARENA_X0 + ARENA_W * 0.27f, ARENA_Y0 + ARENA_H * 0.26f, 280, 44);
-        add_mirrored(ARENA_X0 + ARENA_W * 0.27f, ARENA_Y0 + ARENA_H * 0.74f, 280, 44);
-        break;
-    default: /* ring of pillars around the center */
-        for (int i = 0; i < 8; i++) {
-            float a = TAU_F * ((float)i + 0.5f) / 8.0f;
-            add_obs(ARENA_CX + cosf(a) * 380.0f, ARENA_CY + sinf(a) * 260.0f, 64, 64);
-        }
-        break;
-    }
-}
 
 /* A random combat reward, never one of the `used` ones (bit mask of RewardType). */
 static RewardType roll_reward_except(unsigned used) {
@@ -438,6 +380,8 @@ void room_enter(RoomType type, RewardType reward, int depth) {
     r->depth = depth;
     r->hue = 200.0f + (float)depth * 37.0f;
     r->id = ++G.room_counter;
+    static int layouts;
+    r->layout_id = ++layouts;
     r->entry = G.entry_side;
     bool can_hide = type == ROOM_COMBAT || type == ROOM_STATS || type == ROOM_SHOP;
     if (can_hide && (G.force_secret || chance(SECRET_CHANCE))) {
@@ -448,6 +392,7 @@ void room_enter(RoomType type, RewardType reward, int depth) {
     G.npb = G.neb = G.nen = G.nsp = G.npk = G.nmc = 0;
     fx_clear();
     nav_reset();
+    G.pl.burn_t = 0.0f; /* a new room puts the fire out */
 
     place_at_entry();
 
@@ -462,7 +407,7 @@ void room_enter(RoomType type, RewardType reward, int depth) {
         r->reward = RW_UPGRADE; /* the boss always leaves a choice of 3 upgrades */
     }
     /* Open floor for the tutorial / the loot / the boss fight. */
-    if (!room_type_peaceful(type) && type != ROOM_BOSS) gen_obstacles();
+    if (!room_type_peaceful(type) && type != ROOM_BOSS) room_gen_layout();
     if (type != ROOM_SECRET) gen_doors();          /* the secret room's only exit leads back */
     r->peaceful = type == ROOM_START;
     if (type == ROOM_SECRET) {
@@ -636,10 +581,21 @@ static void spawn_shop_items(void) {
 /* Bottom right, away from the entry spot and the path to the doors. */
 V2 shop_supply_spot(int i) { return v2(ARENA_CX + 330.0f + 230.0f * (float)i, ARENA_CY + 270.0f); }
 
-static void room_clear(void) {
+/* What the cleared room gives, once the obstacles are gone (clear_t reaching 0). */
+static void room_reveal(void) {
+    Room *r = &G.room;
+    if (r->type == ROOM_STATS) spawn_stat_offers();
+    else if (r->type == ROOM_SHOP) spawn_shop_items();
+    else if (r->type == ROOM_WORKSHOP) workshop_spawn();
+    else if (r->type == ROOM_SECRET) secret_loot(); /* after an ambush */
+    else if (r->reward != RW_NONE) reward_drop(r->reward, v2(ARENA_CX, ARENA_CY));
+}
+
+/* instant (debug clear): no shatter, the room is empty and its reward out at once. */
+static void room_clear(bool instant) {
     Room *r = &G.room;
     r->cleared = true;
-    r->clear_t = 0.0f;
+    r->clear_t = instant ? 0.0f : -ROOM_REVEAL_T;
     G.rooms_cleared++;
     sfx_play(SFX_ROOM_CLEAR);
     ebullets_clear(true);
@@ -651,11 +607,12 @@ static void room_clear(void) {
     G.pl.vel = v2(0, 0);
     G.pl.dash_t = 0.0f;
     fx_particle(G.pl.pos, v2(0, 0), 0.35f, 120.0f, col_hex(CHARACTERS[G.character].color, 0.9f), 0.0f, PT_RING);
-    if (r->type == ROOM_STATS) spawn_stat_offers();
-    else if (r->type == ROOM_SHOP) spawn_shop_items();
-    else if (r->type == ROOM_WORKSHOP) workshop_spawn();
-    else if (r->type == ROOM_SECRET) secret_loot(); /* after an ambush */
-    else if (r->reward != RW_NONE) reward_drop(r->reward, v2(ARENA_CX, ARENA_CY));
+    if (instant) {
+        room_obstacles_vanish();
+        room_reveal();
+    } else {
+        room_shatter_start(r->last_death); /* walls and blocks burst like glass, reward after */
+    }
     if (r->type == ROOM_BOSS) fx_banner("BOSS DEFEATED", "pick your prize", col_hex(COLOR_BOSS, 1), 2.0f);
     else fx_banner("ROOM CLEARED", "choose your next door", col_hex(0x66f0ff, 1), 1.4f);
     fx_shake(0.25f);
@@ -665,6 +622,7 @@ static void room_clear(void) {
 
 void room_bomb_at(V2 pos) {
     Room *r = &G.room;
+    room_blocks_break_all(); /* a bomb breaks every breakable block in the room */
     if (!r->has_secret || r->secret_open || r->secret_used) return;
     V2 spot = room_secret_spot();
     if (v2_dist(pos, spot) > SECRET_BOMB_RADIUS) return;
@@ -708,7 +666,7 @@ void room_debug_clear(void) {
     if (r->cleared) return;
     r->wave = r->nwaves;
     G.nen = G.nsp = G.neb = 0;
-    room_clear();
+    room_clear(true);
 }
 
 static bool touching_door(const Door *d) {
@@ -725,6 +683,7 @@ static bool touching_door(const Door *d) {
 
 void room_update(void) {
     Room *r = &G.room;
+    blocks_update(); /* broken blocks go off, burning oil */
     if (r->msg_cd > 0.0f) r->msg_cd -= DT;
     for (int i = 0; i < r->ndoors; i++)
         if (r->doors[i].anim > 0.0f) r->doors[i].anim -= DT;
@@ -776,13 +735,15 @@ void room_update(void) {
                            (r->wave > 0 && r->since_wave > 1.5f && alive <= r->last_wave_size / 4);
             if (trigger) spawn_wave();
         } else if (alive == 0) {
-            room_clear();
+            room_clear(false);
         }
         return;
     }
 
     float prev_clear_t = r->clear_t;
     r->clear_t += DT;
+    if (prev_clear_t < 0.0f && r->clear_t >= 0.0f) room_reveal(); /* the room has shattered */
+    if (r->clear_t < 0.0f) return;                                   /* doors still shut */
     if (prev_clear_t < 0.35f && r->clear_t >= 0.35f) sfx_play(SFX_DOOR_OPEN);
 
     /* Entry door: into the secret room once bombed open, or the secret room's exit. */
@@ -896,6 +857,7 @@ void room_draw_floor(void) {
             draw_text_centered(ARENA_CX, ARENA_CY - 150.0f, 2.0f, col_a(COL_WHITE, 0.4f), "every gain has a price");
         }
     }
+    fires_draw();
     if (r->has_secret && !r->secret_used) {
         V2 c = room_secret_spot();
         draw_secret_ghost(r);
@@ -1063,16 +1025,11 @@ void room_draw_walls(void) {
     draw_rect_outline(ARENA_X0 - 3, ARENA_Y0 - 3, ARENA_W + 6, ARENA_H + 6, 3, edge);
     draw_rect_outline(ARENA_X0 - WALL_T, ARENA_Y0 - WALL_T, ARENA_W + WALL_T * 2, ARENA_H + WALL_T * 2, 2, col_a(edge, 0.3f));
 
-    for (int i = 0; i < r->nobs; i++) {
-        SDL_FRect o = r->obs[i];
-        draw_rect(o.x + 6, o.y + 8, o.w, o.h, rgba(0, 0, 0, 0.35f)); /* drop shadow */
-        draw_rect(o.x, o.y, o.w, o.h, wall);
-        draw_rect(o.x + 6, o.y + 6, o.w - 12, o.h - 12, col_mul(wall, 1.35f));
-        draw_rect_outline(o.x, o.y, o.w, o.h, 3, edge);
-    }
+    blocks_draw(wall, edge);
 
     /* Entry door: the way in, closed, unless it is (or leads to) a secret passage. */
     Door entry = {.side = r->entry, .pos = door_position(r->entry), .type = ROOM_SECRET};
-    draw_door(&entry, r->cleared, !(r->secret_open || r->type == ROOM_SECRET));
-    for (int i = 0; i < r->ndoors; i++) draw_door(&r->doors[i], r->cleared, false);
+    bool open = r->cleared && r->clear_t >= 0.0f; /* not while the room shatters */
+    draw_door(&entry, open, !(r->secret_open || r->type == ROOM_SECRET));
+    for (int i = 0; i < r->ndoors; i++) draw_door(&r->doors[i], open, false);
 }

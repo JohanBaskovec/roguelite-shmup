@@ -90,6 +90,11 @@ static const SfxInfo INFO[SFX_COUNT] = {
     [SFX_LOB] = {0.45f, 0.08f, 3, 0.10f},
     [SFX_BEEP] = {0.30f, 0.05f, 3, 0.03f},
     [SFX_SPLAT] = {0.55f, 0.08f, 3, 0.12f},
+    [SFX_CRATE] = {0.55f, 0.04f, 4, 0.15f},
+    [SFX_IGNITE] = {0.60f, 0.10f, 2, 0.10f},
+    [SFX_THUD] = {0.22f, 0.05f, 2, 0.20f},
+    [SFX_SHATTER] = {0.45f, 0.03f, 5, 0.20f},
+    [SFX_CRACKLE] = {0.55f, 0.20f, 1, 0.00f},
 };
 
 static Sample samples[SFX_COUNT];
@@ -300,6 +305,28 @@ static void generate_all(void) {
     SFX(SFX_SPLAT,
         {.wave = W_NOISE, .f0 = 1800, .f1 = 300, .dur = 0.18f, .decay = 2, .lp0 = 2500, .lp1 = 400, .vol = 0.6f},
         {.wave = W_SINE, .f0 = 520, .f1 = 90, .dur = 0.15f, .decay = 1.6f, .vib_hz = 30, .vib_depth = 0.2f, .vol = 0.5f});
+    /* Crate: a dry wooden crack. Ignite: a rushing "fwoomph". Thud: a block soaking up a shot. */
+    SFX(SFX_CRATE,
+        {.wave = W_NOISE, .f0 = WHITE, .dur = 0.09f, .decay = 3, .lp0 = 5000, .lp1 = 1200, .vol = 0.55f},
+        {.wave = W_SQUARE, .f0 = 220, .f1 = 110, .dur = 0.07f, .decay = 2, .duty = 0.3f, .lp0 = 1800, .vol = 0.3f},
+        {.wave = W_NOISE, .f0 = 900, .dur = 0.12f, .delay = 0.03f, .decay = 2.5f, .lp0 = 2000, .vol = 0.3f});
+    SFX(SFX_IGNITE,
+        {.wave = W_NOISE, .f0 = WHITE, .dur = 0.45f, .attack = 0.06f, .decay = 1.6f, .lp0 = 600, .lp1 = 3500, .vol = 0.6f},
+        {.wave = W_SINE, .f0 = 90, .f1 = 60, .dur = 0.35f, .decay = 1.5f, .vol = 0.45f});
+    /* Glass: a bright crash with ringing, inharmonic partials. Crackle: ice splitting all over. */
+    SFX(SFX_SHATTER,
+        {.wave = W_NOISE, .f0 = WHITE, .dur = 0.16f, .decay = 3, .lp0 = 12000, .lp1 = 4000, .vol = 0.5f},
+        {.wave = W_SINE, .f0 = 3150, .dur = 0.35f, .decay = 3, .vol = 0.16f},
+        {.wave = W_SINE, .f0 = 4870, .dur = 0.3f, .delay = 0.02f, .decay = 3.5f, .vol = 0.13f},
+        {.wave = W_SINE, .f0 = 6240, .dur = 0.25f, .delay = 0.05f, .decay = 4, .vol = 0.1f},
+        {.wave = W_TRI, .f0 = 2210, .dur = 0.2f, .delay = 0.08f, .decay = 3, .vol = 0.1f});
+    SFX(SFX_CRACKLE,
+        {.wave = W_NOISE, .f0 = WHITE, .dur = 0.4f, .attack = 0.05f, .decay = 2, .lp0 = 3000, .lp1 = 9000, .vol = 0.35f},
+        {.wave = W_SQUARE, .f0 = 1900, .f1 = 2600, .dur = 0.3f, .decay = 2.5f, .duty = 0.2f, .lp0 = 7000, .vol = 0.08f},
+        {.wave = W_SINE, .f0 = 5200, .dur = 0.45f, .delay = 0.1f, .decay = 3, .vol = 0.08f});
+    SFX(SFX_THUD,
+        {.wave = W_SINE, .f0 = 180, .f1 = 90, .dur = 0.05f, .decay = 2, .vol = 0.5f},
+        {.wave = W_NOISE, .f0 = WHITE, .dur = 0.03f, .lp0 = 1200, .vol = 0.25f});
     SFX(SFX_DASH,
         {.wave = W_NOISE, .f0 = WHITE, .dur = 0.16f, .attack = 0.03f, .decay = 2, .lp0 = 800, .lp1 = 6000, .vol = 0.6f},
         {.wave = W_SINE, .f0 = 300, .f1 = 700, .dur = 0.12f, .vol = 0.15f});
@@ -478,7 +505,7 @@ static const char *const SFX_NAMES[] = {
     "room_clear", "door_open", "unlock", "secret", "door_enter", "ui_start", "pause",
     "sword", "deflect", "shield", "power_up", "chaos",
     "shot_rail", "shot_flamer", "shot_rocket", "teleport", "time_stop",
-    "lob", "beep", "splat",
+    "lob", "beep", "splat", "crate", "ignite", "thud", "shatter", "crackle",
 };
 _Static_assert(sizeof SFX_NAMES / sizeof SFX_NAMES[0] == SFX_COUNT, "one WAV name per SfxId, in enum order");
 

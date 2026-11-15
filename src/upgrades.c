@@ -624,6 +624,7 @@ float upg_hit_damage(const PBullet *b, const Enemy *e) {
 }
 
 void explode_at(V2 pos, float radius, float dmg, const Enemy *skip, uint32_t color) {
+    room_blocks_blast(pos, radius, dmg); /* the ship's blasts break blocks */
     for (int i = 0; i < G.nen; i++) {
         Enemy *o = &G.en[i];
         if (o == skip || o->hp <= 0.0f) continue;

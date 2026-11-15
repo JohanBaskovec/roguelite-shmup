@@ -11,7 +11,8 @@ enum {
     MAX_SPAWNS = 96,
     MAX_PARTICLES = 8192,
     MAX_PICKUPS = 256,
-    MAX_OBSTACLES = 24,
+    MAX_OBSTACLES = 64,
+    MAX_FIRES = 24,
     MAX_POPUPS = 48,
     MAX_DRONES = 6,
     MAX_DOORS = 3,
@@ -150,6 +151,7 @@ typedef enum {
     EB_SPLIT,     /* bursts into a ring of n bullets after t1 seconds */
     EB_HOMING,    /* turns towards the ship for t1 seconds */
     EB_WAVY,      /* weaves around its line */
+    EB_BALL,      /* thrown by a SPARK POD block: hurts the ship AND the enemies it touches */
 } EBulletKind;
 
 typedef struct {
@@ -199,6 +201,8 @@ typedef struct {
     int state, burst, spin_dir;
     float slow_t;                 /* chilled: moves and shoots slower */
     float poison_t, poison_dps, burn_t, burn_dps;
+    V2 nav_pt, nav_goal;        /* nav_dir(): waypoint, worked out every few ticks */
+    bool nav_ok;
     float sticky_t, sticky_dmg;   /* STICKY CHARGES: time before the charge blows, its damage */
     float react_cd;               /* elemental reactions (synergies): time before the next one */
     int clone_swing;              /* BLADE DANCER: last swing of the clone's blade that hit it */
@@ -228,13 +232,14 @@ typedef struct {
 
 /* ---- FX ------------------------------------------------------------------ */
 
-enum { PT_GLOW, PT_SPARK, PT_RING };
+enum { PT_GLOW, PT_SPARK, PT_RING, PT_SHARD };
 
 typedef struct {
     V2 pos, vel;
     float life, max_life, size, drag;
     SDL_FColor col;
     uint8_t shape;
+    float rot, spin;  /* PT_SHARD: a spinning shard of glass */
 } Particle;
 
 typedef struct {
@@ -297,22 +302,66 @@ typedef struct {
     float anim;
 } Door;
 
+/* Room blocks. Walls never break; the others are shot down by the ship's shots (never the
+ * enemies'), its blasts and blade, and a bomb breaks every one of them at once. */
+typedef enum {
+    OB_WALL,   /* indestructible */
+    OB_CRATE,  /* just breaks */
+    OB_BARREL, /* explodes: hurts everything around (the ship too), breaks the blocks nearby */
+    OB_OIL,    /* leaves a pool of burning oil that sets the ship and the enemies on fire */
+    OB_SPARK,  /* throws a ring of balls that hurt the ship and the enemies */
+    OB_KIND_COUNT
+} ObstacleKind;
+
+typedef struct {
+    SDL_FRect r;
+    uint8_t kind;      /* ObstacleKind */
+    float hp, max_hp;  /* blocks: <= 0 = broken (removed at the end of the tick) */
+    float flash;       /* hit flash */
+    int swing_id;      /* last sword swing that cut it */
+    float shatter_t;   /* room cleared: > 0 = cracking, bursts into glass when it reaches 0 */
+} Obstacle;
+
+static inline bool obstacle_breakable(const Obstacle *o) { return o->kind != OB_WALL; }
+static inline bool obstacle_solid(const Obstacle *o) { return o->kind == OB_WALL || o->hp > 0.0f; }
+
+typedef struct {
+    V2 pos;
+    float r, t, life;  /* radius, time left, total time */
+} FirePool;
+
+#define FIRE_POOL_R 80.0f
+#define FIRE_POOL_TIME 7.0f
+#define BARREL_BLAST_R 135.0f
+#define SPARK_BALLS 12
+#define BLOCK_TILE 46.0f
+/* Room cleared: a wave of cracks runs from the last enemy killed, every obstacle (walls too) bursts
+ * like glass and fades away; the reward and the doors come ROOM_REVEAL_T later (clear_t < 0 until
+ * then). The cleared room is always empty: rewards need no room left for them in the layout. */
+#define ROOM_REVEAL_T 1.2f
+#define SHATTER_WAVE_T 0.5f /* the cracks reach the farthest obstacle */
+#define CRACK_TIME 0.28f    /* an obstacle cracks for that long before it bursts */
+
 typedef struct {
     RoomType type;
     RewardType reward;
     int depth;
-    SDL_FRect obs[MAX_OBSTACLES];
+    Obstacle obs[MAX_OBSTACLES];
     int nobs;
+    FirePool fires[MAX_FIRES];
+    int nfires;
     Door doors[MAX_DOORS];
     int ndoors;
     int wave, nwaves, last_wave_size;
     float boss_trail;             /* boss bar: hp fraction shown by the white damage trail */
     float wave_t, since_wave;
     bool cleared;
-    float clear_t;
+    float clear_t;       /* time since cleared; < 0 while the room shatters (reward, doors at 0) */
+    V2 last_death;       /* where the last enemy died: the shatter wave starts there */
     float msg_cd;
     float hue;
     int id;              /* unique per room_enter; kept when returning from a secret room */
+    int layout_id;       /* unique per room_enter, never reset (not even by game_init): headless tracks layouts by it */
     bool revisit;        /* restored after leaving its secret room (the only re-entered room) */
     /* Secret room: during combat a small see-through ghost shows up somewhere in the room every
      * 5-10 s, drifts for 0.5-2 s (fading in and out) and vanishes; a bomb next to the entry door
@@ -408,6 +457,7 @@ typedef struct {
     int wild;                   /* WILD CARD: this room's bonus (0 damage, 1 fire rate, 2 speed) */
     int flawless;               /* FLAWLESS: rooms cleared in a row without a hit */
     float vengeance_t, afterburn_t, pd_cd, trail_cd;
+    float burn_t, burn_tick;    /* set on fire by burning oil: hurt now, then every second while it burns */
     V2 pd_from, pd_to;          /* POINT DEFENSE: last beam (drawn while pd_show > 0) */
     float pd_show;
     float bolt_cd, orb_zap_cd;  /* TESLA BEAM / STORM ORBS synergies */
@@ -698,10 +748,34 @@ void room_update(void);
 void room_draw_floor(void);
 void room_draw_walls(void);
 bool room_collide_circle(V2 *pos, float r, V2 *normal);
+/* Same, also tells which obstacle was hit last (-1: an arena wall / nothing). */
+bool room_collide_obstacle(V2 *pos, float r, V2 *normal, int *which);
 /* True when a circle of radius margin can travel from a to b without touching an obstacle. */
 bool room_line_clear(V2 a, V2 b, float margin);
+bool room_line_clear_walls(V2 a, V2 b, float margin); /* only the indestructible walls count */
 /* Next point to walk towards to reach goal, going around obstacles. */
 V2 room_navigate(V2 from, V2 goal, float margin);
+/* Same; walls_only: plans through the breakable blocks. *reached: false when goal cannot be reached. */
+V2 room_navigate_ex(V2 from, V2 goal, float margin, bool walls_only, bool *reached);
+int room_block_between(V2 a, V2 b, float margin); /* first breakable block on the way, or -1 */
+/* Blocks: damage from the ship's shots / blade / blasts; broken ones go off at the end of the tick. */
+void room_block_damage(int i, float dmg);
+void room_blocks_blast(V2 pos, float radius, float dmg); /* every block touched by the blast */
+void room_blocks_break_all(void);                          /* a bomb: every breakable block */
+int room_count_obstacles(int kind);
+/* Every free spot of the room (and every door) can be reached by the ship from the entry when only
+ * the walls count: whatever stands in the way can be broken. */
+bool room_walls_connected(void);
+bool fire_pool_at(V2 p, float r); /* is a circle touching burning oil? */
+/* blocks.c: room layouts (walls + breakable blocks), what breaking a block does, burning oil. */
+void room_gen_layout(void);
+void blocks_update(void);
+void blocks_draw(SDL_FColor wall, SDL_FColor edge);
+void fires_draw(void);
+void room_nav_reset(void);
+void room_shatter_start(V2 origin); /* the room is cleared: crack every obstacle, in a wave from origin */
+void room_obstacles_vanish(void);   /* every obstacle gone at once, no effect (debug clear) */
+extern bool g_dense_blocks; /* --dense-blocks: as many blocks and gates as possible (test) */
 V2 door_position(Side side);
 RewardType room_roll_reward(void);
 V2 room_secret_spot(void);
@@ -838,6 +912,7 @@ void pickups_refresh_owned(void);
 
 /* fx.c */
 void fx_particle(V2 pos, V2 vel, float life, float size, SDL_FColor col, float drag, int shape);
+void fx_shard(V2 pos, V2 vel, float life, float size, SDL_FColor col, float spin);
 void fx_burst(V2 pos, int n, float smin, float smax, float life, float size, SDL_FColor col);
 void fx_explosion(V2 pos, float radius, SDL_FColor col);
 void fx_shake(float amount);
