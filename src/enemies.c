@@ -91,7 +91,7 @@ static void enemy_create(EnemyType type, V2 pos) {
     e->state_t = frand(1.0f, 2.0f);
     e->angle = frand(0.0f, TAU_F);
     e->spin_dir = chance(0.5f) ? 1 : -1;
-    room_collide_circle(&e->pos, e->radius, NULL);
+    if (type != EN_CRAWLER) room_collide_circle(&e->pos, e->radius, NULL); /* the crawler finds its own spot on the wall */
     sfx_play_at(SFX_ENEMY_APPEAR, e->pos);
     fx_particle(e->pos, v2(0, 0), 0.25f, e->radius * 3.0f, col_hex(d->color, 1), 0.0f, PT_RING);
 }
@@ -554,15 +554,29 @@ static void update_grenadier(Enemy *e, float aim) {
 
 /* Crawler: glued to the arena wall, scuttles along it (around corners) to face the ship,
  * then spits short bursts inwards. */
+/* A wall jutting out of the arena edge stands in the crawler's way along it. */
+static bool crawler_blocked(float s, float r) {
+    V2 in, q = perim_point(s, r, &in);
+    return room_collide_circle(&q, r, NULL);
+}
+
 static void update_crawler(Enemy *e, float aim) {
     const EnemyDef *d = &ENEMIES[e->type];
     float L = perim_len(e->radius);
-    if (e->t <= DT * 1.5f) e->spin = perim_coord(e->pos, e->radius); /* spin = position along the wall */
+    if (e->t <= DT * 1.5f) { /* spin = position along the wall, off any wall jutting out of it */
+        e->spin = perim_coord(e->pos, e->radius);
+        for (float k = 0.0f; k < L * 0.5f && crawler_blocked(e->spin, e->radius); k += 10.0f) {
+            if (!crawler_blocked(e->spin + k, e->radius)) e->spin = fmodf(e->spin + k, L);
+            else if (!crawler_blocked(e->spin - k, e->radius)) e->spin = fmodf(e->spin - k + L, L);
+        }
+    }
     /* Each one keeps its own spot around the ship's side, so a pack spreads along the wall. */
     float want = perim_coord(G.pl.pos, e->radius) + (float)((int)(e->uid % 5) - 2) * 90.0f;
     float diff = fmodf(want - e->spin + L * 1.5f, L) - L * 0.5f; /* shortest way round */
     bool firing = e->burst > 0;
     float step = firing ? 0.0f : clampf(diff, -d->speed * DT, d->speed * DT);
+    if (step != 0.0f && crawler_blocked(e->spin + step, e->radius) && !crawler_blocked(e->spin, e->radius))
+        step = 0.0f; /* waits against a spur (the ship has to come round) */
     e->spin = fmodf(e->spin + step + L, L);
     V2 in;
     e->pos = perim_point(e->spin, e->radius, &in);
@@ -1385,7 +1399,8 @@ static void separate_enemies(void) {
         }
     }
     /* Separation can push enemies into walls or obstacles: resolve again. */
-    for (int i = 0; i < G.nen; i++) room_collide_circle(&G.en[i].pos, G.en[i].radius, NULL);
+    for (int i = 0; i < G.nen; i++)
+        if (G.en[i].type != EN_CRAWLER) room_collide_circle(&G.en[i].pos, G.en[i].radius, NULL);
 }
 
 static void on_death(Enemy *e) {
@@ -1452,7 +1467,7 @@ void enemies_update(void) {
             if (en->type == EN_CRAWLER || en->type == EN_LEAPER) en->vel = v2(0, 0); /* glued to the wall / frozen mid-jump */
             en->pos = v2_add(en->pos, v2_scale(en->vel, DT));
             en->vel = v2_scale(en->vel, fmaxf(0.0f, 1.0f - 8.0f * DT));
-            room_collide_circle(&en->pos, en->radius, NULL);
+            if (en->type != EN_CRAWLER) room_collide_circle(&en->pos, en->radius, NULL);
             en->pos.x = clampf(en->pos.x, ARENA_X0 + en->radius, ARENA_X1 - en->radius);
             en->pos.y = clampf(en->pos.y, ARENA_Y0 + en->radius, ARENA_Y1 - en->radius);
             en->flash -= DT;

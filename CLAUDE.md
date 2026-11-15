@@ -95,8 +95,13 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   and a bomb breaks them all (`room_blocks_break_all`). A broken block goes off in `blocks_update`, outside
   the entity loops (chains on the next tick); call `room_nav_reset()` whenever obstacles change. Connectivity
   counts walls only (`room_walls_connected`: every free cell and door reachable from the entry spot), so
-  blocks may close a passage but can always be shot through; only the entry spot is kept clear. The bot
-  digs through blocks and never fires at a barrel / oil drum within its reach.
+  blocks may close a passage but can always be shot through; only the entry spot is kept clear. Walls touch
+  (merged shapes) or keep `WALL_GAP`, stand `WALL_EDGE_MARGIN` off the edges or jut out of them (spurs,
+  `SPUR_FOOT` wide at most, never in front of a door); extra pieces / spurs / arms go through `add_sym_open`
+  (taken back if they close a pocket); `gen_corridors` is a braided grid maze. Anything touching the arena edge
+  must keep the crawler (stops at spurs, `crawler_blocked`) and `room_collide_obstacle` (never pushes out
+  through an edge-flush side) working. The bot digs through blocks, never fires at a barrel / oil drum within
+  its reach, aims for free floor near targets on the edge (`free_spot_near`) and roams when it hits nothing.
 - **A cleared room shatters**: when the last enemy dies every obstacle (walls too) cracks and breaks like
   glass in a wave from `Room.last_death` (`room_shatter_start`, no effects, fire put out), and only after
   `ROOM_REVEAL_T` (`Room.clear_t` goes from -1.2 to 0) does `room_reveal()` spawn the reward / shop /

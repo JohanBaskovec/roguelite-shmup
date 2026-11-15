@@ -11,9 +11,10 @@
  * halls, a small maze, a field of posts... often mirrored) plus breakable blocks: crates, explosive
  * barrels, oil drums (a pool of burning oil when broken) and spark pods (a ring of balls).
  * Blocks often extend the walls ("gates"), closing the gaps between them: the way to a door may be
- * blocked, but only by something the ship can shoot down. Walls keep 110 px gaps between them and
- * 120 px off the arena edges, so they can never wall a part of the room off; room_walls_connected()
- * (a flood fill where only walls count) double-checks every layout.
+ * blocked, but only by something the ship can shoot down. Walls touch each other (merging into
+ * bigger shapes) or keep 110 px gaps, and stand 120 px off the arena edges or jut out of them
+ * (spurs, never in front of a door). A piece that would close a pocket is taken back:
+ * room_walls_connected() (a flood fill where only walls count) checks every layout.
  *
  * Breaking: only the ship's shots, blade and blasts damage blocks (never the enemies' bullets), a
  * bomb breaks them all. A broken block goes off at the next blocks_update(), outside every entity
@@ -30,6 +31,8 @@ bool g_dense_blocks; /* --dense-blocks: as many blocks and gates as possible (te
 #define EDGE_MARGIN 80.0f       /* blocks stay off the arena edges (crawlers live there) */
 #define WALL_EDGE_MARGIN 120.0f /* walls even more: no tight corridor along the edge */
 #define WALL_GAP 110.0f         /* between walls: room to dodge, and the bot's path finder sees the passage */
+#define SPUR_FOOT 70.0f         /* a wall jutting out of the arena edge: that wide at most along it */
+#define DOOR_CLEAR 150.0f       /* ...and never this close to a door's frame */
 
 #define ARENA_W (ARENA_X1 - ARENA_X0)
 #define ARENA_H (ARENA_Y1 - ARENA_Y0)
@@ -44,8 +47,6 @@ static const float BLOCK_HP[OB_KIND_COUNT] = {
 static bool rect_overlaps(SDL_FRect a, SDL_FRect b) {
     return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
 }
-
-static SDL_FRect grow(SDL_FRect r, float m) { return (SDL_FRect){r.x - m, r.y - m, r.w + 2 * m, r.h + 2 * m}; }
 
 static SDL_FRect rect_c(float cx, float cy, float w, float h) { return (SDL_FRect){cx - w * 0.5f, cy - h * 0.5f, w, h}; }
 
@@ -67,11 +68,37 @@ static bool hits_room_spots(SDL_FRect r) {
     return rect_overlaps(r, rect_c(e.x, e.y, 400, 400));
 }
 
+/* Distance between two rects (0 when touching, < 0 when overlapping). */
+static float rect_gap(SDL_FRect r, SDL_FRect o) {
+    float dx = fmaxf(o.x - (r.x + r.w), r.x - (o.x + o.w)), dy = fmaxf(o.y - (r.y + r.h), r.y - (o.y + o.h));
+    if (dx < -1.0f && dy < -1.0f) return -1.0f;
+    return dx > 0.0f && dy > 0.0f ? sqrtf(dx * dx + dy * dy) : fmaxf(fmaxf(dx, dy), 0.0f);
+}
+
+/* A wall either stands clear of the arena edge (WALL_EDGE_MARGIN) or juts out of it (a spur, at
+ * most SPUR_FOOT wide along the edge), never in front of a door. */
+static bool wall_edge_ok(SDL_FRect r) {
+    const float d[4] = {r.x - ARENA_X0, ARENA_X1 - (r.x + r.w), r.y - ARENA_Y0, ARENA_Y1 - (r.y + r.h)};
+    for (int k = 0; k < 4; k++) {
+        if (d[k] < -0.5f || (d[k] > 1.0f && d[k] < WALL_EDGE_MARGIN)) return false;
+        if (d[k] > 1.0f) continue;
+        bool vertical_edge = k < 2; /* left / right: runs along y */
+        float lo = vertical_edge ? r.y : r.x, hi = vertical_edge ? r.y + r.h : r.x + r.w;
+        float mid = vertical_edge ? ARENA_CY : ARENA_CX;
+        if (hi - lo > SPUR_FOOT) return false;
+        if (hi > mid - DOOR_HALF - DOOR_CLEAR && lo < mid + DOOR_HALF + DOOR_CLEAR) return false;
+    }
+    return true;
+}
+
 static bool wall_rect_ok(SDL_FRect r, int first_of_piece) {
-    if (!in_arena(r, WALL_EDGE_MARGIN) || hits_room_spots(r)) return false;
-    /* Pieces keep their distance; the rects of one piece may touch. */
-    for (int i = 0; i < first_of_piece; i++)
-        if (rect_overlaps(r, grow(G.room.obs[i].r, WALL_GAP))) return false;
+    if (!wall_edge_ok(r) || hits_room_spots(r)) return false;
+    /* Pieces touch (they merge into one bigger wall) or keep a real gap; the rects of one piece
+     * may do anything. Never a slit in between. */
+    for (int i = 0; i < first_of_piece; i++) {
+        float g = rect_gap(r, G.room.obs[i].r);
+        if (g > 1.0f && g < WALL_GAP) return false;
+    }
     return true;
 }
 
@@ -155,6 +182,128 @@ static void add_sym(Piece p, int sym) {
     if (sym == 3) add_piece(piece_mirror(p, true, true));
 }
 
+/* Same, but a piece that would wall a part of the room off is taken back (pieces that touch the
+ * edge or each other can close a pocket). Returns the number of copies placed. */
+static int add_piece_open(Piece p) {
+    int first = G.room.nobs;
+    if (!add_piece(p)) return 0;
+    if (room_walls_connected()) return 1;
+    G.room.nobs = first;
+    return 0;
+}
+
+static int add_sym_open(Piece p, int sym) {
+    int n = add_piece_open(p);
+    if (sym == 1 || sym == 3) n += add_piece_open(piece_mirror(p, true, false));
+    if (sym == 2 || sym == 3) n += add_piece_open(piece_mirror(p, false, true));
+    if (sym == 3) n += add_piece_open(piece_mirror(p, true, true));
+    return n;
+}
+
+/* A wall jutting out of an arena edge at `at` (along it), straight or turning at its tip into an
+ * L or a T: corridors and dead ends along the sides. */
+static Piece piece_spur(Side side, float at, float len, float t) {
+    Piece p = {.n = 1};
+    bool across_x = side == SIDE_LEFT || side == SIDE_RIGHT; /* the spur runs along x */
+    switch (side) {
+    case SIDE_LEFT: p.r[0] = (SDL_FRect){ARENA_X0, at - t * 0.5f, len, t}; break;
+    case SIDE_RIGHT: p.r[0] = (SDL_FRect){ARENA_X1 - len, at - t * 0.5f, len, t}; break;
+    case SIDE_TOP: p.r[0] = (SDL_FRect){at - t * 0.5f, ARENA_Y0, t, len}; break;
+    default: p.r[0] = (SDL_FRect){at - t * 0.5f, ARENA_Y1 - len, t, len}; break;
+    }
+    int turn = irand(0, 2); /* 0 straight, 1 L, 2 T */
+    if (turn == 0) return p;
+    float cap = frand(130, 260), dir = chance(0.5f) ? 1.0f : -1.0f;
+    SDL_FRect r = p.r[0];
+    if (across_x) {
+        float x = side == SIDE_LEFT ? r.x + r.w - t : r.x;
+        p.r[p.n++] = turn == 2 ? (SDL_FRect){x, at - cap * 0.5f, t, cap}
+                               : (SDL_FRect){x, dir > 0 ? at - t * 0.5f : at + t * 0.5f - cap, t, cap};
+    } else {
+        float y = side == SIDE_TOP ? r.y + r.h - t : r.y;
+        p.r[p.n++] = turn == 2 ? (SDL_FRect){at - cap * 0.5f, y, cap, t}
+                               : (SDL_FRect){dir > 0 ? at - t * 0.5f : at + t * 0.5f - cap, y, cap, t};
+    }
+    return p;
+}
+
+/* An arm branching off the side of a wall already there (sometimes turning at its end): walls
+ * join up into corridors, chambers, dead ends. `reach_axis`: stretched to end on the mirror
+ * axis, where its mirror image joins it (a bridge across the middle). */
+static Piece piece_arm(SDL_FRect w, bool reach_axis) {
+    bool horiz = w.w >= w.h;
+    float t = fminf(horiz ? w.h : w.w, 50.0f), len = frand(110, 300);
+    if (reach_axis && (horiz || fabsf(rect_center(w).x - ARENA_CX) < w.w * 0.5f + 60.0f)) reach_axis = false;
+    Piece p = {.n = 1};
+    if (horiz) { /* the arm goes up or down */
+        float x = frand(w.x, w.x + w.w - t);
+        bool up = chance(0.5f);
+        p.r[0] = (SDL_FRect){x, up ? w.y - len : w.y + w.h, t, len};
+    } else {
+        float y = frand(w.y, w.y + w.h - t);
+        bool left = reach_axis ? w.x > ARENA_CX : chance(0.5f);
+        if (reach_axis) len = left ? w.x - ARENA_CX : ARENA_CX - (w.x + w.w);
+        p.r[0] = (SDL_FRect){left ? w.x - len : w.x + w.w, y, len, t};
+        if (reach_axis) return p;
+    }
+    if (chance(0.4f)) { /* a turn at its tip */
+        SDL_FRect a = p.r[0];
+        float turn = frand(110, 220), dir = chance(0.5f) ? 1.0f : -1.0f;
+        if (horiz) {
+            float y = a.y < w.y ? a.y : a.y + a.h - t;
+            p.r[p.n++] = (SDL_FRect){dir > 0 ? a.x : a.x + t - turn, y, turn, t};
+        } else {
+            float x = a.x < w.x ? a.x : a.x + a.w - t;
+            p.r[p.n++] = (SDL_FRect){x, dir > 0 ? a.y : a.y + t - turn, t, turn};
+        }
+    }
+    return p;
+}
+
+/* Corridors: walls on a coarse grid, what is left of a maze once a fair part of its walls are
+ * knocked down (loops, a few dead ends, never a puzzle). The walls along the arena edge are the
+ * arena itself; the ones in front of a door or the entry are dropped by the placement rules. */
+static void gen_corridors(void) {
+    const int cols = irand(6, 8), rows = 4;
+    const float cw = (ARENA_X1 - ARENA_X0) / (float)cols, ch = (ARENA_Y1 - ARENA_Y0) / (float)rows, t = 40.0f;
+    bool open_e[8][4] = {{false}}, open_s[8][4] = {{false}}, seen[8][4] = {{false}};
+    int stack[32], top = 0;
+    int start = irand(0, cols * rows - 1);
+    stack[top++] = start;
+    seen[start % cols][start / cols] = true;
+    while (top > 0) { /* depth-first maze */
+        int c = stack[top - 1], x = c % cols, y = c / cols, opts[4], n = 0;
+        if (x + 1 < cols && !seen[x + 1][y]) opts[n++] = 0;
+        if (x > 0 && !seen[x - 1][y]) opts[n++] = 1;
+        if (y + 1 < rows && !seen[x][y + 1]) opts[n++] = 2;
+        if (y > 0 && !seen[x][y - 1]) opts[n++] = 3;
+        if (n == 0) {
+            top--;
+            continue;
+        }
+        int k = opts[irand(0, n - 1)], nx = x + (k == 0) - (k == 1), ny = y + (k == 2) - (k == 3);
+        if (k == 0) open_e[x][y] = true;
+        else if (k == 1) open_e[nx][y] = true;
+        else if (k == 2) open_s[x][y] = true;
+        else open_s[x][ny] = true;
+        seen[nx][ny] = true;
+        stack[top++] = ny * cols + nx;
+    }
+    const float keep = frand(0.5f, 0.7f);
+    for (int x = 0; x < cols; x++)
+        for (int y = 0; y < rows; y++) {
+            float x0 = ARENA_X0 + (float)x * cw, y0 = ARENA_Y0 + (float)y * ch;
+            if (x + 1 < cols && !open_e[x][y] && chance(keep)) { /* wall on its right */
+                float top_y = fmaxf(y0 - t * 0.5f, ARENA_Y0), bot_y = fminf(y0 + ch + t * 0.5f, ARENA_Y1);
+                add_piece(piece1((SDL_FRect){x0 + cw - t * 0.5f, top_y, t, bot_y - top_y}));
+            }
+            if (y + 1 < rows && !open_s[x][y] && chance(keep)) { /* wall below it */
+                float l = fmaxf(x0 - t * 0.5f, ARENA_X0), r = fminf(x0 + cw + t * 0.5f, ARENA_X1);
+                add_piece(piece1((SDL_FRect){l, y0 + ch - t * 0.5f, r - l, t}));
+            }
+        }
+}
+
 static Piece random_piece(float cx, float cy) {
     float t = frand(36, 54);
     switch (irand(0, 5)) {
@@ -176,7 +325,11 @@ static int gen_walls(void) {
     const float W = ARENA_W, H = ARENA_H;
     int sym = 1;
     npending = 0;
-    switch (irand(0, 12)) {
+    switch (irand(0, 14)) {
+    case 13:
+    case 14: /* corridors (no extra pieces: it has its share of walls) */
+        gen_corridors();
+        return 0;
     case 0: /* open floor: the blocks make the room */
         break;
     case 1: /* four pillars */
@@ -254,26 +407,36 @@ static int gen_walls(void) {
         sym = 3;
     } break;
     }
-    /* A few more pieces here and there (they keep their distance from the others). */
-    int extra = irand(4, 8);
+    /* The rest is often left unmirrored (the blocks follow). */
+    if (chance(0.55f)) sym = 0;
+    /* A few more pieces here and there. */
+    int extra = irand(3, 6);
     for (int i = 0; i < 80 && extra > 0; i++) {
         bool half = sym == 1 || sym == 3;
         float x1 = half ? ARENA_CX - 120 : ARENA_X1 - 160, y1 = sym >= 2 ? ARENA_CY - 60 : ARENA_Y1 - 160;
-        int before = G.room.nobs;
-        add_sym(random_piece(frand(ARENA_X0 + 160, x1), frand(ARENA_Y0 + 160, y1)), sym);
-        if (G.room.nobs > before) extra--;
+        extra -= add_sym_open(random_piece(frand(ARENA_X0 + 160, x1), frand(ARENA_Y0 + 160, y1)), sym) > 0;
+    }
+    /* Walls jutting out of the sides. */
+    int spurs = chance(0.8f) ? irand(1, 4) : 0;
+    for (int i = 0; i < 60 && spurs > 0; i++) {
+        Side side = (Side)irand(SIDE_LEFT, SIDE_BOTTOM);
+        bool across_x = side == SIDE_LEFT || side == SIDE_RIGHT;
+        float at = across_x ? frand(ARENA_Y0 + 140, ARENA_Y1 - 140) : frand(ARENA_X0 + 140, ARENA_X1 - 140);
+        float len = across_x ? frand(200, 480) : frand(200, 380);
+        spurs -= add_sym_open(piece_spur(side, at, len, frand(38, 50)), sym) > 0;
+    }
+    /* Arms joining the walls up; in a mirrored room some reach the axis and meet their image. */
+    int arms = irand(2, 5);
+    for (int i = 0; i < 60 && arms > 0 && G.room.nobs > 0; i++) {
+        SDL_FRect w = G.room.obs[irand(0, G.room.nobs - 1)].r;
+        bool bridge = (sym == 1 || sym == 3) && w.h > w.w && chance(0.35f) && fabsf(rect_center(w).x - ARENA_CX) < 520.0f;
+        arms -= add_sym_open(piece_arm(w, bridge), sym) > 0;
     }
     return sym;
 }
 
 /* ---- Blocks -------------------------------------------------------------- */
 
-/* Distance between two rects (0 when touching, < 0 when overlapping). */
-static float rect_gap(SDL_FRect r, SDL_FRect o) {
-    float dx = fmaxf(o.x - (r.x + r.w), r.x - (o.x + o.w)), dy = fmaxf(o.y - (r.y + r.h), r.y - (o.y + o.h));
-    if (dx < -1.0f && dy < -1.0f) return -1.0f;
-    return dx > 0.0f && dy > 0.0f ? sqrtf(dx * dx + dy * dy) : fmaxf(fmaxf(dx, dy), 0.0f);
-}
 
 static bool gap_ok(float gap) { return gap >= 0.0f && (gap <= 1.0f || gap >= WALL_GAP); }
 
@@ -427,7 +590,7 @@ static void gen_blocks(int sym) {
     float gate_chance = g_dense_blocks ? 1.0f : 0.45f;
     for (int i = 0; i < walls && placed < budget; i++)
         if (chance(gate_chance)) placed += add_gate(i, irand(2, 6));
-    for (int tries = 0; tries < 250 && placed < budget; tries++) placed += add_cluster(sym, chance(0.6f));
+    for (int tries = 0; tries < 600 && placed < budget; tries++) placed += add_cluster(sym, chance(0.6f));
 }
 
 /* ---- Connectivity -------------------------------------------------------- */
@@ -437,20 +600,26 @@ _Static_assert((int)(ARENA_X1 - ARENA_X0) / 20 == 89 && (int)(ARENA_Y1 - ARENA_Y
 #define GW 89 /* ARENA_W / CELL */
 #define GH 46 /* ARENA_H / CELL */
 
-static bool cell_free(int cx, int cy) {
-    V2 p = v2(ARENA_X0 + ((float)cx + 0.5f) * CELL, ARENA_Y0 + ((float)cy + 0.5f) * CELL);
-    const float r = PLAYER_BODY_R + 1.0f;
-    if (p.x < ARENA_X0 + r || p.x > ARENA_X1 - r || p.y < ARENA_Y0 + r || p.y > ARENA_Y1 - r) return false;
-    for (int i = 0; i < G.room.nobs; i++)
-        if (G.room.obs[i].kind == OB_WALL && rect_dist(p, G.room.obs[i].r) < r) return false;
-    return true;
-}
+static V2 cell_center(int cx, int cy) { return v2(ARENA_X0 + ((float)cx + 0.5f) * CELL, ARENA_Y0 + ((float)cy + 0.5f) * CELL); }
 
 bool room_walls_connected(void) {
     static uint8_t state[GH][GW]; /* 0 blocked, 1 free, 2 reached */
     static int queue[GW * GH];
+    const float r = PLAYER_BODY_R + 1.0f; /* free: the ship's body fits there */
     for (int y = 0; y < GH; y++)
-        for (int x = 0; x < GW; x++) state[y][x] = (uint8_t)cell_free(x, y);
+        for (int x = 0; x < GW; x++) {
+            V2 p = cell_center(x, y);
+            state[y][x] = p.x >= ARENA_X0 + r && p.x <= ARENA_X1 - r && p.y >= ARENA_Y0 + r && p.y <= ARENA_Y1 - r;
+        }
+    for (int i = 0; i < G.room.nobs; i++) { /* only the cells around each wall */
+        if (G.room.obs[i].kind != OB_WALL) continue;
+        SDL_FRect w = G.room.obs[i].r;
+        int x0 = (int)fmaxf(0.0f, (w.x - r - ARENA_X0) / CELL - 1.0f), x1 = (int)fminf(GW - 1, (w.x + w.w + r - ARENA_X0) / CELL + 1.0f);
+        int y0 = (int)fmaxf(0.0f, (w.y - r - ARENA_Y0) / CELL - 1.0f), y1 = (int)fminf(GH - 1, (w.y + w.h + r - ARENA_Y0) / CELL + 1.0f);
+        for (int y = y0; y <= y1; y++)
+            for (int x = x0; x <= x1; x++)
+                if (state[y][x] && rect_dist(cell_center(x, y), w) < r) state[y][x] = 0;
+    }
     V2 e = room_entry_spot();
     int sx = (int)((e.x - ARENA_X0) / CELL), sy = (int)((e.y - ARENA_Y0) / CELL);
     if (sx < 0 || sy < 0 || sx >= GW || sy >= GH || state[sy][sx] != 1) return false;

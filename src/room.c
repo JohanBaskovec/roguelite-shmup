@@ -80,9 +80,14 @@ bool room_collide_obstacle(V2 *p, float r, V2 *normal, int *which) {
             n = v2(dx / d, dy / d);
             *p = v2_add(*p, v2_scale(n, r - d));
         } else {
-            /* Center inside the rectangle: push out along the shallowest axis. */
+            /* Center inside the rectangle: push out along the shallowest axis - never through a
+             * side flush with the arena edge (a wall jutting out of it), that would be outside. */
             float l = p->x - o->x, rr = o->x + o->w - p->x;
             float t = p->y - o->y, b = o->y + o->h - p->y;
+            if (o->x <= ARENA_X0 + r) l = 1e9f;
+            if (o->x + o->w >= ARENA_X1 - r) rr = 1e9f;
+            if (o->y <= ARENA_Y0 + r) t = 1e9f;
+            if (o->y + o->h >= ARENA_Y1 - r) b = 1e9f;
             float m = fminf(fminf(l, rr), fminf(t, b));
             if (m == l) { p->x = o->x - r; n = v2(-1, 0); }
             else if (m == rr) { p->x = o->x + o->w + r; n = v2(1, 0); }
@@ -200,15 +205,19 @@ static NavGraph *nav_graph(float margin, bool walls_only) {
             if (c[k].x < ARENA_X0 + margin || c[k].x > ARENA_X1 - margin || c[k].y < ARENA_Y0 + margin ||
                 c[k].y > ARENA_Y1 - margin)
                 continue;
-            bool inside = false;
-            for (int j = 0; j < G.room.nobs && !inside; j++) {
+            /* Grown like the corners: a corner inside another obstacle, or on its edge (blocks side
+             * by side, walls merged into one shape), is not a corner of the whole and would only
+             * make the graph huge. On one of its corners (an L made of two rects), it is: kept once. */
+            bool useless = false;
+            for (int j = 0; j < G.room.nobs && !useless; j++) {
                 if (j == i || !nav_counts(j, walls_only)) continue;
-                /* Grown like the corners, edges included: the corners blocks side by side share
-                 * (on each other's edge) are useless, and would make the graph huge. */
                 SDL_FRect q = obs_inflated(j, margin + 6.0f);
-                inside = c[k].x > q.x - 0.5f && c[k].x < q.x + q.w + 0.5f && c[k].y > q.y - 0.5f && c[k].y < q.y + q.h + 0.5f;
+                if (!(c[k].x > q.x - 0.5f && c[k].x < q.x + q.w + 0.5f && c[k].y > q.y - 0.5f && c[k].y < q.y + q.h + 0.5f)) continue;
+                bool on_x = fabsf(c[k].x - q.x) < 0.5f || fabsf(c[k].x - (q.x + q.w)) < 0.5f;
+                bool on_y = fabsf(c[k].y - q.y) < 0.5f || fabsf(c[k].y - (q.y + q.h)) < 0.5f;
+                useless = !(on_x && on_y) || j < i; /* a shared corner: the first obstacle keeps it */
             }
-            if (!inside) g->pt[g->n++] = c[k];
+            if (!useless) g->pt[g->n++] = c[k];
         }
     }
     for (int i = 0; i < g->n; i++) {

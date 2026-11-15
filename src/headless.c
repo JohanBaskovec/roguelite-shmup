@@ -70,7 +70,8 @@ static const char *check_invariants(float room_time) {
             const Obstacle *o = &G.room.obs[i];
             if (o->kind >= OB_KIND_COUNT) return "obstacle of an unknown kind";
             if (obstacle_breakable(o) && (!(o->hp >= 0.0f) || o->hp > o->max_hp)) return "block hp out of range";
-            if (o->r.x < ARENA_X0 || o->r.y < ARENA_Y0 || o->r.x + o->r.w > ARENA_X1 || o->r.y + o->r.h > ARENA_Y1) return "obstacle outside the arena";
+            if (o->r.x < ARENA_X0 - 0.5f || o->r.y < ARENA_Y0 - 0.5f || o->r.x + o->r.w > ARENA_X1 + 0.5f || o->r.y + o->r.h > ARENA_Y1 + 0.5f)
+                return "obstacle outside the arena";
         }
         for (int i = 0; i < G.room.nfires; i++)
             if (!(G.room.fires[i].t > 0.0f) || G.room.fires[i].t > G.room.fires[i].life) return "burning oil pool with a bad timer";

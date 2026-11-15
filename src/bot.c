@@ -40,6 +40,19 @@ static int hazard_in_aim(V2 pos, V2 aim_at) {
     return best;
 }
 
+/* The nearest spot to p the ship fits in (the path finder cannot lead into an obstacle's margin). */
+static V2 free_spot_near(V2 p) {
+    if (!hits_obstacle(p, NAV_MARGIN + 2.0f)) return p;
+    for (float rad = 16.0f; rad <= 240.0f; rad += 16.0f)
+        for (int k = 0; k < 16; k++) {
+            V2 q = v2_add(p, v2_scale(v2_angle((float)k * TAU_F / 16.0f), rad));
+            if (q.x < ARENA_X0 + NAV_MARGIN || q.x > ARENA_X1 - NAV_MARGIN || q.y < ARENA_Y0 + NAV_MARGIN || q.y > ARENA_Y1 - NAV_MARGIN)
+                continue;
+            if (!hits_obstacle(q, NAV_MARGIN + 2.0f)) return q;
+        }
+    return p;
+}
+
 void bot_input(void) {
     Input *in = &G.in;
     const Player *pl = &G.pl;
@@ -254,7 +267,10 @@ void bot_input(void) {
         static float roam_t = -1.0f;
         if (G.time - roam_t > 3.0f || G.time < roam_t) {
             roam_t = G.time;
-            roam = v2(frand(ARENA_X0 + 100.0f, ARENA_X1 - 100.0f), frand(ARENA_Y0 + 100.0f, ARENA_Y1 - 100.0f));
+            for (int k = 0; k < 20; k++) { /* somewhere it can actually get to */
+                roam = v2(frand(ARENA_X0 + 100.0f, ARENA_X1 - 100.0f), frand(ARENA_Y0 + 100.0f, ARENA_Y1 - 100.0f));
+                if (!hits_obstacle(roam, NAV_MARGIN + 10.0f)) break;
+            }
         }
         goal = roam;
         masked_by = -1;
@@ -271,6 +287,13 @@ void bot_input(void) {
     /* A stand-off spot inside an obstacle cannot be reached (the path finder would push straight
      * into the wall): go for the enemy itself, the path then leads around the obstacle. */
     if ((melee || short_range) && nearest && hits_obstacle(goal, NAV_MARGIN)) goal = nearest->pos;
+    /* A spot hugging the arena edge (a crawler on the wall) is off the path finder's map: aim for
+     * the floor in front of it (walls now jut out of the edges, a straight run would get stuck). */
+    if (!G.room.cleared) {
+        goal.x = clampf(goal.x, ARENA_X0 + NAV_MARGIN + 6.0f, ARENA_X1 - NAV_MARGIN - 6.0f);
+        goal.y = clampf(goal.y, ARENA_Y0 + NAV_MARGIN + 6.0f, ARENA_Y1 - NAV_MARGIN - 6.0f);
+        goal = free_spot_near(goal); /* e.g. in the corner between a spur and the edge */
+    }
     /* The way is blocked: plan through the breakable blocks and shoot (or slash) the first one on it. */
     /* Worked out again every few ticks, or when the goal moved / the waypoint is reached (rooms
      * full of blocks make the path finder costly). */
