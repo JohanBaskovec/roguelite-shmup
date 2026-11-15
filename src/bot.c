@@ -110,9 +110,9 @@ void bot_input(void) {
         const Pickup *k = &G.pk[i];
         if (k->price == 0 && !k->choice && (k->type == PK_UPGRADE || k->type == PK_STAT)) offer = k;
     }
-    /* Secret room: once it has seen the corner flash, bomb it after the fight, then go in. */
+    /* Secret room: once it has seen the flash, bomb next to the bottom door after the fight, then go in. */
     const Room *r = &G.room;
-    bool secret_known = r->secret_corner >= 0 && (r->secret_flashes > 0 || upg_has(UPG_XRAY)) && !r->secret_used;
+    bool secret_known = r->has_secret && (r->secret_flashes > 0 || upg_has(UPG_XRAY)) && !r->secret_used;
 
     /* Workshop machines: the supply press while healthy, a few slot machine plays while
      * it has coins. A use needs a fresh step: walk on, step off below, repeat. */
@@ -133,7 +133,7 @@ void bot_input(void) {
         bool wait = machine->inside || machine->spin > 0.0f;
         goal = wait ? v2_add(machine->pos, v2(0.0f, 140.0f)) : machine->pos;
     } else if (G.room.cleared && secret_known && !r->secret_open && pl->bombs > 0) {
-        goal = room_secret_spot(r->secret_corner);
+        goal = room_secret_spot();
         if (v2_dist(pl->pos, goal) < SECRET_BOMB_RADIUS * 0.5f) in->bomb_pressed = true;
     } else if (G.room.cleared && (r->secret_open || r->type == ROOM_SECRET)) {
         goal = door_position(SIDE_BOTTOM); /* into the secret room, or back out of it */

@@ -279,8 +279,10 @@ typedef struct {
     float hue;
     int id;              /* unique per room_enter; kept when returning from a secret room */
     bool revisit;        /* restored after leaving its secret room (the only re-entered room) */
-    /* Secret room: a corner flashes faintly during combat; a bomb there opens the bottom door. */
-    int secret_corner;   /* -1 = none, else 0..3 (top-left, top-right, bottom-right, bottom-left) */
+    /* Secret room: during combat a faint square flashes somewhere in the room every 5-10 s;
+     * a bomb next to the bottom door (room_secret_spot) then opens it. */
+    bool has_secret;
+    V2 secret_flash_pos; /* where the current / last flash shows (anywhere in the room) */
     bool secret_open, secret_used;
     float secret_flash_t, secret_flash_cd;
     int secret_flashes;  /* how many times it flashed (the bot only "knows" after seeing one) */
@@ -292,7 +294,8 @@ typedef struct {
 #define DOOR_SECRET (-1) /* bottom door into the secret room */
 #define DOOR_RETURN (-2) /* secret room exit, back to the room it was found in */
 #define SECRET_CHANCE 0.15f
-#define SECRET_BOMB_RADIUS 220.0f
+#define SECRET_BOMB_RADIUS 170.0f /* around room_secret_spot(), just above the bottom door */
+#define SECRET_FLASH_TIME 0.18f
 
 /* ---- Player -------------------------------------------------------------- */
 
@@ -470,7 +473,7 @@ typedef struct {
     Room parent;      /* room the current secret room was found in, restored on exit */
     Pickup parent_pk[MAX_PICKUPS]; int parent_npk;
     bool force_secret;   /* dev: every eligible room hides a secret */
-    bool reveal_secrets; /* dev: draw secret corners permanently */
+    bool reveal_secrets; /* dev: mark hidden secrets permanently */
     int secret_shop_override, secret_ambush_override; /* dev (debug menu / tests): -1 random, 0 no, 1 yes */
     float gameover_t;
     float last_enemy_damage_t; /* G.time of the last hit on an enemy (stall detection in tests) */
@@ -651,12 +654,12 @@ bool room_line_clear(V2 a, V2 b, float margin);
 V2 room_navigate(V2 from, V2 goal, float margin);
 V2 door_position(Side side);
 RewardType room_roll_reward(void);
-V2 room_secret_spot(int corner);
+V2 room_secret_spot(void);
 /* The launch bay and secret rooms are the exceptions to "every room starts full of enemies". */
 static inline bool room_type_peaceful(RoomType t) { return t == ROOM_START || t == ROOM_SECRET; }
 #define SECRET_SHOP_CHANCE 0.10f   /* a secret room holds a shop instead of its bonus item */
 #define SECRET_AMBUSH_CHANCE 0.10f /* a secret room is guarded by enemies before its loot */
-/* A bomb went off at pos: opens the secret passage if pos is near the secret corner. */
+/* A bomb went off at pos: opens the secret passage if pos is next to the bottom door of a room hiding one. */
 void room_bomb_at(V2 pos);
 void room_enter_secret(void);
 void room_return_from_secret(void);

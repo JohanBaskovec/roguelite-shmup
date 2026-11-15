@@ -120,7 +120,7 @@ static const char *check_invariants(float room_time) {
     }
     if (G.room.type == ROOM_BOSS) {
         if (!is_boss_depth(G.room.depth)) return "boss room at a depth that is not a multiple of BOSS_EVERY";
-        if (G.room.reward != RW_UPGRADE || G.room.nwaves != 1 || G.room.nobs != 0 || G.room.secret_corner >= 0)
+        if (G.room.reward != RW_UPGRADE || G.room.nwaves != 1 || G.room.nobs != 0 || G.room.has_secret)
             return "boss room set up wrong (upgrade reward, one wave, open floor, no secret)";
     }
     {
@@ -182,7 +182,7 @@ static const char *check_invariants(float room_time) {
                  G.pk[0].type);
         return msg;
     }
-    if (G.room.secret_open && G.room.secret_corner < 0) return "secret passage open in a room without a secret";
+    if (G.room.secret_open && !G.room.has_secret) return "secret passage open in a room without a secret";
     if (G.room.type == ROOM_SECRET && G.room.ndoors != 0) return "secret room has regular doors (its only exit leads back)";
     for (int i = 0; i < G.npk; i++)
         if (G.pk[i].price < 0 || (G.pk[i].price > 0 && G.room.type != ROOM_SHOP && !G.room.secret_shop))

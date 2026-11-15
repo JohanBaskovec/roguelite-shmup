@@ -7,15 +7,11 @@
 #define ARENA_W (ARENA_X1 - ARENA_X0)
 #define ARENA_H (ARENA_Y1 - ARENA_Y0)
 
-V2 room_secret_spot(int corner) {
-    const float in = 45.0f;
-    switch (corner) {
-    case 0: return v2(ARENA_X0 + in, ARENA_Y0 + in);
-    case 1: return v2(ARENA_X1 - in, ARENA_Y0 + in);
-    case 2: return v2(ARENA_X1 - in, ARENA_Y1 - in);
-    default: return v2(ARENA_X0 + in, ARENA_Y1 - in);
-    }
-}
+#define WAVE_TIMER 16.0f      /* a wave forces the next one after that long (if the room is thin enough) */
+#define ROOM_DEPTH_PER_WAVE 5 /* one more wave every 5 rooms */
+
+/* Where a bomb opens the secret passage: right next to the bottom door. */
+V2 room_secret_spot(void) { return v2(ARENA_CX, ARENA_Y1 - 60.0f); }
 
 V2 door_position(Side side) {
     switch (side) {
@@ -242,9 +238,9 @@ static bool rect_ok(SDL_FRect r) {
         if (rect_overlaps(r, keep_out[i])) return false;
     /* Rooms whose reward is a row of pedestals keep that row free. */
     const SDL_FRect pedestal_row = {ARENA_X0 + 150, ARENA_CY - 150, ARENA_X1 - ARENA_X0 - 300, 300};
-    /* The secret corner must stay reachable to drop a bomb there. */
-    if (G.room.secret_corner >= 0) {
-        V2 c = room_secret_spot(G.room.secret_corner);
+    /* The secret spot (next to the bottom door) must stay reachable to drop a bomb there. */
+    if (G.room.has_secret) {
+        V2 c = room_secret_spot();
         SDL_FRect k = {c.x - 200, c.y - 200, 400, 400};
         if (rect_overlaps(r, k)) return false;
     }
@@ -417,10 +413,9 @@ void room_enter(RoomType type, RewardType reward, int depth) {
     r->depth = depth;
     r->hue = 200.0f + (float)depth * 37.0f;
     r->id = ++G.room_counter;
-    r->secret_corner = -1;
     bool can_hide = type == ROOM_COMBAT || type == ROOM_STATS || type == ROOM_SHOP;
     if (can_hide && (G.force_secret || chance(SECRET_CHANCE))) {
-        r->secret_corner = irand(0, 3);
+        r->has_secret = true;
         r->secret_flash_cd = frand(2.0f, 5.0f);
     }
 
@@ -466,7 +461,7 @@ void room_enter(RoomType type, RewardType reward, int depth) {
         fx_banner("THE OVERSEER", "destroy it", col_hex(COLOR_BOSS, 1), 1.8f);
     } else {
         /* Enemies never get stronger: deeper rooms have more waves (and bigger ones). */
-        int extra = depth / 3;
+        int extra = depth / ROOM_DEPTH_PER_WAVE;
         r->nwaves = 2 + (extra > 5 ? 5 : extra);
         r->wave_t = 0.35f;
     }
@@ -489,8 +484,10 @@ static V2 find_spawn_point(float rad) {
 
 /* Wave size grows with depth - the main difficulty curve, with the number of waves and
  * the enemy types unlocking deeper (ENEMIES[].min_depth). */
-#define WAVE_BUDGET_SCALE 1.8f
-#define WAVE_BUDGET_EXP 1.2f
+#define WAVE_BUDGET_BASE 4.0f
+#define WAVE_BUDGET_SCALE 1.1f
+#define WAVE_BUDGET_EXP 1.15f
+#define WAVE_BUDGET_PER_WAVE 1.0f
 
 static void spawn_wave(void) {
     Room *r = &G.room;
@@ -500,16 +497,17 @@ static void spawn_wave(void) {
         sfx_play(SFX_WAVE);
         fx_shake(0.3f);
         r->wave++;
-        r->wave_t = 13.0f;
+        r->wave_t = WAVE_TIMER;
         r->since_wave = 0.0f;
         return;
     }
     int depth = r->depth > 1 ? r->depth : 1;
     /* Slightly faster than linear, and the size cap grows too: fixed-strength enemies must
      * keep up with a player who only gets stronger. */
-    float budget = 5.0f + WAVE_BUDGET_SCALE * powf((float)depth, WAVE_BUDGET_EXP) + (float)r->wave * 1.5f;
+    float budget = WAVE_BUDGET_BASE + WAVE_BUDGET_SCALE * powf((float)depth, WAVE_BUDGET_EXP) +
+                   (float)r->wave * WAVE_BUDGET_PER_WAVE;
     budget *= 1.0f + malus_pct(MAL_CROWD); /* CROWD malus: bigger waves (more enemies, never stronger ones) */
-    int cap = (int)(30.0f + 2.5f * (float)depth);
+    int cap = (int)(20.0f + 2.0f * (float)depth);
     if (cap > MAX_ENEMIES - 20) cap = MAX_ENEMIES - 20;
     int queued = 0;
     while (budget >= 1.0f && queued < cap) {
@@ -534,7 +532,7 @@ static void spawn_wave(void) {
     r->last_wave_size = queued;
     sfx_play(SFX_WAVE);
     r->wave++;
-    r->wave_t = 13.0f;
+    r->wave_t = WAVE_TIMER;
     r->since_wave = 0.0f;
 }
 
@@ -627,8 +625,8 @@ static void room_clear(void) {
 
 void room_bomb_at(V2 pos) {
     Room *r = &G.room;
-    if (r->secret_corner < 0 || r->secret_open || r->secret_used) return;
-    V2 spot = room_secret_spot(r->secret_corner);
+    if (!r->has_secret || r->secret_open || r->secret_used) return;
+    V2 spot = room_secret_spot();
     if (v2_dist(pos, spot) > SECRET_BOMB_RADIUS) return;
     r->secret_open = true;
     V2 door = door_position(SIDE_BOTTOM);
@@ -693,13 +691,20 @@ void room_update(void) {
     for (int i = 0; i < r->ndoors; i++)
         if (r->doors[i].anim > 0.0f) r->doors[i].anim -= DT;
 
-    /* The secret corner flashes, very briefly, every few seconds - only during combat. */
+    /* A hidden secret flashes briefly, somewhere in the room, every 5-10 s - only during combat. */
     if (r->secret_flash_t > 0.0f) r->secret_flash_t -= DT;
-    if (r->secret_corner >= 0 && !r->cleared && !r->secret_open && !r->secret_used) {
+    if (r->has_secret && !r->cleared && !r->secret_open && !r->secret_used) {
         r->secret_flash_cd -= DT;
         if (r->secret_flash_cd <= 0.0f) {
-            r->secret_flash_t = 0.09f;
-            r->secret_flash_cd = frand(4.0f, 8.0f);
+            V2 p = v2(frand(ARENA_X0 + 40, ARENA_X1 - 40), frand(ARENA_Y0 + 40, ARENA_Y1 - 40));
+            for (int tries = 0; tries < 20; tries++) { /* not hidden inside an obstacle */
+                V2 q = p;
+                if (!room_collide_circle(&q, 12.0f, NULL)) break;
+                p = v2(frand(ARENA_X0 + 40, ARENA_X1 - 40), frand(ARENA_Y0 + 40, ARENA_Y1 - 40));
+            }
+            r->secret_flash_pos = p;
+            r->secret_flash_t = SECRET_FLASH_TIME;
+            r->secret_flash_cd = frand(5.0f, 10.0f);
             r->secret_flashes++;
         }
     }
@@ -717,7 +722,7 @@ void room_update(void) {
         if (r->wave < r->nwaves) {
             /* The timer only forces a new wave once half of the previous one is gone,
              * so waves never pile up endlessly on a struggling player. */
-            int half = r->last_wave_size / 2 > 6 ? r->last_wave_size / 2 : 6;
+            int half = r->last_wave_size / 3 > 4 ? r->last_wave_size / 3 : 4; /* a third, really */
             bool trigger = (r->wave_t <= 0.0f && (r->wave == 0 || alive <= half)) ||
                            (r->wave > 0 && r->since_wave > 1.5f && alive <= r->last_wave_size / 4);
             if (trigger) spawn_wave();
@@ -802,19 +807,19 @@ void room_draw_floor(void) {
             draw_text_centered(ARENA_CX, ARENA_CY - 150.0f, 2.0f, col_a(COL_WHITE, 0.4f), "every gain has a price");
         }
     }
-    if (r->secret_corner >= 0 && !r->secret_used) {
-        V2 c = room_secret_spot(r->secret_corner);
-        if (r->secret_flash_t > 0.0f) /* barely there: a small square for a few frames */
-            draw_rect(c.x - 9.0f, c.y - 9.0f, 18.0f, 18.0f, col_a(COL_WHITE, 0.32f * r->secret_flash_t / 0.09f));
-        if ((G.reveal_secrets || upg_has(UPG_XRAY)) && !r->secret_open) { /* debug menu: SHOW SECRET CORNER, X-RAY VISOR */
+    if (r->has_secret && !r->secret_used) {
+        V2 c = room_secret_spot();
+        if (r->secret_flash_t > 0.0f) { /* barely there: a small square for a few frames, anywhere */
+            V2 f = r->secret_flash_pos;
+            draw_rect(f.x - 9.0f, f.y - 9.0f, 18.0f, 18.0f, col_a(COL_WHITE, 0.32f * r->secret_flash_t / SECRET_FLASH_TIME));
+        }
+        if ((G.reveal_secrets || upg_has(UPG_XRAY)) && !r->secret_open) { /* debug menu: SHOW SECRETS, X-RAY VISOR */
             float pulse = 0.5f + 0.5f * sinf(G.time * 6.0f);
             SDL_FColor sc = col_hex(COLOR_SECRET, 1);
             draw_ring(c, SECRET_BOMB_RADIUS, 2.0f, col_a(sc, 0.25f)); /* where a bomb opens it */
             draw_rect(c.x - 14.0f, c.y - 14.0f, 28.0f, 28.0f, col_a(sc, 0.35f + 0.35f * pulse));
             draw_rect_outline(c.x - 18.0f, c.y - 18.0f, 36.0f, 36.0f, 3.0f, sc);
-            float tx = r->secret_corner == 1 || r->secret_corner == 2 ? c.x - 150.0f : c.x + 40.0f;
-            float ty = r->secret_corner >= 2 ? c.y - 40.0f : c.y + 24.0f;
-            draw_text(tx, ty, 2.0f, sc, "SECRET");
+            draw_text_centered(c.x, c.y - 50.0f, 2.0f, sc, "SECRET");
         }
     }
     if (r->type == ROOM_WORKSHOP && G.nmc > 0)

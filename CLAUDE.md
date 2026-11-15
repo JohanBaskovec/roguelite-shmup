@@ -37,8 +37,9 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   `upgrade_toggle`; only purely one-time ones like SKELETON KEY cannot, `upgrade_toggleable`). Turned
   off = no effect at all (`Player.upg_off`, `has()` returns 0, stats left out); turning a heart
   container back on never heals; stat trades stay.
-- **Secret rooms**: some rooms (combat / stats / shop) hide one. During the fight one corner flashes
-  very briefly (small, faint square); a bomb in that corner opens the bottom door to the secret room.
+- **Secret rooms**: some rooms (combat / stats / shop) hide one. During the fight a small, faint square
+  flashes briefly (`SECRET_FLASH_TIME`) anywhere in the room every 5-10 s; a bomb next to the bottom door
+  (`room_secret_spot`) opens it, leading to the secret room.
   The secret room has no enemies (exception above): 1 item (rarely 2) plus coins / bombs / keys
   are waiting there. Variants: 10% secret shop (5 priced items instead of the free item),
   10% ambush (enemies first, loot once cleared). Its exit leads back to the room it was found in - the only time a room is

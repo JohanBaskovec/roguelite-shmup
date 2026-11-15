@@ -78,7 +78,7 @@ void debug_teleport(RoomType type, RewardType reward, int depth, bool with_enemi
         /* A secret room needs a room to return to: a cleared combat room that hid it. */
         room_enter(ROOM_COMBAT, room_roll_reward(), depth);
         room_debug_clear();
-        if (G.room.secret_corner < 0) G.room.secret_corner = irand(0, 3);
+        G.room.has_secret = true;
         G.room.secret_open = true;
         int ambush = G.secret_ambush_override;
         G.secret_ambush_override = with_enemies;
@@ -221,11 +221,10 @@ static void draw_button(float x, float y, float w, const char *text, SDL_FColor 
 }
 
 static const char *secret_text(void) {
-    static const char *corners[] = {"TOP-LEFT", "TOP-RIGHT", "BOTTOM-RIGHT", "BOTTOM-LEFT"};
     static char buf[64];
     const Room *r = &G.room;
-    if (r->secret_corner < 0) return " - NO SECRET";
-    SDL_snprintf(buf, sizeof buf, " - SECRET: %s%s", corners[r->secret_corner],
+    if (!r->has_secret) return " - NO SECRET";
+    SDL_snprintf(buf, sizeof buf, " - SECRET%s",
                  r->secret_used ? " (USED)" : r->secret_open ? " (OPEN)" : "");
     return buf;
 }
@@ -296,7 +295,7 @@ void debug_menu_draw(void) {
             SDL_snprintf(value, sizeof value, "%s", G.force_secret ? "ON" : "OFF");
             break;
         case ROW_REVEAL:
-            label = "SHOW SECRET CORNER";
+            label = "SHOW SECRETS";
             SDL_snprintf(value, sizeof value, "%s", G.reveal_secrets ? "ON" : "OFF");
             break;
         case ROW_COINS: label = "+50 COINS"; break;

@@ -35,7 +35,7 @@ typedef struct {
     bool active_room;      /* --active-room: start in an active room (choice of 3 active items) */
     bool char_select;      /* --char-select: open the character select screen at startup */
     bool upgrades_menu;    /* --upgrades-menu: open the upgrades menu (TAB) at startup */
-    bool show_secret;      /* --show-secret: mark secret corners (debug menu: SHOW SECRET CORNER) */
+    bool show_secret;      /* --show-secret: mark hidden secrets (debug menu: SHOW SECRETS) */
     bool all_upgrades;     /* --all-upgrades: start with one of every upgrade */
     int hp;                /* --hp N (headless): starting max hp in half-hearts */
     const char *fail_shot;
@@ -331,8 +331,8 @@ int main(int argc, char **argv) {
         frame++;
         if (opt.shot_path && frame >= opt.frames) {
             if (!save_screenshot(ren, opt.shot_path)) SDL_Log("Screenshot failed: %s", SDL_GetError());
-            else SDL_Log("Saved %s (room %d type %d, %d enemy bullets, cleared %d, secret corner %d open %d, coins %d, doors %s/%s/%s)",
-                         opt.shot_path, G.room.depth, G.room.type, G.neb, G.room.cleared, G.room.secret_corner,
+            else SDL_Log("Saved %s (room %d type %d, %d enemy bullets, cleared %d, secret %d open %d, coins %d, doors %s/%s/%s)",
+                         opt.shot_path, G.room.depth, G.room.type, G.neb, G.room.cleared, G.room.has_secret,
                          G.room.secret_open, G.pl.coins, door_label(&G.room.doors[0]), door_label(&G.room.doors[1]),
                          door_label(&G.room.doors[2]));
             G.quit = true;

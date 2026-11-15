@@ -99,7 +99,7 @@ const UpgradeDef UPGRADES[UPG_COUNT] = {
     [UPG_EMERGENCY] = {"EMERGENCY SHIELD", "Once per room, the first|hit is blocked", 0x66d9ff},
     [UPG_RAMPAGE] = {"RAMPAGE", "+3% fire rate per kill in the|room (max +45%)", 0xff5a3a},
     [UPG_BLACK_HOLE] = {"BLACK HOLE", "Kills may open a vortex|that pulls enemies in", 0x8a5aff},
-    [UPG_XRAY] = {"X-RAY VISOR", "Secret corners are|always visible", 0xb0ffb0},
+    [UPG_XRAY] = {"X-RAY VISOR", "Rooms hiding a secret|are always marked", 0xb0ffb0},
 
     [UPG_RICOCHET] = {"RICOCHET", "Shots that hit jump to|another enemy nearby", 0xffd0a0},
     [UPG_SNOWBALL] = {"SNOWBALL ROUNDS", "Shots grow as they fly: up to|x2.5 size and +80% damage", 0xe8f4ff},
