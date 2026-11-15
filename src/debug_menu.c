@@ -10,7 +10,7 @@
 
 typedef enum {
     ROW_DEPTH, ROW_REWARD, ROW_SECRET_CONTENT,
-    ROW_START, ROW_COMBAT, ROW_STATS, ROW_SHOP, ROW_WORKSHOP, ROW_SECRET,
+    ROW_START, ROW_COMBAT, ROW_STATS, ROW_SHOP, ROW_WORKSHOP, ROW_BOSS, ROW_SECRET,
     ROW_GOD, ROW_FPS, ROW_ALWAYS_SECRET, ROW_REVEAL, ROW_COINS, ROW_BOMBS, ROW_UPGRADE, ROW_ACTIVE, ROW_CLOSE,
     ROW_COUNT
 } Row;
@@ -25,6 +25,7 @@ static const struct {
     [ROW_STATS] = {"STATS ROOM", ROOM_STATS, COLOR_STATS},
     [ROW_SHOP] = {"SHOP", ROOM_SHOP, COLOR_SHOP},
     [ROW_WORKSHOP] = {"WORKSHOP", ROOM_WORKSHOP, COLOR_WORKSHOP},
+    [ROW_BOSS] = {"BOSS ROOM", ROOM_BOSS, COLOR_BOSS},
     [ROW_SECRET] = {"SECRET ROOM", ROOM_SECRET, COLOR_SECRET},
 };
 
@@ -36,7 +37,7 @@ static const struct {
 #define PANEL_W 940.0f
 #define PANEL_X ((SCREEN_W - PANEL_W) * 0.5f)
 #define ROWS_Y 214.0f
-#define ROW_H 40.0f
+#define ROW_H 38.0f
 #define BTN_W 240.0f
 #define BTN_X0 (PANEL_X + 410.0f)
 #define BTN_X1 (BTN_X0 + BTN_W + 20.0f)
@@ -70,6 +71,7 @@ void debug_teleport(RoomType type, RewardType reward, int depth, bool with_enemi
     G.transitioning = false;
     if (type == ROOM_START) depth = 0;
     else if (depth < 1) depth = 1;
+    if (type == ROOM_BOSS && !is_boss_depth(depth)) depth = (depth / BOSS_EVERY + 1) * BOSS_EVERY; /* bosses only live there */
     if (type != ROOM_COMBAT) reward = RW_NONE;
     else if (reward == RW_NONE) reward = room_roll_reward();
     if (type == ROOM_SECRET) {

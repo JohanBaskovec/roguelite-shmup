@@ -114,6 +114,24 @@ if(SHMUP_BUILD_TESTS)
                      --fail-shot ${_out}/fail_sim_workshop.bmp)
     add_test(NAME render_workshop
              COMMAND neon_breach --shot ${_out}/render_workshop.bmp --workshop --cleared --no-bot --depth 4 --seed 5 --frames 60)
+    # Boss rooms (every 10 rooms): the boss must be beaten, by every character; the run
+    # from room 8 must go through the single boss door of room 9.
+    add_test(NAME sim_boss
+             COMMAND neon_breach --headless --god --boss --seed 50 --runs 4 --ticks 30000 --expect-rooms 2
+                     --fail-shot ${_out}/fail_sim_boss.bmp)
+    add_test(NAME sim_boss_shotgunner
+             COMMAND neon_breach --headless --god --boss --char shotgunner --seed 60 --runs 3 --ticks 30000 --expect-rooms 2
+                     --fail-shot ${_out}/fail_sim_boss_shotgunner.bmp)
+    add_test(NAME sim_boss_knight
+             COMMAND neon_breach --headless --god --boss --char knight --seed 70 --runs 3 --ticks 30000 --expect-rooms 2
+                     --fail-shot ${_out}/fail_sim_boss_knight.bmp)
+    add_test(NAME sim_boss_door
+             COMMAND neon_breach --headless --god --depth 8 --seed 80 --runs 3 --ticks 40000 --expect-rooms 4
+                     --fail-shot ${_out}/fail_sim_boss_door.bmp)
+    add_test(NAME render_boss
+             COMMAND neon_breach --shot ${_out}/render_boss.bmp --boss --seed 5 --frames 700)
+    add_test(NAME render_boss_door
+             COMMAND neon_breach --shot ${_out}/render_boss_door.bmp --depth 9 --cleared --no-bot --seed 5 --frames 120)
     add_test(NAME render_deep_enemies
              COMMAND neon_breach --shot ${_out}/render_deep.bmp --depth 15 --seed 8 --frames 300)
     add_test(NAME sim_active_shield

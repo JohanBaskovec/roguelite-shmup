@@ -335,6 +335,17 @@ RewardType room_roll_reward(void) { return roll_reward_except(0); }
 static void gen_doors(void) {
     Room *r = &G.room;
     static const Side sides[MAX_DOORS] = {SIDE_LEFT, SIDE_TOP, SIDE_RIGHT};
+    /* The room before a boss has a single door, straight ahead: the boss room. */
+    if (is_boss_depth(r->depth + 1)) {
+        r->ndoors = 1;
+        Door *d = &r->doors[0];
+        memset(d, 0, sizeof *d);
+        d->side = SIDE_TOP;
+        d->pos = door_position(SIDE_TOP);
+        d->type = ROOM_BOSS;
+        d->reward = RW_UPGRADE;
+        return;
+    }
     int locked = chance(0.5f) ? irand(0, MAX_DOORS - 1) : -1;
     /* Occasionally one door leads to a Stats room (never two in a row). */
     int stats_door = r->type == ROOM_COMBAT && chance(0.2f) ? irand(0, MAX_DOORS - 1) : -1;
@@ -390,6 +401,7 @@ static void gen_doors(void) {
 }
 
 static void spawn_shop_items(void);
+static void draw_boss_icon(V2 c, float s);
 
 /* Secret room content: 1-2 free items, or (rarely) a full shop, plus resources. */
 static void secret_loot(void) {
@@ -427,7 +439,12 @@ void room_enter(RoomType type, RewardType reward, int depth) {
     if (type == ROOM_SHOP) r->hue = 315.0f;
     if (type == ROOM_SECRET) r->hue = 32.0f;
     if (type == ROOM_WORKSHOP) r->hue = 80.0f;
-    if (!room_type_peaceful(type)) gen_obstacles(); /* open floor for the tutorial / the loot */
+    if (type == ROOM_BOSS) {
+        r->hue = 350.0f;
+        r->reward = RW_UPGRADE; /* the boss always leaves a choice of 3 upgrades */
+    }
+    /* Open floor for the tutorial / the loot / the boss fight. */
+    if (!room_type_peaceful(type) && type != ROOM_BOSS) gen_obstacles();
     if (type != ROOM_SECRET) gen_doors();          /* the secret room's only exit leads back */
     r->peaceful = type == ROOM_START;
     if (type == ROOM_SECRET) {
@@ -443,6 +460,10 @@ void room_enter(RoomType type, RewardType reward, int depth) {
     } else if (type == ROOM_SECRET) {
         r->nwaves = 1; /* ambush: a single wave guards the loot */
         r->wave_t = 0.8f;
+    } else if (type == ROOM_BOSS) {
+        r->nwaves = 1; /* the boss itself (it calls its own minions) */
+        r->wave_t = 1.0f;
+        fx_banner("THE OVERSEER", "destroy it", col_hex(COLOR_BOSS, 1), 1.8f);
     } else {
         /* Enemies never get stronger: deeper rooms have more waves (and bigger ones). */
         int extra = depth / 3;
@@ -473,6 +494,16 @@ static V2 find_spawn_point(float rad) {
 
 static void spawn_wave(void) {
     Room *r = &G.room;
+    if (r->type == ROOM_BOSS) {
+        enemy_queue_spawn(EN_BOSS, v2(ARENA_CX, ARENA_Y0 + 230.0f), 1.4f);
+        r->last_wave_size = 1;
+        sfx_play(SFX_WAVE);
+        fx_shake(0.3f);
+        r->wave++;
+        r->wave_t = 13.0f;
+        r->since_wave = 0.0f;
+        return;
+    }
     int depth = r->depth > 1 ? r->depth : 1;
     /* Slightly faster than linear, and the size cap grows too: fixed-strength enemies must
      * keep up with a player who only gets stronger. */
@@ -587,7 +618,8 @@ static void room_clear(void) {
     else if (r->type == ROOM_WORKSHOP) workshop_spawn();
     else if (r->type == ROOM_SECRET) secret_loot(); /* after an ambush */
     else if (r->reward != RW_NONE) reward_drop(r->reward, v2(ARENA_CX, ARENA_CY));
-    fx_banner("ROOM CLEARED", "choose your next door", col_hex(0x66f0ff, 1), 1.4f);
+    if (r->type == ROOM_BOSS) fx_banner("BOSS DEFEATED", "pick your prize", col_hex(COLOR_BOSS, 1), 2.0f);
+    else fx_banner("ROOM CLEARED", "choose your next door", col_hex(0x66f0ff, 1), 1.4f);
     fx_shake(0.25f);
 }
 
@@ -673,6 +705,12 @@ void room_update(void) {
     }
 
     if (!r->cleared) {
+        if (r->type == ROOM_BOSS) { /* the bar's damage trail catches up with the hp */
+            const Enemy *b = boss_alive();
+            float k = b ? b->hp / b->max_hp : 1.0f;
+            r->boss_trail = b ? fmaxf(k, r->boss_trail - 0.3f * DT) : 1.0f;
+            if (b && r->boss_trail - k > 0.25f) r->boss_trail = k + 0.25f;
+        }
         r->wave_t -= DT;
         r->since_wave += DT;
         int alive = G.nen + G.nsp;
@@ -843,6 +881,7 @@ static void draw_door(const Door *d, bool cleared, bool entry) {
                   : d->type == ROOM_SHOP ? col_hex(COLOR_SHOP, 1)
                   : d->type == ROOM_SECRET ? col_hex(COLOR_SECRET, 1)
                   : d->type == ROOM_WORKSHOP ? col_hex(COLOR_WORKSHOP, 1)
+                  : d->type == ROOM_BOSS ? col_hex(COLOR_BOSS, 1)
                   : reward_color(d->reward);
     bool open = cleared && !d->locked && !entry;
     float pulse = 0.5f + 0.5f * sinf(G.time * 6.0f);
@@ -905,9 +944,21 @@ static void draw_door(const Door *d, bool cleared, bool entry) {
     draw_ngon_outline(ip, 24.0f * sc, 6, PI_F / 6.0f, 2.0f, col_a(rc, 0.8f));
     if (d->type == ROOM_SHOP) draw_shop_icon(ip, 11.0f * sc);
     else if (d->type == ROOM_WORKSHOP) draw_workshop_icon(ip, 11.0f * sc);
+    else if (d->type == ROOM_BOSS) draw_boss_icon(ip, 11.0f * sc);
     else if (d->type == ROOM_SECRET) draw_text_centered(ip.x + 1.0f, ip.y - 12.0f * sc, 3.0f * sc, col_hex(COLOR_SECRET, 1), "%s", G.room.type == ROOM_SECRET ? "v" : "?");
     else draw_pickup_icon(d->type == ROOM_STATS ? PK_STAT : reward_icon(d->reward), -1, ip, 11.0f * sc, G.time);
     if (pop >= 1.0f) draw_text_centered(ip.x, ip.y + 34.0f, 1.5f, col_a(rc, 0.9f), "%s", door_label(d));
+}
+
+/* Boss door: a watching eye. */
+static void draw_boss_icon(V2 c, float s) {
+    V2 look = v2_sub(G.pl.pos, c);
+    float l = v2_len(look);
+    V2 eye = v2_add(c, l > 1.0f ? v2_scale(look, s * 0.3f / l) : v2(0, 0));
+    draw_ngon_outline(c, s * 1.15f, 6, G.time, 2.0f, col_hex(COLOR_BOSS, 1));
+    draw_circle(c, s * 0.75f, col_hex(0x1a0508, 1));
+    draw_circle(eye, s * 0.42f, col_hex(0xffd23d, 1));
+    draw_circle(eye, s * 0.18f, rgba(0, 0, 0, 1));
 }
 
 void room_draw_walls(void) {

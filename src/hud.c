@@ -148,6 +148,35 @@ static void draw_stats_overlay(void) {
     seen = true;
 }
 
+/* Boss health bar, top of the screen: phase marks at each threshold, a white trail for
+ * recent damage, a golden frame while the boss is invulnerable. */
+static void draw_boss_bar(void) {
+    const Enemy *b = boss_alive();
+    float k = 0.0f, intro = 1.0f;
+    if (b) {
+        k = clampf(b->hp / b->max_hp, 0.0f, 1.0f);
+    } else {
+        for (int i = 0; i < G.nsp; i++)
+            if (G.sp[i].type == EN_BOSS) { intro = 1.0f - G.sp[i].t / G.sp[i].max_t; k = 1.0f; }
+        if (k <= 0.0f) return; /* not there yet (or already dead) */
+        k *= intro;
+    }
+    float trail = fmaxf(G.room.boss_trail, k);
+    const float w = 600.0f, h = 16.0f, x = SCREEN_W * 0.5f - w * 0.5f, y = 54.0f; /* between the side panels */
+    draw_rect(x - 3, y - 3, w + 6, h + 6, rgba(0, 0, 0, 0.75f));
+    draw_rect(x, y, w * trail, h, col_a(COL_WHITE, 0.7f));
+    SDL_FColor fill = b && b->phase >= BOSS_PHASES - 1 ? col_hex(0xff4040, 1) : col_hex(COLOR_BOSS, 1);
+    draw_rect(x, y, w * k, h, fill);
+    draw_rect(x, y, w * k, h * 0.35f, col_a(COL_WHITE, 0.25f));
+    for (int p = 1; p < BOSS_PHASES; p++) {
+        float mx = x + w * boss_phase_threshold(p);
+        draw_rect(mx - 1.5f, y - 5, 3, h + 10, col_hex(0xffd23d, 1));
+    }
+    bool inv = b && b->inv_t > 0.0f;
+    draw_rect_outline(x - 3, y - 3, w + 6, h + 6, 2, inv ? col_hex(0xffd23d, 0.6f + 0.4f * sinf(G.time * 30.0f)) : col_hex(COLOR_BOSS, 0.8f));
+    draw_text_centered(SCREEN_W * 0.5f, y + h + 6.0f, 1.5f, col_hex(0xffd6dc, 0.9f), "THE OVERSEER%s", b && b->phase >= BOSS_PHASES - 1 ? " - ENRAGED" : "");
+}
+
 void hud_draw(void) {
     const Player *p = &G.pl;
     const Room *r = &G.room;
@@ -187,10 +216,14 @@ void hud_draw(void) {
         draw_text_centered(SCREEN_W * 0.5f, 16.0f, 3.0f, col_hex(COLOR_WORKSHOP, 1), "ROOM %d - WORKSHOP", r->depth);
     } else if (r->type == ROOM_SHOP) {
         draw_text_centered(SCREEN_W * 0.5f, 16.0f, 3.0f, col_hex(COLOR_SHOP, 1), "ROOM %d - SHOP", r->depth);
+    } else if (r->type == ROOM_BOSS) {
+        draw_text_centered(SCREEN_W * 0.5f, 16.0f, 3.0f, col_hex(COLOR_BOSS, 1), "ROOM %d - BOSS", r->depth);
     } else {
         draw_text_centered(SCREEN_W * 0.5f, 16.0f, 3.0f, COL_WHITE, "ROOM %d", r->depth);
     }
-    if (!r->cleared) {
+    if (!r->cleared && r->type == ROOM_BOSS) {
+        draw_boss_bar();
+    } else if (!r->cleared) {
         draw_text_centered(SCREEN_W * 0.5f, 52.0f, 2.0f, col_hex(0xff5f7e, 1), "WAVE %d / %d", r->wave, r->nwaves);
     } else {
         bool offers = false, items = false;

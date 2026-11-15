@@ -135,7 +135,7 @@ typedef struct {
 
 /* ---- Enemies ------------------------------------------------------------- */
 
-typedef enum { EN_CHASER, EN_SWARM, EN_SHOOTER, EN_BURSTER, EN_SPINNER, EN_SNIPER, EN_TANK, EN_WARDEN, EN_HUNTER, EN_HIVE, EN_COUNT } EnemyType;
+typedef enum { EN_CHASER, EN_SWARM, EN_SHOOTER, EN_BURSTER, EN_SPINNER, EN_SNIPER, EN_TANK, EN_WARDEN, EN_HUNTER, EN_HIVE, EN_BOSS, EN_COUNT } EnemyType;
 
 typedef struct {
     const char *name;
@@ -158,7 +158,13 @@ typedef struct {
     float slow_t;                 /* chilled: moves and shoots slower */
     float poison_t, poison_dps, burn_t, burn_dps;
     int sword_swing;              /* id of the last sword swing that hit it (one hit per swing) */
+    int phase;                    /* EN_BOSS: current phase, 0 .. BOSS_PHASES - 1 */
+    float inv_t;                  /* EN_BOSS: invulnerable while > 0 (phase change) */
 } Enemy;
+
+/* Boss rooms: every BOSS_EVERY rooms (depth 10, 20...); the room before has a single door. */
+#define BOSS_EVERY 10
+#define BOSS_PHASES 3
 
 typedef struct {
     EnemyType type;
@@ -246,6 +252,7 @@ typedef struct {
     Door doors[MAX_DOORS];
     int ndoors;
     int wave, nwaves, last_wave_size;
+    float boss_trail;             /* boss bar: hp fraction shown by the white damage trail */
     float wave_t, since_wave;
     bool cleared;
     float clear_t;
@@ -445,6 +452,7 @@ V2 shop_supply_spot(int i);
 #define COLOR_SHOP 0xff6bd6
 #define COLOR_SECRET 0xffb347
 #define COLOR_WORKSHOP 0xc8ff4d
+#define COLOR_BOSS 0xff3d5a
 static inline int stat_offer_encode(int up, int down) { return up * ST_COUNT + down; }
 static inline int stat_offer_up(int offer) { return offer / ST_COUNT; }
 static inline int stat_offer_down(int offer) { return offer % ST_COUNT; }
@@ -632,6 +640,10 @@ void enemy_queue_spawn(EnemyType type, V2 pos, float delay);
 void enemies_update(void);
 void enemies_draw(void);
 void enemy_damage(Enemy *e, float dmg, V2 knock);
+float enemy_damage_cap(const Enemy *e, float dmg); /* the boss: 0 while invulnerable, stops at each phase threshold */
+float boss_phase_threshold(int phase);             /* hp fraction where phase `phase` starts */
+const Enemy *boss_alive(void);
+bool is_boss_depth(int depth);
 Enemy *enemy_nearest(V2 pos, float max_dist);
 
 /* pickups.c */

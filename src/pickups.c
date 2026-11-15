@@ -50,6 +50,7 @@ static V2 random_vel(float lo, float hi) { return v2_scale(v2_angle(frand(0.0f, 
 const char *door_label(const Door *d) {
     if (d->type == ROOM_SECRET) return G.room.type == ROOM_SECRET ? "EXIT" : "SECRET";
     if (d->type == ROOM_WORKSHOP) return "WORKSHOP";
+    if (d->type == ROOM_BOSS) return "BOSS";
     return d->type == ROOM_STATS ? "STATS" : d->type == ROOM_SHOP ? "SHOP" : reward_name(d->reward);
 }
 

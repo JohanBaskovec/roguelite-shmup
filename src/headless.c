@@ -110,6 +110,33 @@ static const char *check_invariants(float room_time) {
                 return msg;
             }
         }
+    /* Boss rooms: every BOSS_EVERY rooms, reached through the single door of the room before. */
+    if (G.room.type != ROOM_SECRET) {
+        bool before_boss = is_boss_depth(G.room.depth + 1);
+        if (before_boss && (G.room.ndoors != 1 || G.room.doors[0].type != ROOM_BOSS || G.room.doors[0].locked))
+            return "the room before a boss must have a single, open door: the boss room";
+        for (int i = 0; i < G.room.ndoors; i++)
+            if (!before_boss && G.room.doors[i].type == ROOM_BOSS) return "boss door outside the room before a boss";
+    }
+    if (G.room.type == ROOM_BOSS) {
+        if (!is_boss_depth(G.room.depth)) return "boss room at a depth that is not a multiple of BOSS_EVERY";
+        if (G.room.reward != RW_UPGRADE || G.room.nwaves != 1 || G.room.nobs != 0 || G.room.secret_corner >= 0)
+            return "boss room set up wrong (upgrade reward, one wave, open floor, no secret)";
+    }
+    {
+        int bosses = 0;
+        for (int i = 0; i < G.nen; i++) {
+            const Enemy *e = &G.en[i];
+            if (e->type != EN_BOSS) continue;
+            bosses++;
+            if (G.room.type != ROOM_BOSS) return "boss outside a boss room";
+            if (e->phase < 0 || e->phase >= BOSS_PHASES) return "boss phase out of range";
+            if (e->hp > 0.0f && e->phase + 1 < BOSS_PHASES && e->hp < e->max_hp * boss_phase_threshold(e->phase + 1) - 1.5f)
+                return "boss skipped a phase (damage must stop at each threshold)";
+        }
+        for (int i = 0; i < G.nsp; i++) bosses += G.sp[i].type == EN_BOSS;
+        if (bosses > 1) return "more than one boss";
+    }
     if (G.nmc < 0 || G.nmc > MAX_MACHINES) return "machine count out of range";
     if (G.nmc > 0 && (G.room.type != ROOM_WORKSHOP || !G.room.cleared)) return "workshop machines outside a cleared workshop";
     if (!(p->spread_mult >= SPREAD_MIN * 0.99f) || !(p->spread_mult <= SPREAD_MAX * 1.01f)) return "spread out of range";
@@ -158,7 +185,7 @@ static const char *check_invariants(float room_time) {
         if (G.pk[i].price < 0 || (G.pk[i].price > 0 && G.room.type != ROOM_SHOP && !G.room.secret_shop))
             return "priced item outside a shop";
     float stall = fminf(room_time, G.time - G.last_enemy_damage_t);
-    if (G.room.type == ROOM_COMBAT && !G.room.cleared &&
+    if ((G.room.type == ROOM_COMBAT || G.room.type == ROOM_BOSS) && !G.room.cleared &&
         (room_time > MAX_ROOM_SECONDS || (G.nen > 0 && stall > MAX_STALL_SECONDS))) {
         int len = snprintf(msg, sizeof msg, "room %d stalled (%.0f s in room, no enemy hit for %.0f s) - player@(%.0f,%.0f) %s, %d bullets - left:",
                            G.room.depth, (double)room_time, (double)stall, (double)p->pos.x, (double)p->pos.y,
@@ -204,6 +231,11 @@ static const char *check_room_reward(void) {
         for (int i = 0; i < G.npk; i++)
             if (G.pk[i].price > 0 && is_supply(&G.pk[i])) kinds[G.pk[i].type] = true;
         if (!kinds[PK_HEART] || !kinds[PK_BOMB] || !kinds[PK_KEY]) return "shop supply counter without its heart, bomb and key";
+    }
+    if (G.room.type == ROOM_BOSS) {
+        if (count_choices() != REWARD_CHOICES) return "boss beaten but it did not leave a choice of 3 upgrades";
+        for (int i = 0; i < G.npk; i++)
+            if (G.pk[i].type != PK_UPGRADE && G.pk[i].type != PK_STAT) return "boss reward is not an upgrade choice";
     }
     bool item_room = G.room.type == ROOM_COMBAT && (G.room.reward == RW_UPGRADE || G.room.reward == RW_ACTIVE);
     if (item_room && count_choices() != REWARD_CHOICES) {
@@ -286,10 +318,10 @@ static void clear_edges(void) {
 /* Debug-menu teleports: every room type, with and without enemies, must land in a
  * coherent state, and the bot must be able to finish the room and leave it. */
 static int debug_rooms_run(const HeadlessOptions *o) {
-    static const RoomType types[] = {ROOM_START, ROOM_COMBAT, ROOM_COMBAT, ROOM_COMBAT, ROOM_STATS, ROOM_SHOP, ROOM_WORKSHOP, ROOM_SECRET, ROOM_SECRET};
-    static const RewardType rewards[] = {RW_NONE, RW_NONE, RW_UPGRADE, RW_ACTIVE, RW_NONE, RW_NONE, RW_NONE, RW_NONE, RW_NONE};
-    static const int secret_shop[] = {0, 0, 0, 0, 0, 0, 0, 0, 1};
-    static const char *names[] = {"launch bay", "combat", "upgrade", "active", "stats", "shop", "workshop", "secret", "secret shop"};
+    static const RoomType types[] = {ROOM_START, ROOM_COMBAT, ROOM_COMBAT, ROOM_COMBAT, ROOM_STATS, ROOM_SHOP, ROOM_WORKSHOP, ROOM_BOSS, ROOM_SECRET, ROOM_SECRET};
+    static const RewardType rewards[] = {RW_NONE, RW_NONE, RW_UPGRADE, RW_ACTIVE, RW_NONE, RW_NONE, RW_NONE, RW_NONE, RW_NONE, RW_NONE};
+    static const int secret_shop[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
+    static const char *names[] = {"launch bay", "combat", "upgrade", "active", "stats", "shop", "workshop", "boss", "secret", "secret shop"};
     int failures = 0;
     for (int t = 0; t < ARRAY_LEN(types); t++) {
         for (int with = types[t] == ROOM_START ? 0 : 1; with >= 0; with--) {
@@ -382,6 +414,53 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         bool wind_ok = G.state == GS_PLAYING && pl->hp == 2 && pl->revives == 0 && G.neb >= 0 && G.neb <= MAX_EBULLETS;
         printf("scripted: shield soaks a hit -> %s, second wind -> %s\n", shield_ok ? "OK" : "FAILED", wind_ok ? "OK" : "FAILED");
         failures += !shield_ok + !wind_ok;
+    }
+
+    /* Scripted: the boss. The room before has a single door leading to it; damage stops at
+     * each phase threshold, a phase change makes it invulnerable; its death takes the minions
+     * along and leaves a choice of 3 upgrades. */
+    {
+#define STEP() do { G.hitstop = 0.0f; game_update(); clear_edges(); } while (0) /* hitstop would skip the ticks */
+        game_init(o->seed);
+        G.god = true;
+        game_new_run();
+        debug_teleport(ROOM_COMBAT, RW_COINS, BOSS_EVERY - 1, false);
+        G.state = GS_PLAYING;
+        bool door_ok = G.room.ndoors == 1 && G.room.doors[0].type == ROOM_BOSS && !G.room.doors[0].locked;
+        int id = G.room.id;
+        for (int t = 0; t < 120 * 20 && G.room.id == id; t++) { bot_input(); game_update(); clear_edges(); }
+        bool enter_ok = G.room.type == ROOM_BOSS && G.room.depth == BOSS_EVERY && !G.room.cleared;
+        for (int t = 0; t < 120 * 4 && !boss_alive(); t++) { game_update(); clear_edges(); }
+        Enemy *b = (Enemy *)boss_alive();
+        bool phase_ok = false, inv_ok = false, death_ok = false;
+        if (b) {
+            int uid = b->uid;
+            enemy_damage(b, b->max_hp, v2(0, 0)); /* one huge hit: stops just under 66% */
+            phase_ok = b->hp > b->max_hp * 0.6f && b->hp < b->max_hp * boss_phase_threshold(1);
+            STEP();
+            b = (Enemy *)boss_alive();
+            if (b && b->uid == uid) {
+                float hp = b->hp;
+                enemy_damage(b, 500.0f, v2(0, 0));
+                inv_ok = b->phase == 1 && b->inv_t > 0.0f && b->hp == hp;
+                b->inv_t = 0.0f;
+                enemy_damage(b, b->max_hp, v2(0, 0));
+                STEP();
+                b->inv_t = 0.0f;
+                enemy_queue_spawn(EN_CHASER, v2(ARENA_CX - 300.0f, ARENA_CY), 0.0f);
+                STEP();
+                int last_phase = b->phase, minions = G.nen - 1;
+                enemy_damage(b, b->max_hp, v2(0, 0));
+                for (int t = 0; t < 10; t++) STEP();
+                death_ok = phase_ok && last_phase == BOSS_PHASES - 1 && minions > 0 && G.room.cleared && G.nen == 0 && count_choices() == REWARD_CHOICES &&
+                           check_room_reward() == NULL;
+            }
+        }
+        printf("scripted: boss door at room %d -> %s, entered -> %s, phase threshold -> %s, phase invulnerability -> %s, "
+               "death + 3 upgrades -> %s\n", BOSS_EVERY - 1, door_ok ? "OK" : "FAILED", enter_ok ? "OK" : "FAILED",
+               phase_ok ? "OK" : "FAILED", inv_ok ? "OK" : "FAILED", death_ok ? "OK" : "FAILED");
+        failures += !door_ok + !enter_ok + !phase_ok + !inv_ok + !death_ok;
+#undef STEP
     }
 
     /* Scripted: the character select screen, driven with the keyboard like a player. */
@@ -1130,12 +1209,15 @@ int headless_run(const HeadlessOptions *o) {
         if (o->stats_room) room_enter(ROOM_STATS, RW_NONE, o->depth > 0 ? o->depth : 1);
         else if (o->shop_room) room_enter(ROOM_SHOP, RW_NONE, o->depth > 0 ? o->depth : 1);
         else if (o->workshop_room) room_enter(ROOM_WORKSHOP, RW_NONE, o->depth > 0 ? o->depth : 3);
+        else if (o->boss_room) room_enter(ROOM_BOSS, RW_UPGRADE, o->depth > 0 ? o->depth : BOSS_EVERY);
         else if (o->active_room) room_enter(ROOM_COMBAT, RW_ACTIVE, o->depth > 0 ? o->depth : 1);
         else if (o->depth > 0) room_enter(ROOM_COMBAT, RW_UPGRADE, o->depth);
 
         int room_id = G.room.id, secret_parent = -1;
         int stats_rooms = G.room.type == ROOM_STATS, shops = G.room.type == ROOM_SHOP, secrets = 0;
         int workshops = G.room.type == ROOM_WORKSHOP;
+        int bosses = G.room.type == ROOM_BOSS, bosses_beaten = 0, boss_hits = 0, hits_at_entry = 0;
+        float boss_time = 0.0f;
         bool was_cleared = G.room.cleared;
         int choices = 0; /* one-of-N pickups offered when the room was cleared */
         float room_time = 0.0f;
@@ -1177,11 +1259,18 @@ int headless_run(const HeadlessOptions *o) {
                     stats_rooms += G.room.type == ROOM_STATS;
                     shops += G.room.type == ROOM_SHOP;
                     workshops += G.room.type == ROOM_WORKSHOP;
+                    bosses += G.room.type == ROOM_BOSS;
+                    hits_at_entry = hits;
                     was_cleared = false;
                 }
             }
             if (G.room.cleared && !was_cleared) {
                 if ((err = check_room_reward()) != NULL) break;
+                if (G.room.type == ROOM_BOSS) {
+                    bosses_beaten++;
+                    boss_time += room_time;
+                    boss_hits += hits - hits_at_entry;
+                }
                 if (!G.room.revisit && v2_dist(G.pl.pos, v2(ARENA_CX, ARENA_Y1 - 80.0f)) > 1.0f) {
                     err = "room cleared but the ship was not moved back to the entry spot";
                     break;
@@ -1198,6 +1287,10 @@ int headless_run(const HeadlessOptions *o) {
             if ((err = check_invariants(room_time)) != NULL) break;
         }
         total_ticks += tick;
+        if (G.room.type == ROOM_BOSS && !G.room.cleared) { /* died (or ran out of time) against the boss */
+            boss_time += room_time;
+            boss_hits += hits - hits_at_entry;
+        }
 
         const char *outcome = err ? "FAIL" : G.state == GS_GAMEOVER ? "died" : "time limit";
         const Player *p = &G.pl;
@@ -1216,6 +1309,7 @@ int headless_run(const HeadlessOptions *o) {
         printf(" actives=");
         for (int i = 0; i < na; i++) printf("%s%d%s", active_option_name(acts[i]), p->act[acts[i]].level, i + 1 < na ? "+" : "");
         printf("%s uses=%d", na ? "" : "none", G.active_uses);
+        if (bosses) printf(" bosses=%d/%d (%.0fs, %d hits)", bosses_beaten, bosses, (double)boss_time, boss_hits);
         if (workshops) printf(" workshops=%d machine_uses=%d augments=%d", workshops, G.machine_uses, G.augments);
         if (start_revives > p->revives) printf(" second_winds=%d", start_revives - p->revives);
         if (stats_rooms)
@@ -1229,6 +1323,9 @@ int headless_run(const HeadlessOptions *o) {
             failures++;
         } else if (o->shop_room && o->coins >= 30 && G.items_bought == 0) {
             printf("  started in a shop with %d coins but never bought anything\n", G.pl.coins);
+            failures++;
+        } else if (o->boss_room && bosses_beaten == 0) {
+            printf("  started in a boss room but never beat the boss\n");
             failures++;
         } else if (o->workshop_room && (G.machine_uses == 0 || G.augments == 0)) {
             printf("  started in a workshop but never used a machine (%d) or took an augment (%d)\n", G.machine_uses, G.augments);

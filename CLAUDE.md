@@ -70,6 +70,15 @@ All graphics and sounds are generated in code. See README.md for controls and ar
 - After a room is cleared the player chooses between 3 doors; each door previews what the next
   room gives. One door may be locked (costs a key). The 3 doors are always different (no reward or
   special room behind two doors, locked or not).
+- **Boss rooms** (`ROOM_BOSS`, every `BOSS_EVERY` = 10 rooms: depth 10, 20...): the room before has a
+  single, never locked door, the boss room (`gen_doors`; the only room without 3 doors). Like every room
+  it starts with its fight: one wave, the boss (`EN_BOSS`, THE OVERSEER, `update_boss` in `enemies.c`),
+  open floor, no secret; once it is dead (its minions die with it) it leaves a choice of 3 upgrades
+  (`RW_UPGRADE`). Health bar at the top of the HUD (`draw_boss_bar`). The boss never scales either: later
+  bosses only call more minions. Its damage goes through `enemy_damage_cap` (0 while invulnerable after a
+  phase change, stops at each phase threshold) - any new direct `e->hp -=` must use it too; execute
+  effects (GUILLOTINE) and pulls skip it. A new boss attack must respect TIME STOP (it does as long as it
+  lives in `update_boss`).
 
 These rules are enforced by invariants in `src/headless.c`; keep them there when adding rooms.
 Besides the two peaceful room types, the only exception is the F3 debug menu (`src/debug_menu.c`), a dev tool that can teleport into a
@@ -91,7 +100,7 @@ cmake --preset asan && cmake --build --preset asan -j && ctest --preset asan   #
 
 Do not launch the game in a real window to test it. Use:
 
-- `neon_breach --headless [--god] [--seed N] [--runs N] [--depth N] [--stats]` — simulation only,
+- `neon_breach --headless [--god] [--seed N] [--runs N] [--depth N] [--stats] [--boss]` — simulation only,
   driven by the autopilot in `src/bot.c`, invariants checked every tick. Add `--fail-shot f.bmp`
   to get an offscreen render of the failing frame. `--toggle-upgrades` makes the bot turn random
   upgrades off / on (the bot also turns a weapon mod off by itself when its shots hit nothing for 10 s).

@@ -17,6 +17,7 @@ typedef struct {
     bool stats_room;   /* start in a Stats room instead */
     bool shop_room;    /* start in a Shop instead */
     bool workshop_room; /* start in a Workshop instead */
+    bool boss_room;    /* start in a boss room (depth BOSS_EVERY unless depth is set); fail if the boss is not beaten */
     int coins;         /* extra starting coins */
     bool secret;       /* every eligible room hides a secret room; fail if the bot never finds one */
     bool all_upgrades; /* start with one of every upgrade */

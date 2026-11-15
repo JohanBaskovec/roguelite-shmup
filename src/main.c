@@ -24,6 +24,7 @@ typedef struct {
     bool secret;           /* --secret: every eligible room hides a secret room */
     bool show_stats;       /* --show-stats: start with the F2 stats overlay visible */
     bool workshop_room;    /* --workshop: start in a workshop */
+    bool boss_room;        /* --boss: start in a boss room (depth 10 unless --depth) */
     bool cleared;          /* --cleared: the starting room is already cleared (dev, like the F3 menu) */
     bool no_bot;           /* --no-bot: screenshots without the autopilot (the ship stays put) */
     int character;         /* --char NAME: normal / shotgunner / knight */
@@ -65,6 +66,7 @@ static void parse_args(int argc, char **argv, Options *o) {
         else if (!strcmp(a, "--stats")) o->stats_room = true;
         else if (!strcmp(a, "--shop")) o->shop_room = true;
         else if (!strcmp(a, "--workshop")) o->workshop_room = true;
+        else if (!strcmp(a, "--boss")) o->boss_room = true;
         else if (!strcmp(a, "--cleared")) o->cleared = true;
         else if (!strcmp(a, "--no-bot")) o->no_bot = true;
         else if (!strcmp(a, "--debug-rooms")) o->debug_rooms = true;
@@ -216,7 +218,7 @@ int main(int argc, char **argv) {
             .seed = opt.has_seed ? opt.seed : SDL_GetPerformanceCounter(),
             .runs = opt.runs, .max_ticks = opt.ticks, .depth = opt.depth, .stats_room = opt.stats_room,
             .shop_room = opt.shop_room, .coins = opt.coins, .debug_rooms = opt.debug_rooms, .secret = opt.secret,
-            .all_upgrades = opt.all_upgrades, .hp = opt.hp, .character = opt.character, .workshop_room = opt.workshop_room,
+            .all_upgrades = opt.all_upgrades, .hp = opt.hp, .character = opt.character, .workshop_room = opt.workshop_room, .boss_room = opt.boss_room,
             .actives = opt.actives, .active_room = opt.active_room, .weapon = opt.weapon, .toggle_upgrades = opt.toggle_upgrades, .god = opt.god, .expect_rooms = opt.expect_rooms, .fail_shot = opt.fail_shot,
         };
         return headless_run(&h);
@@ -255,7 +257,7 @@ int main(int argc, char **argv) {
     G.reveal_secrets = opt.show_secret;
     G.show_stats = opt.show_stats;
     G.character = opt.character;
-    if (opt.stats_room || opt.shop_room || opt.workshop_room || opt.active_room || opt.actives || opt.weapon >= 0 || opt.cleared || opt.depth > 0 ||
+    if (opt.stats_room || opt.shop_room || opt.workshop_room || opt.boss_room || opt.active_room || opt.actives || opt.weapon >= 0 || opt.cleared || opt.depth > 0 ||
         opt.coins > 0 || opt.debug_menu || opt.all_upgrades || opt.upgrades_menu) {
         game_new_run();
         G.pl.coins += opt.coins;
@@ -269,6 +271,7 @@ int main(int argc, char **argv) {
         if (opt.stats_room) room_enter(ROOM_STATS, RW_NONE, depth);
         else if (opt.shop_room) room_enter(ROOM_SHOP, RW_NONE, depth);
         else if (opt.workshop_room) room_enter(ROOM_WORKSHOP, RW_NONE, depth);
+        else if (opt.boss_room) room_enter(ROOM_BOSS, RW_UPGRADE, opt.depth > 0 ? opt.depth : BOSS_EVERY);
         else if (opt.active_room) room_enter(ROOM_COMBAT, RW_ACTIVE, depth);
         else if (opt.depth > 0) room_enter(ROOM_COMBAT, RW_UPGRADE, depth);
         if (opt.cleared) room_debug_clear();

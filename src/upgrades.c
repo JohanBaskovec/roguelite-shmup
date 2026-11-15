@@ -478,7 +478,7 @@ void upg_bullet_update(PBullet *b) {
             V2 d = v2_sub(b->pos, e->pos);
             float dist = v2_len(d);
             if (e->hp <= 0.0f || dist > 260.0f || dist < 1.0f) continue;
-            e->vel = v2_add(e->vel, v2_scale(d, 900.0f * DT / dist));
+            if (e->type != EN_BOSS) e->vel = v2_add(e->vel, v2_scale(d, 900.0f * DT / dist));
             if (dist < 70.0f + e->radius) enemy_damage(e, b->damage * DT, v2(0, 0));
         }
         return;
@@ -512,8 +512,8 @@ float upg_hit_damage(const PBullet *b, const Enemy *e) {
     if ((n = has(UPG_GIANT_SLAYER)) > 0 && e->max_hp >= 200.0f) dmg *= 1.0f + 0.6f * (float)n;
     if (has(UPG_FROSTBITE) && e->slow_t > 0.0f) dmg *= 1.35f;
     if (has(UPG_MOMENTUM)) dmg *= 1.0f + p->momentum;
-    /* GUILLOTINE: a hit that leaves an enemy under 15% finishes it. */
-    if (has(UPG_GUILLOTINE) && e->hp - dmg < e->max_hp * 0.15f) {
+    /* GUILLOTINE: a hit that leaves an enemy under 15% finishes it (never the boss). */
+    if (has(UPG_GUILLOTINE) && e->type != EN_BOSS && e->hp - dmg < e->max_hp * 0.15f) {
         fx_particle(e->pos, v2(0, 0), 0.3f, e->radius * 3.0f, col_hex(0xff4466, 1), 0.0f, PT_RING);
         return e->hp + 1.0f;
     }
@@ -792,7 +792,7 @@ void upg_update(void) {
         for (int i = 0; i < G.nen; i++) {
             Enemy *e = &G.en[i];
             if (e->hp <= 0.0f || v2_dist2(e->pos, p->pos) > (radius + e->radius) * (radius + e->radius)) continue;
-            e->hp -= dps * DT;
+            e->hp -= enemy_damage_cap(e, dps * DT);
             G.last_enemy_damage_t = G.time;
             if ((G.ticks + e->uid * 7) % 18 == 0) lightning(p->pos, e->pos);
         }

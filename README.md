@@ -71,6 +71,12 @@ Après l'écran titre, on choisit son vaisseau (A / D, 1-3 ou souris, puis clic 
   - **Supply Press** (en bas à gauche) : 1/2 cœur de dégâts (bouclier d'abord) contre des pièces (45 %, 5-8), une bombe (30 %) ou une clef (25 %). 3 à 5 utilisations, refusée s'il ne reste qu'un demi-cœur.
   - **Augments** (au centre) : bonus **exclusifs** au workshop, très puissants (stats + effet), payés en **PV max** : 1 cœur (Blood Rounds, Overdrive Core), 2 cœurs (Hellfire Engine, Storm Core) ou 3 cœurs (Demon Heart, God Cannon). Un emplacement par palier abordable (il faut garder au moins 1 cœur max), on en prend un seul.
   - **Slot Machine** (en bas à droite) : affiche le nom et l'effet du lot (une amélioration) ; chaque mise coûte 5 pièces, `30 % + 3 % x chance` de gagner (entre 15 et 50 %). Le lot gagné tombe devant la machine.
+- **Salles de boss** (salle 10, 20, 30...) : la salle 9 (puis 19, 29...) n'a qu'**une seule porte**, rouge, marquée d'un œil : la salle du boss (jamais verrouillée). Arène sans obstacles, une seule « vague » : **THE OVERSEER**, un grand hexagone à l'œil qui suit le vaisseau (4800 PV, `EN_BOSS` dans `src/enemies.c`). Sa **barre de vie** est affichée en haut de l'écran, avec les seuils de phase (66 % et 33 %) et une traînée blanche des dégâts récents. Il plane dans la moitié haute et enchaîne ses attaques avec une courte pause entre deux (jamais deux fois la même d'affilée) :
+  - **Phase 1** : spirale à 3 bras ; 3 éventails visés de 7 balles ; anneaux de 32 balles avec une brèche de 4 qui se déplace d'un anneau à l'autre.
+  - **Phase 2** (66 %) : + **charge** annoncée par un large faisceau (il vise puis se verrouille), traverse l'arène en semant des balles lentes et finit par un anneau ; + **croix tournante** de 4 flux qui change de sens à mi-parcours ; les éventails sont doublés.
+  - **Phase 3 « ENRAGED »** (33 %) : tout est 30 % plus rapide, spirale double contra-rotative, croix à 6 flux, et il appelle des renforts (chasers et shooters ; `2 + profondeur / 10`, donc plus nombreux aux boss suivants — le boss, lui, ne change jamais).
+  - Chaque changement de phase efface les balles, le rend invulnérable 1,4 s (anneau doré) et lâche une onde de choc ; un gros coup ne peut pas sauter une phase (les dégâts s'arrêtent au seuil). Guillotine ne l'exécute pas, Black Hole ne l'attire pas.
+  - À sa mort, ses renforts et toutes les balles disparaissent, et il laisse **3 améliorations au choix** (on en prend une).
 - **Pas d'armes, seulement des améliorations** : le vaisseau tire toujours de la même façon au départ (tirs rapides, un projectile par salve). Les anciennes armes sont devenues des **améliorations de tir** (13, proposées comme les autres) qui transforment le tir et **se combinent toutes entre elles** (`gun_profile()` dans `src/weapons.c` : chacune multiplie ou ajoute à la cadence, aux dégâts, au nombre de projectiles, à la vitesse, à la portée...). Aucune notion d'arme dans le jeu : ni salle d'arme, ni changement d'arme, ni arme affichée.
 - **Chaque amélioration ne se prend qu'une fois** : une amélioration possédée (même désactivée) n'est plus jamais proposée, nulle part (salles, boutiques, salles secrètes, machine à sous). Si on la prend ailleurs alors qu'elle est encore proposée quelque part (ex. de retour d'une salle secrète), l'offre est remplacée par une autre. Quand toutes les améliorations sont possédées, les salles proposent des échanges de stats à la place. Aucune amélioration n'est réservée à un personnage.
   - **Scatter** : projectiles x8 en éventail large, portée courte, cadence plus lente (recul).
@@ -115,7 +121,7 @@ Après l'écran titre, on choisit son vaisseau (A / D, 1-3 ou souris, puis clic 
 | `upgrade_menu.c` | Menu Tab : améliorations trouvées, activer / désactiver |
 | `actives.c` | Objets activables (11), niveaux, tourelle et lames, icônes, choix des salles Active |
 | `workshop.c` | Machines du workshop (Supply Press, Slot Machine) et emplacements des augments |
-| `enemies.c` | 10 types d'ennemis et leurs patterns de balles |
+| `enemies.c` | 10 types d'ennemis et leurs patterns de balles, et le boss (The Overseer : phases, attaques) |
 | `bullets.c` | Balles joueur / ennemies, collisions |
 | `pickups.c` | Pièces, clefs, bombes, cœurs, objets sur piédestal, icônes |
 | `fx.c` | Particules, screen shake, popups, bannières |
@@ -127,7 +133,7 @@ Après l'écran titre, on choisit son vaisseau (A / D, 1-3 ou souris, puis clic 
 | `characters.c` | Personnages (stats et amélioration de départ) et écran de sélection |
 | `debug_menu.c` | Menu de debug F3 : téléportation dans chaque type de salle (avec / sans ennemis), cheats |
 
-Les types de salles `ROOM_TREASURE` et `ROOM_BOSS` sont déjà prévus (sur le modèle de `ROOM_STATS` / `ROOM_SHOP`) dans `RoomType` (`game.h`) : il suffit de les générer dans `gen_doors()` (`room.c`) et de leur donner un comportement dans `room_enter()`.
+Le type de salle `ROOM_TREASURE` est déjà prévu (sur le modèle de `ROOM_STATS` / `ROOM_SHOP`) dans `RoomType` (`game.h`) : il suffit de le générer dans `gen_doors()` (`room.c`) et de lui donner un comportement dans `room_enter()`.
 
 ## Tests (sans fenêtre)
 
@@ -138,7 +144,7 @@ ctest --preset asan         # même suite sous AddressSanitizer + UBSan (cmake -
 
 Aucun test n'ouvre de fenêtre :
 
-- **Simulation headless** (`--headless`) : pas de vidéo ni d'audio, un autopilote (`bot.c`) joue aussi vite que le CPU le permet (~500x le temps réel). Des invariants sont vérifiés à chaque tick (positions finies et dans l'arène, PV cohérents, stats toujours égales à la base + les améliorations actives, amélioration désactivée sans aucun effet, amélioration jamais possédée deux fois ni proposée une fois possédée, aucun objet au sol avant la fin d'une salle (pas de drop d'ennemi), shop à 5 objets, portes toujours uniques, objets activables (aucun au départ, 3 objets distincts, ceux qu'on possède seulement s'ils peuvent encore monter de niveau, objet désactivé sans effet, Chaos ne prête que des améliorations non possédées et les retire toutes), machines et augments du workshop, ennemis toujours aux PV de leur type, vaisseau replacé en fin de salle, 3 choix dans les salles d'amélioration, butin et retour des salles secrètes, pas de salle bloquée — aucun ennemi touché pendant 60 s —, pas de salle nettoyée jamais quittée). Comme un joueur dans le menu Tab, le bot désactive une de ses améliorations de tir quand ses tirs n'ont rien touché depuis 10 s (combinaison inadaptée). En cas d'échec, `--fail-shot` enregistre l'image de l'instant fautif (rendue offscreen).
+- **Simulation headless** (`--headless`) : pas de vidéo ni d'audio, un autopilote (`bot.c`) joue aussi vite que le CPU le permet (~500x le temps réel). Des invariants sont vérifiés à chaque tick (positions finies et dans l'arène, PV cohérents, stats toujours égales à la base + les améliorations actives, amélioration désactivée sans aucun effet, amélioration jamais possédée deux fois ni proposée une fois possédée, aucun objet au sol avant la fin d'une salle (pas de drop d'ennemi), shop à 5 objets, portes toujours uniques, objets activables (aucun au départ, 3 objets distincts, ceux qu'on possède seulement s'ils peuvent encore monter de niveau, objet désactivé sans effet, Chaos ne prête que des améliorations non possédées et les retire toutes), machines et augments du workshop, ennemis toujours aux PV de leur type, vaisseau replacé en fin de salle, 3 choix dans les salles d'amélioration, salle de boss toutes les 10 salles derrière l'unique porte de la salle d'avant, boss qui ne saute jamais une phase et laisse 3 améliorations au choix, butin et retour des salles secrètes, pas de salle bloquée — aucun ennemi touché pendant 60 s —, pas de salle nettoyée jamais quittée). Comme un joueur dans le menu Tab, le bot désactive une de ses améliorations de tir quand ses tirs n'ont rien touché depuis 10 s (combinaison inadaptée). En cas d'échec, `--fail-shot` enregistre l'image de l'instant fautif (rendue offscreen).
 - **Rendu** : `--shot` dessine dans le pilote vidéo `offscreen` de SDL et sauve un BMP.
 - **Audio** : `--dump-sfx` synthétise tous les sons en WAV.
 
@@ -146,7 +152,7 @@ Les sorties des tests sont dans `build/<preset>/test-output/`.
 
 ## Menu de debug (F3)
 
-Fige le jeu et permet de se téléporter dans chaque type de salle (Launch Bay, combat, Stats, Shop, Workshop, salle secrète), **avec ses ennemis** ou **sans ennemis** (salle déjà nettoyée, récompense déjà sortie) ; la Launch Bay et la salle secrète n'ont que « sans ennemis ». On choisit aussi la profondeur de la salle et la récompense des salles de combat (aléatoire ou imposée). Pour la salle secrète, on arrive depuis une salle de combat nettoyée, où l'on revient en sortant. Bonus : god mode, overlay FPS, « secret dans chaque salle », « afficher le coin secret » (carré, libellé et rayon de la bombe ; le coin est aussi indiqué en bas du menu), +50 pièces, +3 bombes, « give upgrade » (choisir n'importe quelle amélioration), « give active » (n'importe quel objet activable). La récompense « ACTIVE » est dans la liste des récompenses de combat. Pour la salle secrète, on choisit aussi son contenu (aléatoire / objet / shop) ; « avec ennemis » donne l'embuscade. Navigation flèches / WASD + Entrée, ou à la souris ; F3 ou Échap pour fermer.
+Fige le jeu et permet de se téléporter dans chaque type de salle (Launch Bay, combat, Stats, Shop, Workshop, boss — à la prochaine profondeur multiple de 10 —, salle secrète), **avec ses ennemis** ou **sans ennemis** (salle déjà nettoyée, récompense déjà sortie) ; la Launch Bay et la salle secrète n'ont que « sans ennemis ». On choisit aussi la profondeur de la salle et la récompense des salles de combat (aléatoire ou imposée). Pour la salle secrète, on arrive depuis une salle de combat nettoyée, où l'on revient en sortant. Bonus : god mode, overlay FPS, « secret dans chaque salle », « afficher le coin secret » (carré, libellé et rayon de la bombe ; le coin est aussi indiqué en bas du menu), +50 pièces, +3 bombes, « give upgrade » (choisir n'importe quelle amélioration), « give active » (n'importe quel objet activable). La récompense « ACTIVE » est dans la liste des récompenses de combat. Pour la salle secrète, on choisit aussi son contenu (aléatoire / objet / shop) ; « avec ennemis » donne l'embuscade. Navigation flèches / WASD + Entrée, ou à la souris ; F3 ou Échap pour fermer.
 
 ## Options de dev
 
@@ -161,6 +167,7 @@ neon_breach --stats                                     # démarrer directement 
 neon_breach --shop --coins 50                           # démarrer dans un shop avec 50 pièces
 neon_breach --debug-menu                                # ouvrir le menu de debug au démarrage
 neon_breach --workshop --coins 30                       # démarrer dans un workshop
+neon_breach --boss                                      # démarrer dans la salle du boss (salle 10, ou --depth 20...)
 neon_breach --shot w.bmp --workshop --cleared --no-bot  # capture du workshop déjà nettoyé, sans autopilote
 neon_breach --active shield                             # démarrer avec un objet activable, option répétable (dash / shield / boom / strength / chaos /
                                                         #   reversal / turret / blink / nova / timestop / blades)
