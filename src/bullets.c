@@ -30,7 +30,35 @@ EBullet *ebullet_spawn(V2 pos, float angle, float speed, float radius, SDL_FColo
     b->accel = 0.0f;
     b->curve = 0.0f;
     b->col = col;
+    b->kind = EB_NORMAL;
+    b->n = 0;
+    b->t1 = 0.0f;
+    b->dir = v2(0, 0);
     return b;
+}
+
+EBullet *ebullet_lob(V2 from, V2 to, float flight, int n, SDL_FColor col) {
+    to.x = clampf(to.x, ARENA_X0 + 30.0f, ARENA_X1 - 30.0f);
+    to.y = clampf(to.y, ARENA_Y0 + 30.0f, ARENA_Y1 - 30.0f);
+    EBullet *b = ebullet_spawn(from, 0.0f, 0.0f, 9.0f, col);
+    if (!b) return NULL;
+    b->kind = EB_GRENADE;
+    b->vel = v2_scale(v2_sub(to, from), 1.0f / flight); /* ground speed: lands right on target */
+    b->life = b->t1 = flight;
+    b->n = n;
+    return b;
+}
+
+/* A grenade landing / a mine going off: a ring of bullets and a flash. */
+static void ebullet_burst(const EBullet *b) {
+    V2 p = b->pos;
+    SDL_FColor c = b->col;
+    int n = b->n > 0 ? b->n : 8;
+    float off = frand(0.0f, TAU_F);
+    for (int k = 0; k < n; k++) ebullet_spawn(p, off + TAU_F * (float)k / (float)n, 210.0f, 7.0f, c);
+    fx_particle(p, v2(0, 0), 0.3f, 90.0f, c, 0.0f, PT_RING);
+    fx_burst(p, 10, 80.0f, 300.0f, 0.3f, 2.5f, c);
+    sfx_play_at(SFX_EXPLODE_SMALL, p);
 }
 
 void ebullets_clear(bool with_fx) {
@@ -144,10 +172,19 @@ static void update_player_bullets(void) {
         if (!dead && !(b->flags & PB_VORTEX)) {
             for (int j = 0; j < G.nen; j++) {
                 Enemy *e = &G.en[j];
-                if (e->hp <= 0.0f || e->uid == b->last_hit) continue;
+                if (e->hp <= 0.0f || e->uid == b->last_hit || enemy_untouchable(e)) continue;
                 float rr = e->radius + b->radius;
                 if (v2_dist2(b->pos, e->pos) >= rr * rr) continue;
                 V2 dir = b->flags & PB_MINE ? v2_norm(v2_sub(e->pos, b->pos)) : v2_norm(b->vel);
+                if (enemy_blocks_shot(e, v2_sub(b->pos, v2_scale(b->vel, DT)))) {
+                    /* MIRROR: its front plate stops the shot cold (go around it) */
+                    fx_burst(b->pos, 4, 80.0f, 300.0f, 0.15f, 2.0f, col_hex(0xd8f6ff, 1));
+                    if ((G.ticks + i) % 4 == 0) sfx_play_at(SFX_DEFLECT, b->pos);
+                    b->last_hit = e->uid;
+                    if (b->pierce > 0) b->pierce--;
+                    else dead = true;
+                    break;
+                }
                 float dmg = upg_hit_damage(b, e);
                 enemy_damage(e, dmg, v2_scale(dir, b->knockback));
                 upg_after_hit(b, e, dmg);
@@ -200,7 +237,7 @@ static void update_enemy_bullets(void) {
         if (active_time_stop_on()) { /* TIME STOP: frozen in place, still dangerous to touch */
             float rr = b->radius * 0.75f + pl->hit_radius;
             if (G.state == GS_PLAYING && pl->invuln <= 0.0f && pl->dash_t <= 0.0f && !active_shield_on() &&
-                b->life > 0.0f && v2_dist2(b->pos, pl->pos) < rr * rr) {
+                b->life > 0.0f && !ebullet_airborne(b) && v2_dist2(b->pos, pl->pos) < rr * rr) {
                 player_hurt(1);
                 G.eb[i] = G.eb[--G.neb];
                 i--;
@@ -212,7 +249,56 @@ static void update_enemy_bullets(void) {
         }
         b->life -= DT;
         b->age += DT;
-        if (b->life <= 0.0f) dead = true;
+        if (b->life <= 0.0f) {
+            dead = true;
+            /* Fuse ran out (not marked dead by a sword / shield: those set life to -1). */
+            if ((b->kind == EB_GRENADE || b->kind == EB_MINE) && b->life > -0.5f) ebullet_burst(b);
+        }
+        b = &G.eb[i]; /* the burst appended bullets: same slot, still this one */
+
+        if (!dead) {
+            float tempo = upg_enemy_bullet_tempo(b->pos);
+            switch (b->kind) {
+            case EB_MINE:
+                b->vel = v2(0, 0);
+                /* Armed after a moment: the ship coming close shortens the fuse to a blink. */
+                if (b->age > 0.6f && b->life > 0.45f && v2_dist2(b->pos, pl->pos) < 95.0f * 95.0f) {
+                    b->life = 0.45f;
+                    sfx_play_at(SFX_BEEP, b->pos);
+                }
+                break;
+            case EB_BOOMERANG:
+                b->vel = v2_sub(b->vel, v2_scale(b->dir, b->t1 * DT * tempo));
+                break;
+            case EB_SPLIT:
+                if (b->age >= b->t1) {
+                    EBullet split = *b;
+                    float off = v2_heading(b->vel);
+                    for (int k = 0; k < split.n; k++)
+                        ebullet_spawn(split.pos, off + TAU_F * ((float)k + 0.5f) / (float)split.n, 230.0f, split.radius * 0.6f, split.col);
+                    b = &G.eb[i];
+                    fx_particle(split.pos, v2(0, 0), 0.2f, split.radius * 5.0f, split.col, 0.0f, PT_RING);
+                    dead = true;
+                }
+                break;
+            case EB_HOMING:
+                if (b->age < b->t1) {
+                    float want = v2_heading(v2_sub(pl->pos, b->pos)), have = v2_heading(b->vel);
+                    float diff = atan2f(sinf(want - have), cosf(want - have));
+                    float turn = clampf(diff, -2.2f * DT, 2.2f * DT);
+                    b->vel = v2_rotate(b->vel, turn * tempo);
+                }
+                break;
+            case EB_WAVY:
+                if (v2_len2(b->vel) > 1.0f) {
+                    float dy = 34.0f * (sinf(7.0f * b->age) - sinf(7.0f * (b->age - DT)));
+                    b->pos = v2_add(b->pos, v2_scale(v2_perp(v2_norm(b->vel)), dy * tempo));
+                }
+                break;
+            default:
+                break;
+            }
+        }
 
         if (!dead) {
             if (b->accel != 0.0f) {
@@ -224,10 +310,20 @@ static void update_enemy_bullets(void) {
             }
             if (b->curve != 0.0f) b->vel = v2_rotate(b->vel, b->curve * DT);
             b->pos = v2_add(b->pos, v2_scale(b->vel, DT * upg_enemy_bullet_tempo(b->pos)));
-            if (room_collide_circle(&b->pos, b->radius * 0.5f, NULL)) dead = true;
+            V2 n;
+            if (b->kind == EB_GRENADE) {
+                /* flies over obstacles */
+            } else if (room_collide_circle(&b->pos, b->radius * 0.5f, &n)) {
+                if (b->kind == EB_BOUNCE && b->n > 0) {
+                    b->n--;
+                    reflect(&b->vel, n);
+                } else {
+                    dead = true;
+                }
+            }
         }
 
-        if (!dead && G.state == GS_PLAYING && pl->invuln <= 0.0f && pl->dash_t <= 0.0f && !active_shield_on()) {
+        if (!dead && !ebullet_airborne(b) && G.state == GS_PLAYING && pl->invuln <= 0.0f && pl->dash_t <= 0.0f && !active_shield_on()) {
             float rr = b->radius * 0.75f + pl->hit_radius, gr = rr + 30.0f;
             float d2 = v2_dist2(b->pos, pl->pos);
             if (d2 < rr * rr) {
@@ -343,18 +439,68 @@ void bullets_draw_player(void) {
     draw_blend_alpha();
 }
 
+/* A grenade's height above its shadow (an arc over its flight). */
+static float grenade_height(const EBullet *b) {
+    float k = b->t1 > 0.0f ? clampf(b->age / b->t1, 0.0f, 1.0f) : 1.0f;
+    return sinf(PI_F * k) * (60.0f + 70.0f * b->t1);
+}
+
 void bullets_draw_enemy(void) {
+    /* Ground marks first: grenade shadows and where they will land, mine blast zones. */
+    for (int i = 0; i < G.neb; i++) {
+        const EBullet *b = &G.eb[i];
+        if (b->kind == EB_GRENADE) {
+            V2 land = v2_add(b->pos, v2_scale(b->vel, fmaxf(b->life, 0.0f)));
+            float k = clampf(b->age / fmaxf(b->t1, 0.01f), 0.0f, 1.0f);
+            draw_ring(land, 22.0f + 18.0f * (1.0f - k), 2.0f, col_a(b->col, 0.25f + 0.45f * k));
+            draw_circle(b->pos, b->radius * 0.9f, rgba(0, 0, 0, 0.45f));
+        } else if (b->kind == EB_MINE && b->life < 0.45f) {
+            bool on = fmodf(b->life, 0.1f) < 0.05f;
+            draw_ring(b->pos, 95.0f, 2.0f, col_a(b->col, on ? 0.6f : 0.2f));
+        }
+    }
     draw_blend_add();
     for (int i = 0; i < G.neb; i++) {
         const EBullet *b = &G.eb[i];
         float s = fminf(1.0f, b->age / 0.08f);
-        draw_glow(b->pos, b->radius * 2.4f * s, col_a(b->col, 0.5f));
+        V2 p = b->kind == EB_GRENADE ? v2(b->pos.x, b->pos.y - grenade_height(b)) : b->pos;
+        draw_glow(p, b->radius * 2.4f * s, col_a(b->col, 0.5f));
     }
     draw_blend_alpha();
     for (int i = 0; i < G.neb; i++) {
         const EBullet *b = &G.eb[i];
         float s = fminf(1.0f, b->age / 0.08f);
-        draw_circle(b->pos, b->radius * s, b->col);
-        draw_circle(b->pos, b->radius * 0.55f * s, COL_WHITE);
+        switch (b->kind) {
+        case EB_GRENADE: {
+            V2 p = v2(b->pos.x, b->pos.y - grenade_height(b));
+            draw_circle(p, b->radius * 1.15f, b->col);
+            draw_ngon_outline(p, b->radius * 1.15f, 6, b->age * 9.0f, 2.0f, COL_WHITE);
+        } break;
+        case EB_MINE: {
+            bool armed = b->age > 0.6f;
+            bool blink = b->life < 0.45f ? fmodf(b->life, 0.1f) < 0.05f : fmodf(b->age, 0.8f) < 0.12f;
+            draw_ngon(b->pos, b->radius * 1.3f, 8, b->age * 1.5f, col_mul(b->col, 0.45f));
+            draw_ngon_outline(b->pos, b->radius * 1.3f, 8, b->age * 1.5f, 2.0f, b->col);
+            draw_circle(b->pos, b->radius * 0.45f, armed && blink ? COL_WHITE : b->col);
+        } break;
+        case EB_BOOMERANG: {
+            float a = b->age * 14.0f;
+            for (int k = 0; k < 3; k++)
+                draw_line(b->pos, v2_add(b->pos, v2_scale(v2_angle(a + TAU_F * (float)k / 3.0f), b->radius * 1.5f)), 4.0f, b->col);
+            draw_circle(b->pos, b->radius * 0.5f, COL_WHITE);
+        } break;
+        case EB_SPLIT: {
+            float k = clampf(b->age / fmaxf(b->t1, 0.01f), 0.0f, 1.0f);
+            float wob = 1.0f + 0.12f * sinf(b->age * (10.0f + 30.0f * k));
+            draw_circle(b->pos, b->radius * wob * s, b->col);
+            draw_circle(b->pos, b->radius * (0.3f + 0.4f * k) * s, COL_WHITE);
+        } break;
+        default:
+            draw_circle(b->pos, b->radius * s, b->col);
+            draw_circle(b->pos, b->radius * 0.55f * s, COL_WHITE);
+            if (b->kind == EB_HOMING && b->age < b->t1) draw_ring(b->pos, b->radius * 1.5f, 1.5f, col_a(b->col, 0.6f));
+            if (b->kind == EB_BOUNCE && b->n > 0) draw_ring(b->pos, b->radius * 1.4f, 1.5f, col_a(COL_WHITE, 0.5f));
+            break;
+        }
     }
 }

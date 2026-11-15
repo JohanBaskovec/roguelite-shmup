@@ -482,6 +482,21 @@ static V2 find_spawn_point(float rad) {
     return v2(ARENA_CX, ARENA_Y0 + 160.0f);
 }
 
+/* Crawlers appear on the arena wall, away from the ship. */
+static V2 wall_spawn_point(float r) {
+    for (int tries = 0; tries < 20; tries++) {
+        V2 p;
+        switch (irand(0, 3)) {
+        case 0: p = v2(frand(ARENA_X0 + 120, ARENA_X1 - 120), ARENA_Y0 + r); break;
+        case 1: p = v2(frand(ARENA_X0 + 120, ARENA_X1 - 120), ARENA_Y1 - r); break;
+        case 2: p = v2(ARENA_X0 + r, frand(ARENA_Y0 + 120, ARENA_Y1 - 120)); break;
+        default: p = v2(ARENA_X1 - r, frand(ARENA_Y0 + 120, ARENA_Y1 - 120)); break;
+        }
+        if (v2_dist2(p, G.pl.pos) > 450.0f * 450.0f) return p;
+    }
+    return v2(ARENA_CX, ARENA_Y0 + r);
+}
+
 /* Wave size grows with depth - the main difficulty curve, with the number of waves and
  * the enemy types unlocking deeper (ENEMIES[].min_depth). */
 #define WAVE_BUDGET_BASE 4.0f
@@ -513,12 +528,14 @@ static void spawn_wave(void) {
     while (budget >= 1.0f && queued < cap) {
         EnemyType cand[EN_COUNT];
         int nc = 0;
-        for (int t = 0; t < EN_COUNT; t++)
-            if (ENEMIES[t].min_depth <= depth && (float)ENEMIES[t].cost <= budget) cand[nc++] = (EnemyType)t;
+        for (int t = 0; t < EN_COUNT; t++) {
+            bool ok = g_only_enemies ? (g_only_enemies >> t) & 1u : ENEMIES[t].min_depth <= depth;
+            if (ok && (float)ENEMIES[t].cost <= budget) cand[nc++] = (EnemyType)t;
+        }
         if (nc == 0) break;
         EnemyType t = cand[irand(0, nc - 1)];
         budget -= (float)ENEMIES[t].cost;
-        V2 p = find_spawn_point(ENEMIES[t].radius);
+        V2 p = t == EN_CRAWLER ? wall_spawn_point(ENEMIES[t].radius) : find_spawn_point(ENEMIES[t].radius);
         float delay = 0.65f + frand(0.0f, 0.5f);
         if (t == EN_SWARM) {
             for (int k = 0; k < 5; k++)

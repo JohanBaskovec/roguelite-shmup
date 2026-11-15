@@ -87,6 +87,9 @@ static const SfxInfo INFO[SFX_COUNT] = {
     [SFX_SHOT_ROCKET] = {0.55f, 0.08f, 3, 0.08f},
     [SFX_TELEPORT] = {0.60f, 0.10f, 1, 0.00f},
     [SFX_TIME_STOP] = {0.70f, 0.30f, 1, 0.00f},
+    [SFX_LOB] = {0.45f, 0.08f, 3, 0.10f},
+    [SFX_BEEP] = {0.30f, 0.05f, 3, 0.03f},
+    [SFX_SPLAT] = {0.55f, 0.08f, 3, 0.12f},
 };
 
 static Sample samples[SFX_COUNT];
@@ -288,6 +291,15 @@ static void generate_all(void) {
         {.wave = W_SAW, .f0 = 400, .f1 = 40, .dur = 0.6f, .decay = 1.5f, .lp0 = 2000, .lp1 = 200, .vol = 0.45f},
         {.wave = W_TRI, .f0 = C6, .dur = 0.8f, .delay = 0.1f, .decay = 2, .vib_hz = 5, .vib_depth = 0.02f, .vol = 0.25f},
         {.wave = W_SINE, .f0 = G6, .dur = 0.6f, .delay = 0.2f, .decay = 3, .vol = 0.15f});
+    /* Grenade lob: a hollow "thoonk". Mine: a short electronic beep. Splat: a wet, squelchy pop. */
+    SFX(SFX_LOB,
+        {.wave = W_SINE, .f0 = 160, .f1 = 420, .dur = 0.12f, .decay = 1.5f, .vol = 0.6f},
+        {.wave = W_NOISE, .f0 = WHITE, .dur = 0.05f, .lp0 = 1500, .vol = 0.25f});
+    SFX(SFX_BEEP,
+        {.wave = W_SQUARE, .f0 = 1760, .dur = 0.05f, .decay = 1, .duty = 0.3f, .lp0 = 5000, .vol = 0.3f});
+    SFX(SFX_SPLAT,
+        {.wave = W_NOISE, .f0 = 1800, .f1 = 300, .dur = 0.18f, .decay = 2, .lp0 = 2500, .lp1 = 400, .vol = 0.6f},
+        {.wave = W_SINE, .f0 = 520, .f1 = 90, .dur = 0.15f, .decay = 1.6f, .vib_hz = 30, .vib_depth = 0.2f, .vol = 0.5f});
     SFX(SFX_DASH,
         {.wave = W_NOISE, .f0 = WHITE, .dur = 0.16f, .attack = 0.03f, .decay = 2, .lp0 = 800, .lp1 = 6000, .vol = 0.6f},
         {.wave = W_SINE, .f0 = 300, .f1 = 700, .dur = 0.12f, .vol = 0.15f});
@@ -466,6 +478,7 @@ static const char *const SFX_NAMES[] = {
     "room_clear", "door_open", "unlock", "secret", "door_enter", "ui_start", "pause",
     "sword", "deflect", "shield", "power_up", "chaos",
     "shot_rail", "shot_flamer", "shot_rocket", "teleport", "time_stop",
+    "lob", "beep", "splat",
 };
 _Static_assert(sizeof SFX_NAMES / sizeof SFX_NAMES[0] == SFX_COUNT, "one WAV name per SfxId, in enum order");
 

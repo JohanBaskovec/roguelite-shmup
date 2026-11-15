@@ -63,6 +63,7 @@ void bot_input(void) {
             over = e;
             continue;
         }
+        if (enemy_untouchable(e)) d2 += 600.0f * 600.0f; /* rather shoot at something it can hit */
         if (room_line_clear(pl->pos, e->pos, 10.0f)) { /* bullets are up to ~8 px wide */
             if (d2 < best) { best = d2; t = e; }
         } else if (d2 < best_hidden) {
@@ -166,6 +167,12 @@ void bot_input(void) {
         V2 to = v2_sub(nearest->pos, pl->pos);
         float d = v2_len(to);
         goal = d > 1.0f ? v2_sub(nearest->pos, v2_scale(to, (nearest->radius + 55.0f) / d)) : pl->pos;
+    } else if (t && t->type == EN_MIRROR && enemy_blocks_shot(t, pl->pos)) {
+        /* Its front plate stops the shots: go around it. */
+        float side = (t->uid & 1) ? 2.3f : -2.3f;
+        goal = v2_add(t->pos, v2_scale(v2_angle(t->angle + side), 320.0f));
+        goal.x = clampf(goal.x, ARENA_X0 + 60.0f, ARENA_X1 - 60.0f);
+        goal.y = clampf(goal.y, ARENA_Y0 + 60.0f, ARENA_Y1 - 60.0f);
     } else if (!t && hidden) {
         goal = hidden->pos; /* nothing visible: go hunt */
     } else {
@@ -185,6 +192,20 @@ void bot_input(void) {
     float closest_d = 1e30f;
     for (int i = 0; i < G.neb; i++) {
         const EBullet *b = &G.eb[i];
+        /* Ground hazards: a grenade about to land, a mine, a still bullet (serpent trail). */
+        bool still = b->kind == EB_MINE || v2_len2(b->vel) < 30.0f * 30.0f;
+        if (b->kind == EB_GRENADE || still) {
+            V2 spot = b->kind == EB_GRENADE ? v2_add(b->pos, v2_scale(b->vel, fmaxf(b->life, 0.0f))) : b->pos;
+            float keep = b->kind == EB_GRENADE ? 90.0f : b->kind == EB_MINE ? 125.0f : 45.0f;
+            V2 d = v2_sub(pl->pos, spot);
+            float dd = v2_len(d);
+            if (dd < keep && (b->kind != EB_GRENADE || b->life < 0.8f)) {
+                avoid = v2_add(avoid, v2_scale(dd > 0.5f ? v2_scale(d, 1.0f / dd) : v2(0, -1), 1.5f * (1.0f - dd / keep) + 0.3f));
+                if (b->kind != EB_GRENADE) threats++;
+            }
+            if (ebullet_airborne(b)) continue; /* harmless until it lands */
+            if (still) continue;
+        }
         V2 d = v2_sub(pl->pos, b->pos);
         float dist2 = v2_len2(d);
         if (dist2 > THREAT_RADIUS * THREAT_RADIUS || v2_dot(b->vel, d) <= 0.0f) continue;
@@ -205,6 +226,18 @@ void bot_input(void) {
     for (int i = 0; i < G.nen; i++) {
         const Enemy *e = &G.en[i];
         V2 d = v2_sub(pl->pos, e->pos);
+        /* Something about to ram it (a rammer lining up / charging, a top, a hunter): get off its line. */
+        V2 line = v2(0, 0);
+        if ((e->type == EN_RAMMER || e->type == EN_HUNTER) && (e->state == 1 || e->state == 2)) line = v2_angle(e->angle);
+        else if (e->type != EN_LEAPER && v2_len2(e->vel) > 330.0f * 330.0f) line = v2_norm(e->vel);
+        if (v2_len2(line) > 0.0f && v2_dot(line, d) > 0.0f && v2_len2(d) < 700.0f * 700.0f) {
+            V2 lat = v2_sub(d, v2_scale(line, v2_dot(d, line)));
+            float miss = v2_len(lat);
+            if (miss < e->radius + 60.0f) {
+                avoid = v2_add(avoid, v2_scale(miss > 0.5f ? v2_scale(lat, 1.0f / miss) : v2_perp(line), 2.0f));
+                threats++;
+            }
+        }
         float r = e->radius + (melee ? 35.0f : 90.0f);
         float dist2 = v2_len2(d);
         if (dist2 < r * r && dist2 > 0.01f) avoid = v2_add(avoid, v2_scale(v2_norm(d), 1.5f));

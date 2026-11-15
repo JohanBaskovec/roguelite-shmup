@@ -140,6 +140,18 @@ enum {
 typedef enum { BS_BOLT, BS_SEEKER, BS_BOUNCER, BS_RAIL, BS_FLAME, BS_ROCKET, BS_CHAKRAM, BS_CLUSTER, BS_ARC, BS_WAVE,
                BS_LASER, BS_GRAVITON, BS_CRESCENT } BulletStyle;
 
+/* Enemy bullet behaviours (EBullet.kind), handled in update_enemy_bullets (bullets.c). */
+typedef enum {
+    EB_NORMAL,
+    EB_GRENADE,   /* lobbed: flies over everything, harmless in the air, bursts into a ring (n) where it lands */
+    EB_MINE,      /* still: arms, then blows into a ring (n) when its fuse ends or the ship comes close */
+    EB_BOOMERANG, /* slows down along dir, comes back */
+    EB_BOUNCE,    /* bounces off walls and obstacles (n times) */
+    EB_SPLIT,     /* bursts into a ring of n bullets after t1 seconds */
+    EB_HOMING,    /* turns towards the ship for t1 seconds */
+    EB_WAVY,      /* weaves around its line */
+} EBulletKind;
+
 typedef struct {
     V2 pos, vel;
     float radius, life, age;
@@ -147,11 +159,25 @@ typedef struct {
     float accel;    /* px/s^2 along velocity */
     float curve;    /* rad/s */
     SDL_FColor col;
+    uint8_t kind;   /* EBulletKind */
+    int n;          /* EB_GRENADE / EB_MINE / EB_SPLIT: bullets released; EB_BOUNCE: bounces left */
+    float t1;       /* EB_GRENADE: flight time; EB_SPLIT: split time; EB_HOMING: homing time; EB_BOOMERANG: braking */
+    V2 dir;         /* EB_BOOMERANG: initial direction */
 } EBullet;
+
+/* An enemy bullet that cannot hit (a grenade still in the air). */
+static inline bool ebullet_airborne(const EBullet *b) { return b->kind == EB_GRENADE && b->life > 0.0f; }
 
 /* ---- Enemies ------------------------------------------------------------- */
 
-typedef enum { EN_CHASER, EN_SWARM, EN_SHOOTER, EN_BURSTER, EN_SPINNER, EN_SNIPER, EN_TANK, EN_WARDEN, EN_HUNTER, EN_HIVE, EN_BOSS, EN_COUNT } EnemyType;
+typedef enum {
+    EN_CHASER, EN_SWARM, EN_SHOOTER, EN_BURSTER, EN_SPINNER, EN_SNIPER, EN_TANK, EN_WARDEN, EN_HUNTER, EN_HIVE,
+    EN_RAMMER, EN_GRENADIER, EN_CRAWLER, EN_TOP, EN_KAMIKAZE, EN_DODGER, EN_ROOK, EN_SPLITTER, EN_LEAPER, EN_MINELAYER,
+    EN_BOOMERANG, EN_RICOCHET, EN_ORBITER, EN_BLINKER, EN_SERPENT, EN_MIRROR, EN_LANCER, EN_MORTAR, EN_GUARDIAN, EN_WRAITH,
+    EN_BOSS,
+    EN_SPLITLING, /* only born from a dying splitter (min_depth keeps it out of waves) */
+    EN_COUNT
+} EnemyType;
 
 typedef struct {
     const char *name;
@@ -179,7 +205,16 @@ typedef struct {
     int sword_swing;              /* id of the last sword swing that hit it (one hit per swing) */
     int phase;                    /* EN_BOSS: current phase, 0 .. BOSS_PHASES - 1 */
     float inv_t;                  /* EN_BOSS: invulnerable while > 0 (phase change) */
+    V2 aux;                       /* per type: charge / slide direction, blink target, wall normal... */
+    float alt;                    /* EN_LEAPER: height of the jump (> 0: in the air, untouchable) */
+    float dodge_cd;               /* EN_DODGER: time before it can sidestep again */
 } Enemy;
+
+#define GUARDIAN_RANGE 260.0f
+#define GUARDIAN_SHIELD 0.4f /* allies near a guardian take 40% damage */
+
+/* --enemy NAME (repeatable): waves only use these types (bit per EnemyType; 0 = normal waves). */
+extern uint64_t g_only_enemies;
 
 /* Boss rooms: every BOSS_EVERY rooms (depth 10, 20...); the room before has a single door. */
 #define BOSS_EVERY 10
@@ -738,6 +773,13 @@ void ebullets_clear(bool with_fx);
 
 /* enemies.c */
 void enemy_queue_spawn(EnemyType type, V2 pos, float delay);
+int enemy_by_name(const char *name);
+/* Cannot be hit right now (WRAITH faded out, LEAPER in the air): shots fly through, no damage. */
+bool enemy_untouchable(const Enemy *e);
+/* MIRROR: a shot coming from this point hits its front plate (absorbed, no damage). */
+bool enemy_blocks_shot(const Enemy *e, V2 from);
+/* Lob a grenade (EB_GRENADE) from -> to; it bursts into a ring of n bullets on landing. */
+EBullet *ebullet_lob(V2 from, V2 to, float flight, int n, SDL_FColor col);
 void enemies_update(void);
 void enemies_draw(void);
 void enemy_damage(Enemy *e, float dmg, V2 knock);

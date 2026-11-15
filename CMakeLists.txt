@@ -131,6 +131,26 @@ if(SHMUP_BUILD_TESTS)
                      --fail-shot ${_out}/fail_sim_boss_door.bmp)
     add_test(NAME render_boss
              COMMAND neon_breach --shot ${_out}/render_boss.bmp --boss --seed 5 --frames 700)
+    # The 20 newer enemies: rooms made of only one of them (any depth), the bot must clear
+    # them (invariants: crawlers stay on the wall...); one Knight run with them all (melee).
+    foreach(_e rammer grenadier crawler top kamikaze dodger rook splitter leaper minelayer
+               boomerang ricochet orbiter blinker serpent mirror lancer mortar guardian wraith)
+        add_test(NAME sim_enemy_${_e}
+                 COMMAND neon_breach --headless --god --enemy ${_e} --depth 6 --seed 31 --runs 2 --ticks 24000 --expect-rooms 3
+                         --fail-shot ${_out}/fail_sim_enemy_${_e}.bmp)
+    endforeach()
+    add_test(NAME sim_enemies_knight
+             COMMAND neon_breach --headless --god --char knight --depth 8 --seed 32 --runs 2 --ticks 36000 --expect-rooms 3
+                     --enemy rammer --enemy crawler --enemy top --enemy dodger --enemy rook --enemy leaper --enemy mirror
+                     --enemy wraith --enemy guardian --enemy serpent
+                     --fail-shot ${_out}/fail_sim_enemies_knight.bmp)
+    add_test(NAME render_enemies_ground
+             COMMAND neon_breach --shot ${_out}/render_enemies_ground.bmp --depth 12 --god --seed 7 --frames 330
+                     --enemy mortar --enemy grenadier --enemy guardian --enemy leaper --enemy minelayer)
+    add_test(NAME render_enemies_moves
+             COMMAND neon_breach --shot ${_out}/render_enemies_moves.bmp --depth 12 --god --seed 9 --frames 520
+                     --enemy lancer --enemy serpent --enemy boomerang --enemy top --enemy rammer --enemy blinker
+                     --enemy crawler --enemy mirror)
     add_test(NAME render_boss_door
              COMMAND neon_breach --shot ${_out}/render_boss_door.bmp --depth 9 --cleared --no-bot --seed 5 --frames 120)
     add_test(NAME render_deep_enemies

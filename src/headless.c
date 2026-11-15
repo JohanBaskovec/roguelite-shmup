@@ -183,6 +183,19 @@ static const char *check_invariants(float room_time) {
         return msg;
     }
     if (G.room.secret_open && !G.room.has_secret) return "secret passage open in a room without a secret";
+    for (int i = 0; i < G.nen; i++) { /* crawlers live on the wall (separation may nudge them a little) */
+        const Enemy *c = &G.en[i];
+        if (c->type != EN_CRAWLER || c->t < 0.05f) continue;
+        float edge = fminf(fminf(c->pos.x - ARENA_X0, ARENA_X1 - c->pos.x), fminf(c->pos.y - ARENA_Y0, ARENA_Y1 - c->pos.y));
+        if (edge > 2.0f * c->radius + 4.0f) {
+            static char cmsg[160];
+            snprintf(cmsg, sizeof cmsg, "a crawler left the wall (at %.0f,%.0f, %.0f px in, t %.2f, hp %.0f, time stop %d)", (double)c->pos.x,
+                     (double)c->pos.y, (double)edge, (double)c->t, (double)c->hp, active_time_stop_on());
+            return cmsg;
+        }
+    }
+    for (int i = 0; i < G.neb; i++)
+        if (G.eb[i].kind > EB_WAVY) return "enemy bullet of an unknown kind";
     if (G.room.type == ROOM_SECRET && G.room.ndoors != 0) return "secret room has regular doors (its only exit leads back)";
     for (int i = 0; i < G.npk; i++)
         if (G.pk[i].price < 0 || (G.pk[i].price > 0 && G.room.type != ROOM_SHOP && !G.room.secret_shop))
@@ -1357,6 +1370,146 @@ static int debug_rooms_run(const HeadlessOptions *o) {
             TICK();
         }
         names[nres] = "shop supplies", oks[nres++] = supply_ok;
+
+        /* New enemy bullets: a grenade is harmless in the air and bursts where it lands; a mine
+         * blows when the ship comes close; a split orb bursts; a bouncing bullet comes back off a wall. */
+        FRESH();
+        G.nen = G.nsp = G.neb = 0;
+        pl->invuln = 0.0f;
+        V2 pp = pl->pos;
+        ebullet_lob(v2(pp.x + 300.0f, pp.y), v2(pp.x - 300.0f, pp.y), 1.0f, 8, COL_WHITE);
+        for (int t = 0; t < 60; t++) TICK();
+        bool eb_ok = G.neb == 1 && ebullet_airborne(&G.eb[0]) && pl->invuln <= 0.0f; /* right over the ship */
+        for (int t = 0; t < 80 && G.neb == 1; t++) TICK();
+        eb_ok = eb_ok && G.neb == 8 && !ebullet_airborne(&G.eb[0]);
+        G.neb = 0;
+        EBullet *mine = ebullet_spawn(v2(pp.x + 400.0f, pp.y), 0.0f, 0.0f, 9.0f, COL_WHITE);
+        mine->kind = EB_MINE;
+        mine->life = 5.0f;
+        mine->n = 8;
+        mine->age = 1.0f;
+        TICK();
+        bool mine_idle = G.neb == 1 && G.eb[0].life > 4.0f;
+        pl->pos = v2(pp.x + 340.0f, pp.y); /* walks up to it */
+        int mine_burst = 0;
+        for (int t = 0; t < 90 && !mine_burst; t++) {
+            TICK();
+            int mines = 0;
+            for (int i = 0; i < G.neb; i++) mines += G.eb[i].kind == EB_MINE;
+            if (mines == 0) mine_burst = G.neb;
+        }
+        eb_ok = eb_ok && mine_idle && mine_burst >= 6;
+        pl->pos = pp;
+        G.neb = 0;
+        EBullet *orb = ebullet_spawn(v2(ARENA_CX + 300.0f, ARENA_CY), -PI_F * 0.5f, 100.0f, 14.0f, COL_WHITE);
+        orb->kind = EB_SPLIT;
+        orb->t1 = 0.3f;
+        orb->n = 10;
+        for (int t = 0; t < 48; t++) TICK();
+        eb_ok = eb_ok && G.neb == 10;
+        G.neb = 0;
+        EBullet *bb = ebullet_spawn(v2(ARENA_X0 + 60.0f, ARENA_Y0 + 200.0f), PI_F, 400.0f, 7.0f, COL_WHITE);
+        bb->kind = EB_BOUNCE;
+        bb->n = 1;
+        for (int t = 0; t < 40; t++) TICK();
+        eb_ok = eb_ok && G.neb == 1 && G.eb[0].vel.x > 0.0f && G.eb[0].n == 0;
+        G.neb = 0;
+        names[nres] = "enemy bullets: grenade, mine, split, bounce", oks[nres++] = eb_ok;
+
+        /* New enemies: the splitter splits in three, the guardian shields its allies, the mirror
+         * stops shots from the front only, a faded wraith / airborne leaper cannot be hurt, a
+         * kamikaze blows itself up (not a kill). */
+#define SPAWN(type, x, y) do { G.nen = 0; G.nsp = 0; enemy_queue_spawn(type, v2(x, y), 0.0f); TICK(); } while (0)
+        FRESH();
+        SPAWN(EN_SPLITTER, ARENA_CX + 200.0f, ARENA_CY);
+        bool en_ok = G.nen == 1 && G.en[0].type == EN_SPLITTER;
+        G.en[0].hp = 1.0f;
+        enemy_damage(&G.en[0], 10.0f, v2(0, 0));
+        for (int t = 0; t < 30; t++) TICK();
+        int splitlings = 0;
+        for (int i = 0; i < G.nen; i++) splitlings += G.en[i].type == EN_SPLITLING;
+        en_ok = en_ok && splitlings == 3 && G.nen == 3;
+        bool split_ok = en_ok;
+
+        SPAWN(EN_GUARDIAN, ARENA_CX, ARENA_CY);
+        DUMMY(ARENA_CX + 100.0f, ARENA_CY);
+        DUMMY(ARENA_CX + 700.0f, ARENA_CY);
+        enemy_damage(&G.en[1], 100.0f, v2(0, 0));
+        enemy_damage(&G.en[2], 100.0f, v2(0, 0));
+        bool guard_ok = fabsf(G.en[1].hp - (5000.0f - 100.0f * GUARDIAN_SHIELD)) < 0.01f && fabsf(G.en[2].hp - 4900.0f) < 0.01f;
+
+        FRESH();
+        SPAWN(EN_MIRROR, pl->pos.x + 280.0f, pl->pos.y);
+        G.en[0].angle = v2_heading(v2_sub(pl->pos, G.en[0].pos));
+        bool front = enemy_blocks_shot(&G.en[0], pl->pos);
+        bool back = enemy_blocks_shot(&G.en[0], v2(ARENA_CX + 600.0f, ARENA_CY));
+        in->mouse = G.en[0].pos;
+        in->fire = true;
+        for (int t = 0; t < 90; t++) { G.hitstop = 0.0f; in->mouse = G.en[0].pos; TICK(); }
+        in->fire = false;
+        bool mirror_ok = front && !back && G.nen == 1 && G.en[0].hp >= G.en[0].max_hp;
+        G.npb = 0;
+        in->fire = true;
+        for (int t = 0; t < 90; t++) { /* turned away: now it takes the hits */
+            G.hitstop = 0.0f;
+            in->mouse = G.en[0].pos;
+            G.en[0].angle = v2_heading(v2_sub(G.en[0].pos, pl->pos));
+            TICK();
+        }
+        in->fire = false;
+        mirror_ok = mirror_ok && G.nen == 1 && G.en[0].hp < G.en[0].max_hp;
+        G.npb = 0;
+
+        SPAWN(EN_WRAITH, ARENA_CX + 300.0f, ARENA_CY);
+        G.en[0].state = 0;
+        G.en[0].fire_t = 5.0f;
+        enemy_damage(&G.en[0], 10.0f, v2(0, 0));
+        bool ghost_ok = G.en[0].hp == G.en[0].max_hp && enemy_untouchable(&G.en[0]);
+        G.en[0].state = 2;
+        G.en[0].state_t = 5.0f;
+        enemy_damage(&G.en[0], 10.0f, v2(0, 0));
+        ghost_ok = ghost_ok && G.en[0].hp < G.en[0].max_hp;
+        SPAWN(EN_LEAPER, ARENA_CX + 300.0f, ARENA_CY);
+        G.en[0].alt = 100.0f;
+        enemy_damage(&G.en[0], 10.0f, v2(0, 0));
+        ghost_ok = ghost_ok && G.en[0].hp == G.en[0].max_hp;
+
+        G.neb = 0;
+        int kills0 = G.kills;
+        SPAWN(EN_KAMIKAZE, pl->pos.x + 90.0f, pl->pos.y);
+        for (int t = 0; t < 120 && G.nen > 0; t++) TICK();
+        bool kami_ok = G.nen == 0 && G.kills == kills0 && G.neb > 0;
+        G.neb = 0;
+        en_ok = split_ok && guard_ok && mirror_ok && ghost_ok && kami_ok;
+        if (!en_ok) printf("  [split %d guard %d mirror %d ghost %d kamikaze %d] ", split_ok, guard_ok, mirror_ok, ghost_ok, kami_ok);
+        names[nres] = "enemies: splitter, guardian, mirror, wraith, leaper, kamikaze", oks[nres++] = en_ok;
+
+        /* The crawler never leaves the wall; the rook only ever moves along rows and columns. */
+        FRESH();
+        SPAWN(EN_CRAWLER, ARENA_CX, ARENA_Y0 + 18.0f);
+        bool walls_ok = G.nen == 1;
+        float s0x = G.nen ? G.en[0].pos.x : 0.0f;
+        for (int t = 0; t < 360 && walls_ok; t++) {
+            TICK();
+            const Enemy *c = &G.en[0];
+            float edge = fminf(fminf(c->pos.x - ARENA_X0, ARENA_X1 - c->pos.x), fminf(c->pos.y - ARENA_Y0, ARENA_Y1 - c->pos.y));
+            walls_ok = G.nen == 1 && fabsf(edge - c->radius) < 1.0f;
+        }
+        walls_ok = walls_ok && fabsf(G.en[0].pos.x - s0x) > 50.0f; /* it did crawl */
+        SPAWN(EN_ROOK, ARENA_CX + 300.0f, ARENA_CY - 200.0f);
+        float moved = 0.0f;
+        for (int t = 0; t < 600 && walls_ok; t++) {
+            V2 before = G.en[0].pos;
+            if (t % 120 == 0) pl->pos = v2(frand(ARENA_X0 + 200, ARENA_X1 - 200), frand(ARENA_Y0 + 200, ARENA_Y1 - 200));
+            TICK();
+            V2 d = v2_sub(G.en[0].pos, before);
+            walls_ok = G.nen == 1 && (fabsf(d.x) < 0.01f || fabsf(d.y) < 0.01f);
+            moved += v2_len(d);
+        }
+        walls_ok = walls_ok && moved > 150.0f;
+        G.nen = G.neb = 0;
+#undef SPAWN
+        names[nres] = "crawler on the wall, rook on rows and columns", oks[nres++] = walls_ok;
 #undef DUMMY
 #undef FRESH
 #undef TICK

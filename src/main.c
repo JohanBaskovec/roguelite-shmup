@@ -117,6 +117,16 @@ static void parse_args(int argc, char **argv, Options *o) {
             }
             if (o->nupgrades < ARRAY_LEN(o->upgrades)) o->upgrades[o->nupgrades++] = u;
         }
+        else if (!strcmp(a, "--enemy") && more) {
+            int t = enemy_by_name(argv[++i]);
+            if (t < 0 || t == EN_BOSS) {
+                fprintf(stderr, "unknown enemy '%s' (chaser, swarm, shooter, ... rammer, grenadier, crawler, top, kamikaze,\n"
+                                "dodger, rook, splitter, leaper, minelayer, boomerang, ricochet, orbiter, blinker, serpent,\n"
+                                "mirror, lancer, mortar, guardian, wraith)\n", argv[i]);
+                exit(2);
+            }
+            g_only_enemies |= (uint64_t)1 << t;
+        }
         else if (!strcmp(a, "--toggle-upgrades")) o->toggle_upgrades = true;
         else if (!strcmp(a, "--all-upgrades")) o->all_upgrades = true;
         else if (!strcmp(a, "--hp") && more) o->hp = atoi(argv[++i]);

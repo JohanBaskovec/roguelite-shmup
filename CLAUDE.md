@@ -51,6 +51,13 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   offers them.
 - **Enemies never scale with depth**: each type always has the same HP / speed / fire pattern
   (`ENEMIES` table). Difficulty only comes from more enemies, more waves and new, harder types.
+  A new enemy: enum + `ENEMIES` entry (cost, min_depth), an `update_<name>` function, its drawing,
+  bot support if it needs a special answer (`bot.c`: hazards, charge lines, MIRROR flanking), a
+  `sim_enemy_<name>` CTest (`--enemy NAME`, repeatable: waves of only those types) and, for a new
+  mechanic, a scripted check in `debug_rooms_run`. Untouchable states go through `enemy_untouchable()`
+  (shots fly through, `enemy_damage` ignores them), shields through `enemy_blocks_shot()`; new enemy
+  bullet behaviours are an `EBulletKind` handled in `update_enemy_bullets` (a grenade in the air,
+  `ebullet_airborne()`, never hurts). A kamikaze blowing itself up is not a kill (`upg_on_kill` skipped).
 - When a room is cleared the ship is teleported back to the entry spot at the bottom (headless checks it).
 - **Active items** (`src/actives.c`, `Player.act[]` indexed by `ActiveId`): the ship starts with none
   (not even the dash). They are found in active rooms (combat rooms with `RW_ACTIVE`, a door like any

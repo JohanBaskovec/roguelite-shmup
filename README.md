@@ -123,6 +123,28 @@ Après l'écran titre, on choisit son vaisseau (A / D, 1-3 ou souris, puis clic 
   - *Spéciales* : Deflector Shells (tirs énormes et très lents, cadence / 3, mais ils renvoient les balles ennemies touchées comme des tirs du joueur), Loaded Dice (double la probabilité de déclenchement de tous les effets), X-Ray Visor (les salles qui cachent un secret sont toujours signalées).
   - Les descriptions des effets aléatoires affichent la **probabilité exacte** (en tenant compte du nombre d'exemplaires et de Loaded Dice), calculée par `upgrade_desc()`. Un `|` dans une description la coupe sur deux lignes.
 - **Les ennemis gardent toujours les mêmes attributs** (PV, vitesse, cadence, patterns) quelle que soit la profondeur. La difficulté vient du nombre : budget de vague `4 + 1.1 x profondeur^1.15 + vague` (plafond `20 + 2 x profondeur` ennemis par vague), `2 + min(profondeur / 5, 5)` vagues par salle (la vague suivante arrive quand il reste un quart de la précédente, ou après 16 s s'il en reste au plus un tiers), et de nouveaux ennemis plus durs débloqués au fil des salles : burster (salle 3), spinner (4), sniper (5), tank (7), **warden** (9 : croix tournante de 4 flux + éventail visé), **hunter** (11 : traque, s'annonce par une ligne, fonce puis tire un anneau), **hive** (13 : pond des essaims et tire des anneaux).
+- **20 ennemis aux comportements variés** (`src/enemies.c`, une fonction `update_<nom>` chacun), débloqués entre la salle 2 et la salle 14 :
+  - **Rammer** (2) : se met en ligne, gratte le sol (ligne de charge qui s'épaissit), fonce tout droit jusqu'au mur, y lâche des débris et reste **sonné** (étoiles) : le moment de le punir.
+  - **Grenadier** (2) : reste à distance et **lance des grenades en cloche** là où va le vaisseau ; elles passent au-dessus de tout, sont inoffensives en l'air (ombre au sol, cercle d'impact) et éclatent en anneau à l'atterrissage.
+  - **Crawler** (3) : **collé au mur**, il court le long des bords (et passe les coins) pour se placer face au vaisseau, puis crache des rafales vers l'intérieur. Une meute s'étale le long du mur.
+  - **Top** (3) : une **toupie** qui file en ligne droite et rebondit partout, de plus en plus vite, en semant des balles ; un anneau à chaque rebond. Au bout de 6 s, elle a le tournis, titube et ralentit.
+  - **Kamikaze** (3) : fonce, s'arrête près du vaisseau, gonfle en clignotant et explose en double anneau (ça ne compte pas comme un kill).
+  - **Dodger** (4) : mitraille en straffant et **esquive les tirs** qui lui arrivent dessus d'un pas de côté (recharge de 1,2 s, un anneau indique qu'il est prêt) : une rafale ou un tir large l'attrapent.
+  - **Rook** (4) : comme la tour aux échecs, **ne bouge qu'en lignes et colonnes** : il glisse jusqu'à la ligne ou la colonne du vaisseau, puis tire une croix de balles le long des axes.
+  - **Splitter** (5) : blob mou qui crache des balles ondulantes ; tué, il **se divise en trois splitlings** qui sautillent vers le vaisseau.
+  - **Leaper** (5) : s'accroupit puis **saute sur le vaisseau** (intouchable en l'air, ombre au sol) et atterrit avec une onde de choc.
+  - **Minelayer** (6) : parcourt la salle en posant des **mines** qui s'arment, puis explosent en anneau quand le vaisseau s'approche (cercle clignotant) ou au bout de 5 s.
+  - **Boomerang** (6) : lance trois **boomerangs** en éventail qui s'éloignent en courbe, s'arrêtent et reviennent.
+  - **Ricochet** (7) : tire des **balles qui rebondissent** deux fois, souvent visées sur le reflet du vaisseau dans un mur : elles arrivent de là où il n'y a personne.
+  - **Orbiter** (7) : **tourne autour du vaisseau** à distance variable, change de sens, et s'arrête le temps de ses rafales.
+  - **Blinker** (8) : tire une grosse orbe qui **éclate en anneau**, puis **se téléporte** (sa destination clignote d'abord).
+  - **Serpent** (8) : ondule en grands S et laisse derrière lui un **mur de balles immobiles** qui s'éteint.
+  - **Mirror** (9) : une **plaque à l'avant arrête tous les tirs** ; elle pivote lentement vers le vaisseau : il faut le contourner. Tire des balles ondulantes.
+  - **Lancer** (11) : charge un **rayon** (la ligne de visée s'épaissit puis se verrouille) et tire un flot de balles très rapides qui balaie vers le vaisseau.
+  - **Mortar** (12) : lourd et presque immobile, il **pilonne** la zone du vaisseau : une grenade sur lui, quatre autour (cercles d'impact au sol).
+  - **Guardian** (12) : suit ses alliés et les **protège** (liens bleus : ils ne prennent que 40 % des dégâts tant qu'il vit) : à tuer en premier.
+  - **Wraith** (14) : **disparaît** (les tirs le traversent) en se rapprochant, puis apparaît un instant pour lâcher des feux follets à **tête chercheuse**.
+  - Nouveaux projectiles ennemis (`EBulletKind` dans `game.h`, `update_enemy_bullets` dans `bullets.c`) : grenade, mine, boomerang, balle rebondissante, orbe à fragmentation, balle à tête chercheuse, balle ondulante. Le bot les esquive (zones d'impact, mines, traînées, lignes de charge).
 
 ## Architecture (`src/`)
 
@@ -191,6 +213,7 @@ neon_breach --active shield                             # démarrer avec un obje
                                                         #   reversal / turret / blink / nova / timestop / blades)
 neon_breach --weapon rockets                            # démarrer avec une amélioration de tir (scatter / needler / seeker / bouncer / railgun /
                                                         #   flamer / rockets / chakram / cluster / arc / vulcan / wave / laser / orbit / prism / graviton / sword), option répétable
+neon_breach --enemy rammer --enemy mortar                # vagues composées uniquement de ces ennemis (à toute profondeur), répétable
 neon_breach --upgrade aegis --upgrade deflector-shells    # démarrer avec des améliorations précises (nom du jeu, « - » pour les espaces), répétable
 neon_breach --shot u.bmp --all-upgrades --upgrades-menu # capture du menu Tab
 neon_breach --headless --toggle-upgrades --runs 10      # le bot désactive / réactive une amélioration au hasard toutes les 4 s
