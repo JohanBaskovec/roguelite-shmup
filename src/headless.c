@@ -79,6 +79,7 @@ static const char *check_invariants(float room_time) {
         if (G.room.cleared && G.room.clear_t >= 0.0f && (G.room.nobs || G.room.nfires))
             return "cleared room not empty (every obstacle shatters before the reward shows up)";
         if (G.room.cleared && G.room.clear_t < 0.0f && G.npk && !G.room.revisit) return "reward out while the room still shatters";
+        if (G.room.cleared && G.neb) return "enemy bullet left in a cleared room (all wiped by the last kill)";
     }
     for (int i = 0; i < G.npk; i++) {
         const Pickup *k = &G.pk[i];

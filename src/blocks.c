@@ -7,14 +7,19 @@
 /*
  * Room layouts and blocks.
  *
- * A layout is a set of indestructible walls (one of several patterns: pillars, bars, L brackets,
- * halls, a small maze, a field of posts... often mirrored) plus breakable blocks: crates, explosive
- * barrels, oil drums (a pool of burning oil when broken) and spark pods (a ring of balls).
- * Blocks often extend the walls ("gates"), closing the gaps between them: the way to a door may be
- * blocked, but only by something the ship can shoot down. Walls touch each other (merging into
- * bigger shapes) or keep 110 px gaps, and stand 120 px off the arena edges or jut out of them
- * (spurs, never in front of a door). A piece that would close a pocket is taken back:
- * room_walls_connected() (a flood fill where only walls count) checks every layout.
+ * A layout lives on the floor's grid (the faint lines under the room): GRID px cells, GW x GH.
+ * Every wall and every block fills whole cells. Walls are 1 or 2 cells thick, in one of several
+ * patterns (pillars, bars, L brackets, halls, a small maze, a field of posts, corridors...), often
+ * mirrored, plus pieces jutting out of the edges (spurs, never in front of a door) and arms joining
+ * the walls up. Breakable blocks: crates, explosive barrels, oil drums (a pool of burning oil when
+ * broken) and spark pods (a ring of balls); they often extend the walls ("gates"), closing the gaps
+ * between them: a way may be blocked, but only by something the ship can shoot down.
+ * Spacing rules, on the cells: never a passage one cell wide (a free cell with something solid on
+ * both sides, the arena edge included), never two solid cells touching only by a corner; so things
+ * touch (walls merge into bigger shapes) or leave two cells (120 px) between them. A piece that
+ * would close a pocket is taken back: room_walls_connected() (a flood fill where only walls
+ * count) checks every layout. The cells then become obstacles: walls merged into big rects,
+ * one obstacle per block.
  *
  * Breaking: only the ship's shots, blade and blasts damage blocks (never the enemies' bullets), a
  * bomb breaks them all. A broken block goes off at the next blocks_update(), outside every entity
@@ -28,14 +33,15 @@
 
 bool g_dense_blocks; /* --dense-blocks: as many blocks and gates as possible (test) */
 
-#define EDGE_MARGIN 80.0f       /* blocks stay off the arena edges (crawlers live there) */
-#define WALL_EDGE_MARGIN 120.0f /* walls even more: no tight corridor along the edge */
-#define WALL_GAP 110.0f         /* between walls: room to dodge, and the bot's path finder sees the passage */
-#define SPUR_FOOT 70.0f         /* a wall jutting out of the arena edge: that wide at most along it */
-#define DOOR_CLEAR 150.0f       /* ...and never this close to a door's frame */
-
 #define ARENA_W (ARENA_X1 - ARENA_X0)
 #define ARENA_H (ARENA_Y1 - ARENA_Y0)
+#define GW 30 /* ARENA_W / GRID */
+#define GH 15 /* ARENA_H / GRID */
+_Static_assert((int)((ARENA_X1 - ARENA_X0) / GRID) == GW && (int)((ARENA_Y1 - ARENA_Y0) / GRID) == GH &&
+                   GW * GRID == ARENA_X1 - ARENA_X0 && GH * GRID == ARENA_Y1 - ARENA_Y0,
+               "the arena is a whole number of grid cells");
+#define DOOR_CLEAR 150.0f /* no wall jutting out of the edge this close to a door's frame */
+#define BLOCK_EDGE 2      /* blocks stay this many cells off the edges (crawlers live there) */
 
 static const float BLOCK_HP[OB_KIND_COUNT] = {
     [OB_CRATE] = 28.0f,  /* 4 basic shots */
@@ -44,12 +50,6 @@ static const float BLOCK_HP[OB_KIND_COUNT] = {
     [OB_SPARK] = 20.0f,
 };
 
-static bool rect_overlaps(SDL_FRect a, SDL_FRect b) {
-    return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
-}
-
-static SDL_FRect rect_c(float cx, float cy, float w, float h) { return (SDL_FRect){cx - w * 0.5f, cy - h * 0.5f, w, h}; }
-
 static V2 rect_center(SDL_FRect r) { return v2(r.x + r.w * 0.5f, r.y + r.h * 0.5f); }
 
 static float rect_dist(V2 p, SDL_FRect r) {
@@ -57,225 +57,320 @@ static float rect_dist(V2 p, SDL_FRect r) {
     return sqrtf(dx * dx + dy * dy);
 }
 
-static bool in_arena(SDL_FRect r, float m) {
-    return r.x >= ARENA_X0 + m && r.y >= ARENA_Y0 + m && r.x + r.w <= ARENA_X1 - m && r.y + r.h <= ARENA_Y1 - m;
+/* ---- The grid ------------------------------------------------------------ */
+
+enum { C_FREE, C_WALL, C_BLOCK };
+static uint8_t cells[GH][GW];     /* the layout being drawn up */
+static uint8_t cell_kind[GH][GW]; /* C_BLOCK: its ObstacleKind */
+static uint8_t banned[GH][GW];    /* kept free: in front of the doors, around the entry spot */
+
+static int cell_x(float x) { return (int)floorf((x - ARENA_X0) / GRID); }
+static int cell_y(float y) { return (int)floorf((y - ARENA_Y0) / GRID); }
+static bool in_grid(int x, int y) { return x >= 0 && y >= 0 && x < GW && y < GH; }
+static bool solid(int x, int y) { return !in_grid(x, y) || cells[y][x] != C_FREE; } /* the edge too */
+
+static bool cell_solid(int x, int y) { return in_grid(x, y) && cells[y][x] != C_FREE; }
+
+/* Free floor squeezed into a one-cell passage (the edge counts), or between two solid cells
+ * on its diagonals with nothing else around (an 85 px slit). */
+static bool pinched(int x, int y) {
+    if (solid(x, y)) return false;
+    if ((solid(x - 1, y) && solid(x + 1, y)) || (solid(x, y - 1) && solid(x, y + 1))) return true;
+    bool ortho = cell_solid(x - 1, y) || cell_solid(x + 1, y) || cell_solid(x, y - 1) || cell_solid(x, y + 1);
+    return !ortho && ((cell_solid(x - 1, y - 1) && cell_solid(x + 1, y + 1)) || (cell_solid(x + 1, y - 1) && cell_solid(x - 1, y + 1)));
 }
 
-/* The cleared room is emptied before its reward shows up: the layout only leaves the ship room
- * where it arrives (and comes back to after the fight), by the entry door - the secret spot too. */
-static bool hits_room_spots(SDL_FRect r) {
+static bool corner_only(int x, int y) { /* the 2x2 window whose top left cell is (x, y) */
+    bool a = solid(x, y), b = solid(x + 1, y), c = solid(x, y + 1), d = solid(x + 1, y + 1);
+    return (a && d && !b && !c) || (b && c && !a && !d);
+}
+
+/* Walls are 1 or 2 cells thick: never a 3x3 square of wall (pieces side by side make no slabs). */
+static bool slab(int x, int y) { /* the 3x3 window whose top left cell is (x, y) */
+    for (int j = 0; j < 3; j++)
+        for (int i = 0; i < 3; i++)
+            if (!in_grid(x + i, y + j) || cells[y + j][x + i] != C_WALL) return false;
+    return true;
+}
+
+static void ban_rect(float x0, float y0, float x1, float y1) {
+    for (int y = cell_y(y0); y <= cell_y(y1 - 0.01f); y++)
+        for (int x = cell_x(x0); x <= cell_x(x1 - 0.01f); x++)
+            if (in_grid(x, y)) banned[y][x] = 1;
+}
+
+static void grid_reset(void) {
+    memset(cells, 0, sizeof cells);
+    memset(banned, 0, sizeof banned);
+    /* The ship arrives (and comes back after the fight) by the entry door: room to fly in. */
     V2 e = room_entry_spot();
-    return rect_overlaps(r, rect_c(e.x, e.y, 400, 400));
+    ban_rect(e.x - 200.0f, e.y - 200.0f, e.x + 200.0f, e.y + 200.0f);
+    /* Nothing jutting out of the edge next to a door. */
+    float hx = DOOR_HALF + DOOR_CLEAR, d = 2.0f * GRID;
+    ban_rect(ARENA_CX - hx, ARENA_Y0, ARENA_CX + hx, ARENA_Y0 + d);
+    ban_rect(ARENA_CX - hx, ARENA_Y1 - d, ARENA_CX + hx, ARENA_Y1);
+    ban_rect(ARENA_X0, ARENA_CY - hx, ARENA_X0 + d, ARENA_CY + hx);
+    ban_rect(ARENA_X1 - d, ARENA_CY - hx, ARENA_X1, ARENA_CY + hx);
 }
 
-/* Distance between two rects (0 when touching, < 0 when overlapping). */
-static float rect_gap(SDL_FRect r, SDL_FRect o) {
-    float dx = fmaxf(o.x - (r.x + r.w), r.x - (o.x + o.w)), dy = fmaxf(o.y - (r.y + r.h), r.y - (o.y + o.h));
-    if (dx < -1.0f && dy < -1.0f) return -1.0f;
-    return dx > 0.0f && dy > 0.0f ? sqrtf(dx * dx + dy * dy) : fmaxf(fmaxf(dx, dy), 0.0f);
-}
+/* ---- Shapes: sets of cells ------------------------------------------------ */
 
-/* A wall either stands clear of the arena edge (WALL_EDGE_MARGIN) or juts out of it (a spur, at
- * most SPUR_FOOT wide along the edge), never in front of a door. */
-static bool wall_edge_ok(SDL_FRect r) {
-    const float d[4] = {r.x - ARENA_X0, ARENA_X1 - (r.x + r.w), r.y - ARENA_Y0, ARENA_Y1 - (r.y + r.h)};
-    for (int k = 0; k < 4; k++) {
-        if (d[k] < -0.5f || (d[k] > 1.0f && d[k] < WALL_EDGE_MARGIN)) return false;
-        if (d[k] > 1.0f) continue;
-        bool vertical_edge = k < 2; /* left / right: runs along y */
-        float lo = vertical_edge ? r.y : r.x, hi = vertical_edge ? r.y + r.h : r.x + r.w;
-        float mid = vertical_edge ? ARENA_CY : ARENA_CX;
-        if (hi - lo > SPUR_FOOT) return false;
-        if (hi > mid - DOOR_HALF - DOOR_CLEAR && lo < mid + DOOR_HALF + DOOR_CLEAR) return false;
-    }
-    return true;
-}
-
-static bool wall_rect_ok(SDL_FRect r, int first_of_piece) {
-    if (!wall_edge_ok(r) || hits_room_spots(r)) return false;
-    /* Pieces touch (they merge into one bigger wall) or keep a real gap; the rects of one piece
-     * may do anything. Never a slit in between. */
-    for (int i = 0; i < first_of_piece; i++) {
-        float g = rect_gap(r, G.room.obs[i].r);
-        if (g > 1.0f && g < WALL_GAP) return false;
-    }
-    return true;
-}
-
+#define SHAPE_MAX 160
 typedef struct {
-    SDL_FRect r[4];
+    int8_t x[SHAPE_MAX], y[SHAPE_MAX];
+    uint8_t kind[SHAPE_MAX]; /* blocks */
     int n;
-} Piece;
+} Shape;
 
-static Piece piece1(SDL_FRect a) { return (Piece){{a}, 1}; }
-
-/* An L: corner square at (x, y), one arm along x (sign sx), one along y (sign sy). */
-static Piece piece_l(float x, float y, float sx, float sy, float a, float b, float t) {
-    Piece p = {.n = 2};
-    p.r[0] = (SDL_FRect){sx > 0 ? x : x - a, y - t * 0.5f, a, t};
-    p.r[1] = (SDL_FRect){x - t * 0.5f, sy > 0 ? y : y - b, t, b};
-    return p;
+static void sh_cell(Shape *s, int x, int y, int kind) {
+    for (int i = 0; i < s->n; i++)
+        if (s->x[i] == x && s->y[i] == y) return;
+    if (s->n >= SHAPE_MAX || x < -1 || y < -1 || x > GW || y > GH) return; /* off the grid: rejected when placed */
+    s->x[s->n] = (int8_t)x, s->y[s->n] = (int8_t)y, s->kind[s->n++] = (uint8_t)kind;
 }
 
-static Piece piece_t(float cx, float cy, float len, float stem, float t, bool vertical, float dir) {
-    Piece p = {.n = 2};
-    if (!vertical) {
-        p.r[0] = rect_c(cx, cy, len, t);
-        p.r[1] = (SDL_FRect){cx - t * 0.5f, dir > 0 ? cy : cy - stem, t, stem};
-    } else {
-        p.r[0] = rect_c(cx, cy, t, len);
-        p.r[1] = (SDL_FRect){dir > 0 ? cx : cx - stem, cy - t * 0.5f, stem, t};
+static void sh_rect(Shape *s, int x, int y, int w, int h) {
+    if (w < 0) x += w + 1, w = -w; /* negative sizes: towards the left / the top */
+    if (h < 0) y += h + 1, h = -h;
+    for (int j = 0; j < h; j++)
+        for (int i = 0; i < w; i++) sh_cell(s, x + i, y + j, 0);
+}
+
+/* The shape and its mirror images (sym: 0 as is, 1 left / right, 2 top / bottom, 3 four ways),
+ * as one shape: a piece across the axis merges with its image. */
+static Shape sh_sym(const Shape *s, int sym) {
+    Shape o = *s;
+    for (int i = 0; i < s->n; i++) {
+        int mx = GW - 1 - s->x[i], my = GH - 1 - s->y[i];
+        if (sym == 1 || sym == 3) sh_cell(&o, mx, s->y[i], s->kind[i]);
+        if (sym == 2 || sym == 3) sh_cell(&o, s->x[i], my, s->kind[i]);
+        if (sym == 3) sh_cell(&o, mx, my, s->kind[i]);
     }
-    return p;
+    return o;
 }
 
-static Piece piece_plus(float cx, float cy, float len, float t) {
-    return (Piece){{rect_c(cx, cy, len, t), rect_c(cx, cy, t, len)}, 2};
-}
-
-/* A U opening towards (ox, oy) (one of them is 0). */
-static Piece piece_u(float cx, float cy, float w, float d, float t, float ox, float oy) {
-    Piece p = {.n = 3};
-    if (oy != 0.0f) {
-        float by = oy > 0 ? cy - d * 0.5f : cy + d * 0.5f - t;
-        p.r[0] = (SDL_FRect){cx - w * 0.5f, by, w, t};
-        p.r[1] = (SDL_FRect){cx - w * 0.5f, cy - d * 0.5f, t, d};
-        p.r[2] = (SDL_FRect){cx + w * 0.5f - t, cy - d * 0.5f, t, d};
-    } else {
-        float bx = ox > 0 ? cx - d * 0.5f : cx + d * 0.5f - t;
-        p.r[0] = (SDL_FRect){bx, cy - w * 0.5f, t, w};
-        p.r[1] = (SDL_FRect){cx - d * 0.5f, cy - w * 0.5f, d, t};
-        p.r[2] = (SDL_FRect){cx - d * 0.5f, cy + w * 0.5f - t, d, t};
+/* Puts the shape down (C_WALL, or C_BLOCK with its kinds) if every cell is free and allowed and
+ * the spacing rules still hold around it. */
+static bool place(const Shape *s, int what) {
+    if (s->n == 0) return false;
+    for (int i = 0; i < s->n; i++) {
+        int x = s->x[i], y = s->y[i];
+        if (!in_grid(x, y) || cells[y][x] != C_FREE || banned[y][x]) return false;
+        if (what == C_BLOCK && (x < BLOCK_EDGE || y < BLOCK_EDGE || x >= GW - BLOCK_EDGE || y >= GH - BLOCK_EDGE)) return false;
     }
-    return p;
-}
-
-static Piece piece_mirror(Piece p, bool mx, bool my) {
-    for (int i = 0; i < p.n; i++) {
-        if (mx) p.r[i].x = 2.0f * ARENA_CX - p.r[i].x - p.r[i].w;
-        if (my) p.r[i].y = 2.0f * ARENA_CY - p.r[i].y - p.r[i].h;
+    for (int i = 0; i < s->n; i++) {
+        cells[s->y[i]][s->x[i]] = (uint8_t)what;
+        cell_kind[s->y[i]][s->x[i]] = s->kind[i];
     }
-    return p;
+    bool ok = true;
+    for (int i = 0; i < s->n && ok; i++)
+        for (int dy = -1; dy <= 1 && ok; dy++)
+            for (int dx = -1; dx <= 1 && ok; dx++) {
+                int x = s->x[i] + dx, y = s->y[i] + dy;
+                ok = !pinched(x, y) && !corner_only(x, y);
+            }
+    for (int i = 0; i < s->n && ok && what == C_WALL; i++)
+        for (int dy = -2; dy <= 0 && ok; dy++)
+            for (int dx = -2; dx <= 0 && ok; dx++) ok = !slab(s->x[i] + dx, s->y[i] + dy);
+    if (!ok)
+        for (int i = 0; i < s->n; i++) cells[s->y[i]][s->x[i]] = C_FREE;
+    return ok;
 }
 
-static bool add_piece(Piece p) {
-    int first = G.room.nobs;
-    if (first + p.n > MAX_OBSTACLES - 24) return false; /* room left for blocks */
-    for (int i = 0; i < p.n; i++)
-        if (!wall_rect_ok(p.r[i], first)) return false;
-    for (int i = 0; i < p.n; i++) {
-        Obstacle *o = &G.room.obs[G.room.nobs++];
-        memset(o, 0, sizeof *o);
-        o->r = p.r[i];
-        o->kind = OB_WALL;
-        o->hp = o->max_hp = 1.0f;
-        o->swing_id = -1;
-    }
-    return true;
+static void unplace(const Shape *s) {
+    for (int i = 0; i < s->n; i++) cells[s->y[i]][s->x[i]] = C_FREE;
 }
 
-/* sym: 0 as is, 1 mirrored left / right, 2 top / bottom, 3 four ways. */
-static void add_sym(Piece p, int sym) {
-    add_piece(p);
-    if (sym == 1 || sym == 3) add_piece(piece_mirror(p, true, false));
-    if (sym == 2 || sym == 3) add_piece(piece_mirror(p, false, true));
-    if (sym == 3) add_piece(piece_mirror(p, true, true));
-}
+/* ---- Connectivity -------------------------------------------------------- */
 
-/* Same, but a piece that would wall a part of the room off is taken back (pieces that touch the
- * edge or each other can close a pocket). Returns the number of copies placed. */
-static int add_piece_open(Piece p) {
-    int first = G.room.nobs;
-    if (!add_piece(p)) return 0;
-    if (room_walls_connected()) return 1;
-    G.room.nobs = first;
-    return 0;
-}
-
-static int add_sym_open(Piece p, int sym) {
-    int n = add_piece_open(p);
-    if (sym == 1 || sym == 3) n += add_piece_open(piece_mirror(p, true, false));
-    if (sym == 2 || sym == 3) n += add_piece_open(piece_mirror(p, false, true));
-    if (sym == 3) n += add_piece_open(piece_mirror(p, true, true));
-    return n;
-}
-
-/* A wall jutting out of an arena edge at `at` (along it), straight or turning at its tip into an
- * L or a T: corridors and dead ends along the sides. */
-static Piece piece_spur(Side side, float at, float len, float t) {
-    Piece p = {.n = 1};
-    bool across_x = side == SIDE_LEFT || side == SIDE_RIGHT; /* the spur runs along x */
-    switch (side) {
-    case SIDE_LEFT: p.r[0] = (SDL_FRect){ARENA_X0, at - t * 0.5f, len, t}; break;
-    case SIDE_RIGHT: p.r[0] = (SDL_FRect){ARENA_X1 - len, at - t * 0.5f, len, t}; break;
-    case SIDE_TOP: p.r[0] = (SDL_FRect){at - t * 0.5f, ARENA_Y0, t, len}; break;
-    default: p.r[0] = (SDL_FRect){at - t * 0.5f, ARENA_Y1 - len, t, len}; break;
-    }
-    int turn = irand(0, 2); /* 0 straight, 1 L, 2 T */
-    if (turn == 0) return p;
-    float cap = frand(130, 260), dir = chance(0.5f) ? 1.0f : -1.0f;
-    SDL_FRect r = p.r[0];
-    if (across_x) {
-        float x = side == SIDE_LEFT ? r.x + r.w - t : r.x;
-        p.r[p.n++] = turn == 2 ? (SDL_FRect){x, at - cap * 0.5f, t, cap}
-                               : (SDL_FRect){x, dir > 0 ? at - t * 0.5f : at + t * 0.5f - cap, t, cap};
-    } else {
-        float y = side == SIDE_TOP ? r.y + r.h - t : r.y;
-        p.r[p.n++] = turn == 2 ? (SDL_FRect){at - cap * 0.5f, y, cap, t}
-                               : (SDL_FRect){dir > 0 ? at - t * 0.5f : at + t * 0.5f - cap, y, cap, t};
-    }
-    return p;
-}
-
-/* An arm branching off the side of a wall already there (sometimes turning at its end): walls
- * join up into corridors, chambers, dead ends. `reach_axis`: stretched to end on the mirror
- * axis, where its mirror image joins it (a bridge across the middle). */
-static Piece piece_arm(SDL_FRect w, bool reach_axis) {
-    bool horiz = w.w >= w.h;
-    float t = fminf(horiz ? w.h : w.w, 50.0f), len = frand(110, 300);
-    if (reach_axis && (horiz || fabsf(rect_center(w).x - ARENA_CX) < w.w * 0.5f + 60.0f)) reach_axis = false;
-    Piece p = {.n = 1};
-    if (horiz) { /* the arm goes up or down */
-        float x = frand(w.x, w.x + w.w - t);
-        bool up = chance(0.5f);
-        p.r[0] = (SDL_FRect){x, up ? w.y - len : w.y + w.h, t, len};
-    } else {
-        float y = frand(w.y, w.y + w.h - t);
-        bool left = reach_axis ? w.x > ARENA_CX : chance(0.5f);
-        if (reach_axis) len = left ? w.x - ARENA_CX : ARENA_CX - (w.x + w.w);
-        p.r[0] = (SDL_FRect){left ? w.x - len : w.x + w.w, y, len, t};
-        if (reach_axis) return p;
-    }
-    if (chance(0.4f)) { /* a turn at its tip */
-        SDL_FRect a = p.r[0];
-        float turn = frand(110, 220), dir = chance(0.5f) ? 1.0f : -1.0f;
-        if (horiz) {
-            float y = a.y < w.y ? a.y : a.y + a.h - t;
-            p.r[p.n++] = (SDL_FRect){dir > 0 ? a.x : a.x + t - turn, y, turn, t};
-        } else {
-            float x = a.x < w.x ? a.x : a.x + a.w - t;
-            p.r[p.n++] = (SDL_FRect){x, dir > 0 ? a.y : a.y + t - turn, t, turn};
+/* Every free cell (blocks count as free: they can be shot down) and the floor in front of every
+ * door can be reached from the entry spot - by something two cells wide: a 2x2 square moving
+ * cell by cell must be able to sit on each of them (no passage narrower than 120 px, even
+ * diagonally between two corners). walls[y][x]: the cell is a wall. */
+static bool cells_connected(uint8_t walls[GH][GW]) {
+    static uint8_t seen[GH][GW], covered[GH][GW];
+    static int queue[GW * GH];
+    memset(seen, 0, sizeof seen);
+    memset(covered, 0, sizeof covered);
+#define FITS(x, y) ((x) >= 0 && (y) >= 0 && (x) + 1 < GW && (y) + 1 < GH && !walls[y][x] && !walls[y][(x) + 1] && \
+                    !walls[(y) + 1][x] && !walls[(y) + 1][(x) + 1])
+    V2 e = room_entry_spot();
+    int ex = cell_x(e.x), ey = cell_y(e.y), head = 0, tail = 0;
+    for (int k = 0; k < 4 && tail == 0; k++) { /* a square on the entry cell */
+        int x = ex - (k & 1), y = ey - (k >> 1);
+        if (FITS(x, y)) {
+            seen[y][x] = 1;
+            queue[tail++] = y * GW + x;
         }
     }
-    return p;
+    while (head < tail) {
+        int c = queue[head++], x = c % GW, y = c / GW;
+        covered[y][x] = covered[y][x + 1] = covered[y + 1][x] = covered[y + 1][x + 1] = 1;
+        const int dx[4] = {1, -1, 0, 0}, dy[4] = {0, 0, 1, -1};
+        for (int k = 0; k < 4; k++) {
+            int nx = x + dx[k], ny = y + dy[k];
+            if (!FITS(nx, ny) || seen[ny][nx]) continue;
+            seen[ny][nx] = 1;
+            queue[tail++] = ny * GW + nx;
+        }
+    }
+#undef FITS
+    for (int y = 0; y < GH; y++)
+        for (int x = 0; x < GW; x++)
+            if (!walls[y][x] && !covered[y][x]) return false; /* a spot the ship cannot reach, or a slit */
+    for (int s = SIDE_LEFT; s <= SIDE_BOTTOM; s++) { /* the floor in front of every door */
+        V2 d = door_position((Side)s);
+        V2 in = v2_add(d, v2_scale(v2_norm(v2_sub(v2(ARENA_CX, ARENA_CY), d)), GRID * 0.5f));
+        int x = cell_x(in.x), y = cell_y(in.y);
+        if (!in_grid(x, y) || !covered[y][x]) return false;
+    }
+    return true;
 }
 
-/* Corridors: walls on a coarse grid, what is left of a maze once a fair part of its walls are
- * knocked down (loops, a few dead ends, never a puzzle). The walls along the arena edge are the
- * arena itself; the ones in front of a door or the entry are dropped by the placement rules. */
+static bool grid_connected(void) {
+    static uint8_t walls[GH][GW];
+    for (int y = 0; y < GH; y++)
+        for (int x = 0; x < GW; x++) walls[y][x] = cells[y][x] == C_WALL;
+    return cells_connected(walls);
+}
+
+/* The room as it is (walls are whole cells): a cell is a wall when its centre is in one. */
+bool room_walls_connected(void) {
+    static uint8_t walls[GH][GW];
+    memset(walls, 0, sizeof walls);
+    for (int i = 0; i < G.room.nobs; i++) {
+        if (G.room.obs[i].kind != OB_WALL) continue;
+        SDL_FRect w = G.room.obs[i].r;
+        for (int y = cell_y(w.y + 1.0f); y <= cell_y(w.y + w.h - 1.0f); y++)
+            for (int x = cell_x(w.x + 1.0f); x <= cell_x(w.x + w.w - 1.0f); x++)
+                if (in_grid(x, y)) walls[y][x] = 1;
+    }
+    return cells_connected(walls);
+}
+
+/* ---- Walls --------------------------------------------------------------- */
+
+/* A wall piece (and its mirror images), taken back if it walls a part of the room off or leaves
+ * a passage too narrow. */
+static bool add_wall(const Shape *s, int sym) {
+    Shape m = sh_sym(s, sym);
+    if (!place(&m, C_WALL)) return false;
+    if (grid_connected()) return true;
+    unplace(&m);
+    return false;
+}
+
+static int thickness(void) { return chance(0.3f) ? 2 : 1; }
+
+static Shape shape_l(int x, int y, int sx, int sy, int a, int b, int t) { /* corner (x, y), arms a along x, b along y */
+    Shape s = {.n = 0};
+    sh_rect(&s, x, y, sx * a, sy * t);
+    sh_rect(&s, x, y, sx * t, sy * b);
+    return s;
+}
+
+static Shape shape_t(int cx, int cy, int len, int stem, int t, bool vertical, int dir) {
+    Shape s = {.n = 0};
+    if (!vertical) {
+        sh_rect(&s, cx - len / 2, cy, len, t);
+        sh_rect(&s, cx - t / 2, dir > 0 ? cy + t : cy - 1, t, dir * stem);
+    } else {
+        sh_rect(&s, cx, cy - len / 2, t, len);
+        sh_rect(&s, dir > 0 ? cx + t : cx - 1, cy - t / 2, dir * stem, t);
+    }
+    return s;
+}
+
+static Shape shape_plus(int cx, int cy, int arm, int t) {
+    Shape s = {.n = 0};
+    sh_rect(&s, cx - arm, cy, 2 * arm + t, t);
+    sh_rect(&s, cx, cy - arm, t, 2 * arm + t);
+    return s;
+}
+
+static Shape shape_u(int x, int y, int w, int d, int t, int open_up) { /* box (x, y, w, d) open on one side */
+    Shape s = {.n = 0};
+    sh_rect(&s, x, y, t, d);
+    sh_rect(&s, x + w - t, y, t, d);
+    sh_rect(&s, x, open_up ? y + d - t : y, w, t);
+    return s;
+}
+
+static Shape random_piece(int cx, int cy) {
+    int t = thickness();
+    Shape s = {.n = 0};
+    switch (irand(0, 5)) {
+    case 0: sh_rect(&s, cx, cy, irand(3, 6), t); break;
+    case 1: sh_rect(&s, cx, cy, t, irand(3, 5)); break;
+    case 2: s = shape_l(cx, cy, chance(0.5f) ? 1 : -1, chance(0.5f) ? 1 : -1, irand(2, 4), irand(2, 4), t); break;
+    case 3: s = shape_t(cx, cy, irand(3, 5), irand(1, 3), t, chance(0.5f), chance(0.5f) ? 1 : -1); break;
+    case 4: s = shape_plus(cx, cy, irand(1, 2), t); break;
+    default: sh_rect(&s, cx, cy, irand(1, 2), irand(1, 2)); break; /* a pillar */
+    }
+    return s;
+}
+
+/* A wall jutting out of an arena edge at cell `at` along it, straight or turning at its tip into
+ * an L or a T: corridors and dead ends along the sides. */
+static Shape spur(Side side, int at, int len, int t) {
+    Shape s = {.n = 0};
+    int tip_x = 0, tip_y = 0;
+    switch (side) {
+    case SIDE_LEFT: sh_rect(&s, 0, at, len, t), tip_x = len - t, tip_y = at; break;
+    case SIDE_RIGHT: sh_rect(&s, GW - len, at, len, t), tip_x = GW - len, tip_y = at; break;
+    case SIDE_TOP: sh_rect(&s, at, 0, t, len), tip_x = at, tip_y = len - t; break;
+    default: sh_rect(&s, at, GH - len, t, len), tip_x = at, tip_y = GH - len; break;
+    }
+    int turn = irand(0, 2), cap = irand(2, 4); /* 0 straight, 1 L, 2 T */
+    if (turn == 0) return s;
+    bool along_x = side == SIDE_LEFT || side == SIDE_RIGHT;
+    int dir = chance(0.5f) ? 1 : -1;
+    if (along_x) {
+        if (turn == 2) sh_rect(&s, tip_x, tip_y - cap, t, 2 * cap + t);
+        else sh_rect(&s, tip_x, dir > 0 ? tip_y : tip_y + t - 1, t, dir * (cap + t));
+    } else {
+        if (turn == 2) sh_rect(&s, tip_x - cap, tip_y, 2 * cap + t, t);
+        else sh_rect(&s, dir > 0 ? tip_x : tip_x + t - 1, tip_y, dir * (cap + t), t);
+    }
+    return s;
+}
+
+/* An arm branching off a wall cell already there, sometimes turning at its end: walls join up
+ * into corridors, chambers, dead ends. `bridge`: it runs to the mirror axis, where its image meets it. */
+static Shape arm(bool bridge) {
+    Shape s = {.n = 0};
+    for (int tries = 0; tries < 40; tries++) {
+        int x = irand(0, GW - 1), y = irand(0, GH - 1);
+        if (cells[y][x] != C_WALL) continue;
+        int k = irand(0, 3), dx = (k == 0) - (k == 1), dy = (k == 2) - (k == 3);
+        if (bridge) dx = x < GW / 2 ? 1 : -1, dy = 0;
+        if (solid(x + dx, y + dy)) continue;
+        int len = bridge ? (dx > 0 ? GW / 2 - 1 - x : x - GW / 2) : irand(2, 5);
+        if (len < 1) continue;
+        for (int i = 1; i <= len; i++) sh_cell(&s, x + dx * i, y + dy * i, 0);
+        if (!bridge && chance(0.4f)) { /* a turn at its tip */
+            int tx = x + dx * len, ty = y + dy * len, turn = irand(2, 4), side = chance(0.5f) ? 1 : -1;
+            for (int i = 1; i <= turn; i++) sh_cell(&s, tx + dy * i * side, ty + dx * i * side, 0);
+        }
+        return s;
+    }
+    return s;
+}
+
+/* Corridors: walls on a coarse grid (lines every 5 cells), what is left of a maze once a fair part
+ * of its walls are knocked down (loops, a few dead ends, never a puzzle). */
 static void gen_corridors(void) {
-    const int cols = irand(6, 8), rows = 4;
-    const float cw = (ARENA_X1 - ARENA_X0) / (float)cols, ch = (ARENA_Y1 - ARENA_Y0) / (float)rows, t = 40.0f;
-    bool open_e[8][4] = {{false}}, open_s[8][4] = {{false}}, seen[8][4] = {{false}};
-    int stack[32], top = 0;
-    int start = irand(0, cols * rows - 1);
+    enum { MC = 6, MR = 3 };
+    static const int xs[MC + 1] = {-1, 4, 9, 14, 19, 24, GW}, ys[MR + 1] = {-1, 4, 9, GH}; /* wall lines */
+    bool open_e[MC][MR] = {{false}}, open_s[MC][MR] = {{false}}, seen[MC][MR] = {{false}};
+    int stack[MC * MR], top = 0, start = irand(0, MC * MR - 1);
     stack[top++] = start;
-    seen[start % cols][start / cols] = true;
+    seen[start % MC][start / MC] = true;
     while (top > 0) { /* depth-first maze */
-        int c = stack[top - 1], x = c % cols, y = c / cols, opts[4], n = 0;
-        if (x + 1 < cols && !seen[x + 1][y]) opts[n++] = 0;
+        int c = stack[top - 1], x = c % MC, y = c / MC, opts[4], n = 0;
+        if (x + 1 < MC && !seen[x + 1][y]) opts[n++] = 0;
         if (x > 0 && !seen[x - 1][y]) opts[n++] = 1;
-        if (y + 1 < rows && !seen[x][y + 1]) opts[n++] = 2;
+        if (y + 1 < MR && !seen[x][y + 1]) opts[n++] = 2;
         if (y > 0 && !seen[x][y - 1]) opts[n++] = 3;
         if (n == 0) {
             top--;
@@ -287,42 +382,30 @@ static void gen_corridors(void) {
         else if (k == 2) open_s[x][y] = true;
         else open_s[x][ny] = true;
         seen[nx][ny] = true;
-        stack[top++] = ny * cols + nx;
+        stack[top++] = ny * MC + nx;
     }
     const float keep = frand(0.5f, 0.7f);
-    for (int x = 0; x < cols; x++)
-        for (int y = 0; y < rows; y++) {
-            float x0 = ARENA_X0 + (float)x * cw, y0 = ARENA_Y0 + (float)y * ch;
-            if (x + 1 < cols && !open_e[x][y] && chance(keep)) { /* wall on its right */
-                float top_y = fmaxf(y0 - t * 0.5f, ARENA_Y0), bot_y = fminf(y0 + ch + t * 0.5f, ARENA_Y1);
-                add_piece(piece1((SDL_FRect){x0 + cw - t * 0.5f, top_y, t, bot_y - top_y}));
+    for (int x = 0; x < MC; x++)
+        for (int y = 0; y < MR; y++) {
+            if (x + 1 < MC && !open_e[x][y] && chance(keep)) { /* wall on its right, with the joints */
+                Shape s = {.n = 0};
+                sh_rect(&s, xs[x + 1], ys[y] + (y > 0 ? 0 : 1), 1, ys[y + 1] - ys[y] + (y > 0 ? 1 : 0) - (y + 1 < MR ? 0 : 1));
+                add_wall(&s, 0);
             }
-            if (y + 1 < rows && !open_s[x][y] && chance(keep)) { /* wall below it */
-                float l = fmaxf(x0 - t * 0.5f, ARENA_X0), r = fminf(x0 + cw + t * 0.5f, ARENA_X1);
-                add_piece(piece1((SDL_FRect){l, y0 + ch - t * 0.5f, r - l, t}));
+            if (y + 1 < MR && !open_s[x][y] && chance(keep)) { /* wall below it */
+                Shape s = {.n = 0};
+                sh_rect(&s, xs[x] + (x > 0 ? 0 : 1), ys[y + 1], xs[x + 1] - xs[x] + (x > 0 ? 1 : 0) - (x + 1 < MC ? 0 : 1), 1);
+                add_wall(&s, 0);
             }
         }
 }
 
-static Piece random_piece(float cx, float cy) {
-    float t = frand(36, 54);
-    switch (irand(0, 5)) {
-    case 0: return piece1(rect_c(cx, cy, frand(160, 320), t));
-    case 1: return piece1(rect_c(cx, cy, t, frand(140, 280)));
-    case 2: return piece_l(cx, cy, chance(0.5f) ? 1 : -1, chance(0.5f) ? 1 : -1, frand(120, 220), frand(110, 200), t);
-    case 3: return piece_t(cx, cy, frand(180, 280), frand(80, 150), t, chance(0.5f), chance(0.5f) ? 1 : -1);
-    case 4: return piece_plus(cx, cy, frand(130, 200), t);
-    default: return piece1(rect_c(cx, cy, frand(60, 130), frand(60, 130)));
-    }
-}
-
 /* Gaps left in walls on purpose, filled with blocks by gen_blocks (barricades). */
-static SDL_FRect pending_gates[4];
+static Shape pending_gates[2];
 static int npending;
 
 /* Returns the symmetry used (blocks follow it). */
 static int gen_walls(void) {
-    const float W = ARENA_W, H = ARENA_H;
     int sym = 1;
     npending = 0;
     switch (irand(0, 14)) {
@@ -332,122 +415,116 @@ static int gen_walls(void) {
         return 0;
     case 0: /* open floor: the blocks make the room */
         break;
-    case 1: /* four pillars */
-        add_sym(piece1(rect_c(ARENA_X0 + W * 0.27f, ARENA_Y0 + H * 0.3f, 100, 100)), 3);
-        break;
-    case 2: /* two long vertical walls */
-        add_sym(piece1(rect_c(ARENA_X0 + W * frand(0.28f, 0.36f), ARENA_CY, 50, frand(300, 420))), 1);
-        break;
-    case 3: { /* random pieces */
-        sym = irand(0, 3);
-        int n = irand(3, 6);
-        for (int i = 0; i < n; i++) {
-            float x1 = sym == 1 || sym == 3 ? ARENA_CX - 120 : ARENA_X1 - 160;
-            float y1 = sym >= 2 ? ARENA_CY - 60 : ARENA_Y1 - 160;
-            add_sym(random_piece(frand(ARENA_X0 + 160, x1), frand(ARENA_Y0 + 160, y1)), sym);
-        }
+    case 1: { /* four pillars */
+        Shape s = {.n = 0};
+        sh_rect(&s, irand(6, 9), irand(3, 4), 2, 2);
+        add_wall(&s, sym = 3);
     } break;
-    case 4: /* horizontal bars */
-        add_sym(piece1(rect_c(ARENA_X0 + W * 0.27f, ARENA_Y0 + H * 0.26f, frand(240, 320), 44)), 3);
-        break;
-    case 5: /* ring of pillars */
-        for (int i = 0; i < 8; i++) {
-            float a = TAU_F * ((float)i + 0.5f) / 8.0f;
-            add_piece(piece1(rect_c(ARENA_CX + cosf(a) * 380.0f, ARENA_CY + sinf(a) * 260.0f, 64, 64)));
+    case 2: { /* two long vertical walls */
+        Shape s = {.n = 0};
+        int len = irand(5, 9);
+        sh_rect(&s, irand(7, 10), GH / 2 - len / 2, thickness(), len);
+        add_wall(&s, 1);
+    } break;
+    case 3: /* random pieces */
+        sym = irand(0, 3);
+        for (int i = 0, n = irand(3, 6); i < n; i++) {
+            Shape s = random_piece(irand(2, sym == 1 || sym == 3 ? GW / 2 - 2 : GW - 4), irand(2, sym >= 2 ? GH / 2 - 1 : GH - 4));
+            add_wall(&s, sym);
         }
-        sym = 3;
+        break;
+    case 4: { /* horizontal bars */
+        Shape s = {.n = 0};
+        sh_rect(&s, irand(4, 7), irand(3, 4), irand(4, 6), thickness());
+        add_wall(&s, sym = 3);
+    } break;
+    case 5: /* ring of pillars */
+        for (int i = 0; i < 4; i++) {
+            float a = TAU_F * ((float)i + 0.5f) / 8.0f;
+            Shape s = {.n = 0};
+            sh_rect(&s, GW / 2 - 1 + (int)lroundf(cosf(a) * 7.0f) - (i == 0 || i == 3 ? 0 : 1), GH / 2 + (int)lroundf(sinf(a) * 4.5f) - 1, 1, 1);
+            add_wall(&s, sym = 3);
+        }
         break;
     case 6: { /* four L brackets around the middle, open towards it or away from it */
-        float dx = frand(300, 420), dy = frand(190, 250), s = chance(0.5f) ? 1.0f : -1.0f;
-        add_sym(piece_l(ARENA_CX - dx, ARENA_CY - dy, s, s, frand(140, 220), frand(110, 170), 44), 3);
-        sym = 3;
+        int s1 = chance(0.5f) ? 1 : -1;
+        Shape s = shape_l(irand(7, 9), irand(3, 4), s1, s1, irand(3, 4), irand(2, 3), thickness());
+        add_wall(&s, sym = 3);
     } break;
     case 7: { /* halls: long walls splitting the room into lanes */
-        float y = ARENA_CY - frand(225, 270), len = frand(380, 520);
-        add_sym(piece1((SDL_FRect){ARENA_X0 + EDGE_MARGIN + frand(40, 140), y - 20, len, 40}), 3);
-        sym = 3;
+        Shape s = {.n = 0};
+        sh_rect(&s, irand(2, 4), irand(3, 4), irand(7, 10), 1);
+        add_wall(&s, sym = 3);
     } break;
     case 8: /* a small maze of short pieces */
         sym = chance(0.5f) ? 1 : 3;
         for (int cx = 0; cx < 3; cx++)
-            for (int cy = 0; cy < 3; cy++) {
+            for (int cy = 0; cy < (sym == 3 ? 2 : 3); cy++) {
                 if (chance(0.3f)) continue;
-                float x = ARENA_X0 + 200 + (float)cx * 230 + frand(-30, 30), y = ARENA_Y0 + 180 + (float)cy * 280 + frand(-30, 30);
-                if (sym == 3 && cy == 2) continue;
-                add_sym(random_piece(x, y), sym);
+                Shape s = random_piece(3 + cx * 4 + irand(0, 1), 2 + cy * 4 + irand(0, 1));
+                add_wall(&s, sym);
             }
         break;
     case 9: { /* a field of posts */
-        float sx = frand(180, 230), sy = frand(160, 200);
-        for (float x = ARENA_X0 + 170; x < ARENA_CX - 60; x += sx)
-            for (float y = ARENA_Y0 + 160; y < ARENA_Y1 - 120; y += sy)
-                if (chance(0.65f)) add_sym(piece1(rect_c(x, y, 46, 46)), 1);
+        int sx = irand(3, 4), sy = irand(3, 4);
+        for (int x = 2 + irand(0, 1); x < GW / 2 - 1; x += sx)
+            for (int y = 2 + irand(0, 1); y < GH - 2; y += sy)
+                if (chance(0.65f)) {
+                    Shape s = {.n = 0};
+                    sh_rect(&s, x, y, 1, 1);
+                    add_wall(&s, 1);
+                }
     } break;
-    case 10: { /* crosses */
-        int n = irand(2, 3);
-        for (int i = 0; i < n; i++)
-            add_sym(piece_plus(frand(ARENA_X0 + 220, ARENA_CX - 220), frand(ARENA_Y0 + 200, ARENA_Y1 - 200), frand(140, 210), 42), 1);
-    } break;
-    case 12: { /* barricades: long walls across the room, a breakable gate in each */
-        float x = ARENA_X0 + W * frand(0.27f, 0.34f), t = 44.0f, gap = BLOCK_TILE * (float)irand(2, 3);
-        float y0 = ARENA_Y0 + WALL_EDGE_MARGIN, y1 = ARENA_Y1 - WALL_EDGE_MARGIN, gy = frand(ARENA_CY - 160.0f, ARENA_CY + 160.0f - gap);
-        Piece p = {.n = 2};
-        p.r[0] = (SDL_FRect){x - t * 0.5f, y0, t, gy - y0};
-        p.r[1] = (SDL_FRect){x - t * 0.5f, gy + gap, t, y1 - gy - gap};
-        for (int m = 0; m < 2; m++) {
-            Piece q = m ? piece_mirror(p, true, false) : p;
-            if (add_piece(q) && npending < ARRAY_LEN(pending_gates))
-                pending_gates[npending++] = (SDL_FRect){q.r[0].x + t * 0.5f - BLOCK_TILE * 0.5f, gy, BLOCK_TILE, gap};
+    case 10: /* crosses */
+        for (int i = 0, n = irand(2, 3); i < n; i++) {
+            Shape s = shape_plus(irand(4, GW / 2 - 4), irand(3, GH - 5), irand(1, 2), thickness());
+            add_wall(&s, 1);
         }
-        sym = 1;
+        break;
+    case 12: { /* barricades: long walls across the room, a breakable gate in each */
+        int x = irand(7, 10), gap = irand(2, 3), gy = irand(GH / 2 - 3, GH / 2 + 1);
+        Shape s = {.n = 0};
+        sh_rect(&s, x, 2, 1, gy - 2);
+        sh_rect(&s, x, gy + gap, 1, GH - 2 - gy - gap);
+        if (add_wall(&s, 1)) {
+            Shape g = {.n = 0};
+            sh_rect(&g, x, gy, 1, gap);
+            pending_gates[0] = g;
+            for (int i = 0; i < g.n; i++) g.x[i] = (int8_t)(GW - 1 - g.x[i]);
+            pending_gates[1] = g;
+            npending = 2;
+        }
     } break;
     default: { /* chambers: U shapes, open to the middle or to the walls */
-        float o = chance(0.5f) ? 1.0f : -1.0f;
-        add_sym(piece_u(ARENA_X0 + W * 0.25f, ARENA_CY - H * 0.28f, frand(200, 280), frand(150, 200), 40, 0, o), 3);
-        sym = 3;
+        int w = irand(4, 5), d = irand(3, 4);
+        Shape s = shape_u(irand(4, 7), irand(2, 3), w, d, 1, chance(0.5f));
+        add_wall(&s, sym = 3);
     } break;
     }
     /* The rest is often left unmirrored (the blocks follow). */
     if (chance(0.55f)) sym = 0;
+    bool half_x = sym == 1 || sym == 3, half_y = sym >= 2;
     /* A few more pieces here and there. */
-    int extra = irand(3, 6);
-    for (int i = 0; i < 80 && extra > 0; i++) {
-        bool half = sym == 1 || sym == 3;
-        float x1 = half ? ARENA_CX - 120 : ARENA_X1 - 160, y1 = sym >= 2 ? ARENA_CY - 60 : ARENA_Y1 - 160;
-        extra -= add_sym_open(random_piece(frand(ARENA_X0 + 160, x1), frand(ARENA_Y0 + 160, y1)), sym) > 0;
+    for (int i = 0, extra = irand(3, 6); i < 80 && extra > 0; i++) {
+        Shape s = random_piece(irand(2, half_x ? GW / 2 - 2 : GW - 4), irand(2, half_y ? GH / 2 - 1 : GH - 4));
+        extra -= add_wall(&s, sym);
     }
     /* Walls jutting out of the sides. */
-    int spurs = chance(0.8f) ? irand(1, 4) : 0;
-    for (int i = 0; i < 60 && spurs > 0; i++) {
+    for (int i = 0, spurs = chance(0.8f) ? irand(1, 4) : 0; i < 60 && spurs > 0; i++) {
         Side side = (Side)irand(SIDE_LEFT, SIDE_BOTTOM);
-        bool across_x = side == SIDE_LEFT || side == SIDE_RIGHT;
-        float at = across_x ? frand(ARENA_Y0 + 140, ARENA_Y1 - 140) : frand(ARENA_X0 + 140, ARENA_X1 - 140);
-        float len = across_x ? frand(200, 480) : frand(200, 380);
-        spurs -= add_sym_open(piece_spur(side, at, len, frand(38, 50)), sym) > 0;
+        bool along_x = side == SIDE_LEFT || side == SIDE_RIGHT;
+        Shape s = spur(side, along_x ? irand(2, GH - 4) : irand(2, GW - 4), along_x ? irand(3, 8) : irand(3, 6), thickness());
+        spurs -= add_wall(&s, sym);
     }
     /* Arms joining the walls up; in a mirrored room some reach the axis and meet their image. */
-    int arms = irand(2, 5);
-    for (int i = 0; i < 60 && arms > 0 && G.room.nobs > 0; i++) {
-        SDL_FRect w = G.room.obs[irand(0, G.room.nobs - 1)].r;
-        bool bridge = (sym == 1 || sym == 3) && w.h > w.w && chance(0.35f) && fabsf(rect_center(w).x - ARENA_CX) < 520.0f;
-        arms -= add_sym_open(piece_arm(w, bridge), sym) > 0;
+    for (int i = 0, arms = irand(2, 5); i < 60 && arms > 0; i++) {
+        Shape s = arm(half_x && chance(0.3f));
+        arms -= add_wall(&s, sym);
     }
     return sym;
 }
 
 /* ---- Blocks -------------------------------------------------------------- */
-
-
-static bool gap_ok(float gap) { return gap >= 0.0f && (gap <= 1.0f || gap >= WALL_GAP); }
-
-static bool block_rect_ok(SDL_FRect r) {
-    if (!in_arena(r, EDGE_MARGIN) || hits_room_spots(r)) return false;
-    /* Blocks touch the walls / blocks next to them, or keep a real gap: a 40 px slit would be too
-     * tight to fly through (and the path finder would see a way that is not there). */
-    for (int i = 0; i < G.room.nobs; i++)
-        if (!gap_ok(rect_gap(r, G.room.obs[i].r))) return false;
-    return true;
-}
 
 typedef enum { TH_CRATES, TH_BARRELS, TH_OIL, TH_SPARK, TH_MIXED } Theme;
 
@@ -466,72 +543,27 @@ static int theme_kind(Theme th) {
     }
 }
 
-/* A group of tiles (a cluster, a gate...) and its mirror images, placed whole or not at all:
- * a half-placed row would leave slits between its pieces. */
-typedef struct {
-    float x[16], y[16];
-    int kind[16], n;
-} Group;
-
-static int place_group(const Group *g, int sym) {
-    SDL_FRect rs[64], box[4];
-    int kinds[64], n = 0, copies = 0;
-    for (int m = 0; m < 4; m++) {
-        bool mx = m & 1, my = m & 2;
-        if ((mx && sym != 1 && sym != 3) || (my && sym < 2)) continue;
-        int first = n;
-        for (int i = 0; i < g->n; i++) {
-            float x = mx ? 2.0f * ARENA_CX - g->x[i] - BLOCK_TILE : g->x[i];
-            float y = my ? 2.0f * ARENA_CY - g->y[i] - BLOCK_TILE : g->y[i];
-            rs[n] = (SDL_FRect){x, y, BLOCK_TILE, BLOCK_TILE};
-            kinds[n++] = g->kind[i];
-        }
-        SDL_FRect b = rs[first]; /* this copy's bounding box */
-        for (int i = first + 1; i < n; i++) {
-            float x1 = fmaxf(b.x + b.w, rs[i].x + rs[i].w), y1 = fmaxf(b.y + b.h, rs[i].y + rs[i].h);
-            b.x = fminf(b.x, rs[i].x), b.y = fminf(b.y, rs[i].y);
-            b.w = x1 - b.x, b.h = y1 - b.y;
-        }
-        box[copies++] = b;
-    }
-    if (n == 0 || G.room.nobs + n > MAX_OBSTACLES) return 0;
-    for (int i = 0; i < n; i++)
-        if (!block_rect_ok(rs[i])) return 0;
-    for (int i = 0; i < copies; i++) /* the mirror images of a group near the middle: same rule */
-        for (int j = 0; j < i; j++)
-            if (!gap_ok(rect_gap(box[i], box[j]))) return 0;
-    for (int i = 0; i < n; i++) {
-        Obstacle *o = &G.room.obs[G.room.nobs++];
-        memset(o, 0, sizeof *o);
-        o->r = rs[i];
-        o->kind = (uint8_t)kinds[i];
-        o->hp = o->max_hp = BLOCK_HP[kinds[i]];
-        o->swing_id = -1;
-    }
-    return n;
+/* A group of blocks and its mirror images, placed whole or not at all. */
+static int add_blocks(Shape *s, Theme th, int sym) {
+    for (int i = 0; i < s->n; i++) s->kind[i] = (uint8_t)theme_kind(th);
+    Shape m = sh_sym(s, sym);
+    return place(&m, C_BLOCK) ? m.n : 0;
 }
 
-/* Gate: a line of blocks carrying a wall on, from one of its ends, into the gap next to it
- * (the longest line that fits). */
-static int add_gate(int wall, int max_tiles) {
-    SDL_FRect w = G.room.obs[wall].r;
-    bool horiz = w.w >= w.h;
-    float dir = chance(0.5f) ? 1.0f : -1.0f;
-    Theme th = chance(0.75f) ? TH_CRATES : roll_theme();
-    for (int len = max_tiles; len >= 2; len--) {
-        Group g = {.n = len};
-        for (int k = 0; k < len; k++) {
-            if (horiz) {
-                g.x[k] = dir > 0 ? w.x + w.w + (float)k * BLOCK_TILE : w.x - (float)(k + 1) * BLOCK_TILE;
-                g.y[k] = w.y + w.h * 0.5f - BLOCK_TILE * 0.5f;
-            } else {
-                g.x[k] = w.x + w.w * 0.5f - BLOCK_TILE * 0.5f;
-                g.y[k] = dir > 0 ? w.y + w.h + (float)k * BLOCK_TILE : w.y - (float)(k + 1) * BLOCK_TILE;
-            }
-            g.kind[k] = theme_kind(th);
+/* Gate: a line of blocks carrying a wall on, from one of its ends, into the gap next to it. */
+static int add_gate(int max_tiles) {
+    for (int tries = 0; tries < 30; tries++) {
+        int x = irand(0, GW - 1), y = irand(0, GH - 1), k = irand(0, 3);
+        int dx = (k == 0) - (k == 1), dy = (k == 2) - (k == 3);
+        /* the end of a wall running in direction (dx, dy) */
+        if (cells[y][x] != C_WALL || !in_grid(x - dx, y - dy) || cells[y - dy][x - dx] != C_WALL || solid(x + dx, y + dy)) continue;
+        Theme th = chance(0.75f) ? TH_CRATES : roll_theme();
+        for (int len = max_tiles; len >= 2; len--) {
+            Shape s = {.n = 0};
+            for (int i = 1; i <= len; i++) sh_cell(&s, x + dx * i, y + dy * i, 0);
+            int got = add_blocks(&s, th, 0);
+            if (got) return got;
         }
-        int got = place_group(&g, 0);
-        if (got) return got;
     }
     return 0;
 }
@@ -547,114 +579,82 @@ static int add_cluster(int sym, bool attached) {
     case 3: w = irand(2, 4), h = 2; break;           /* thick row */
     default: w = h = 1; break;                       /* single */
     }
-    float x, y;
-    if (attached && G.room.nobs > 0) {
-        SDL_FRect o = G.room.obs[irand(0, G.room.nobs - 1)].r;
-        float cw = (float)w * BLOCK_TILE, ch = (float)h * BLOCK_TILE;
-        switch (irand(0, 3)) {
-        case 0: x = o.x - cw, y = frand(o.y - ch + BLOCK_TILE, o.y + o.h - BLOCK_TILE); break; /* left of it */
-        case 1: x = o.x + o.w, y = frand(o.y - ch + BLOCK_TILE, o.y + o.h - BLOCK_TILE); break;
-        case 2: x = frand(o.x - cw + BLOCK_TILE, o.x + o.w - BLOCK_TILE), y = o.y - ch; break; /* above */
-        default: x = frand(o.x - cw + BLOCK_TILE, o.x + o.w - BLOCK_TILE), y = o.y + o.h; break;
-        }
-    } else {
-        float x0 = sym == 1 || sym == 3 ? ARENA_CX - BLOCK_TILE * 2 : ARENA_X1 - 200;
-        float y0 = sym >= 2 ? ARENA_CY - BLOCK_TILE * 2 : ARENA_Y1 - 200;
-        x = frand(ARENA_X0 + EDGE_MARGIN, x0), y = frand(ARENA_Y0 + EDGE_MARGIN, y0);
-    }
     if (th == TH_BARRELS && w * h > 4) h = 1; /* a whole depot of barrels would be a death trap */
-    Group g = {.n = 0};
-    for (int i = 0; i < w; i++)
-        for (int j = 0; j < h; j++) {
-            g.x[g.n] = x + (float)i * BLOCK_TILE;
-            g.y[g.n] = y + (float)j * BLOCK_TILE;
-            g.kind[g.n++] = theme_kind(th);
+    int x = irand(BLOCK_EDGE, GW - BLOCK_EDGE - w), y = irand(BLOCK_EDGE, GH - BLOCK_EDGE - h);
+    if (attached) { /* slide it until it leans on something solid */
+        bool found = false;
+        for (int tries = 0; tries < 30 && !found; tries++) {
+            int ox = irand(0, GW - 1), oy = irand(0, GH - 1), k = irand(0, 3);
+            if (cells[oy][ox] == C_FREE) continue;
+            if (k == 0) x = ox + 1, y = oy - irand(0, h - 1);
+            else if (k == 1) x = ox - w, y = oy - irand(0, h - 1);
+            else if (k == 2) x = ox - irand(0, w - 1), y = oy + 1;
+            else x = ox - irand(0, w - 1), y = oy - h;
+            found = true;
         }
-    return place_group(&g, sym);
+    }
+    Shape s = {.n = 0};
+    sh_rect(&s, x, y, w, h);
+    return add_blocks(&s, th, sym);
 }
 
 static void gen_blocks(int sym) {
-    int budget = g_dense_blocks ? MAX_OBSTACLES : irand(12, 30);
-    if (G.room.nobs == 0) budget += 8; /* open floor */
-    int placed = 0, walls = G.room.nobs;
-    for (int i = 0; i < npending; i++) { /* barricade gates first */
-        Theme th = chance(0.7f) ? TH_CRATES : roll_theme();
-        Group g = {.n = 0};
-        for (float y = pending_gates[i].y; y < pending_gates[i].y + pending_gates[i].h - 1.0f && g.n < 16; y += BLOCK_TILE) {
-            g.x[g.n] = pending_gates[i].x;
-            g.y[g.n] = y;
-            g.kind[g.n++] = theme_kind(th);
-        }
-        placed += place_group(&g, 0);
-    }
-    float gate_chance = g_dense_blocks ? 1.0f : 0.45f;
-    for (int i = 0; i < walls && placed < budget; i++)
-        if (chance(gate_chance)) placed += add_gate(i, irand(2, 6));
-    for (int tries = 0; tries < 600 && placed < budget; tries++) placed += add_cluster(sym, chance(0.6f));
+    int budget = g_dense_blocks ? 200 : irand(6, 16);
+    int walls = 0;
+    for (int y = 0; y < GH; y++)
+        for (int x = 0; x < GW; x++) walls += cells[y][x] == C_WALL;
+    if (walls == 0) budget += 8; /* open floor */
+    int placed = 0;
+    for (int i = 0; i < npending; i++) /* barricade gates first */
+        placed += add_blocks(&pending_gates[i], chance(0.7f) ? TH_CRATES : roll_theme(), 0);
+    int gates = g_dense_blocks ? 40 : irand(2, 6);
+    for (int i = 0; i < gates && placed < budget; i++) placed += add_gate(irand(2, 5));
+    for (int tries = 0; tries < 400 && placed < budget; tries++) placed += add_cluster(sym, chance(0.6f));
 }
 
-/* ---- Connectivity -------------------------------------------------------- */
+/* ---- From cells to obstacles ---------------------------------------------- */
 
-#define CELL 20.0f
-_Static_assert((int)(ARENA_X1 - ARENA_X0) / 20 == 89 && (int)(ARENA_Y1 - ARENA_Y0) / 20 == 46, "flood fill grid = arena / CELL");
-#define GW 89 /* ARENA_W / CELL */
-#define GH 46 /* ARENA_H / CELL */
+static void add_obstacle(int x, int y, int w, int h, int kind) {
+    if (G.room.nobs >= MAX_OBSTACLES) return;
+    Obstacle *o = &G.room.obs[G.room.nobs++];
+    memset(o, 0, sizeof *o);
+    o->r = (SDL_FRect){ARENA_X0 + (float)x * GRID, ARENA_Y0 + (float)y * GRID, (float)w * GRID, (float)h * GRID};
+    o->kind = (uint8_t)kind;
+    o->hp = o->max_hp = kind == OB_WALL ? 1.0f : BLOCK_HP[kind];
+    o->swing_id = -1;
+}
 
-static V2 cell_center(int cx, int cy) { return v2(ARENA_X0 + ((float)cx + 0.5f) * CELL, ARENA_Y0 + ((float)cy + 0.5f) * CELL); }
-
-bool room_walls_connected(void) {
-    static uint8_t state[GH][GW]; /* 0 blocked, 1 free, 2 reached */
-    static int queue[GW * GH];
-    const float r = PLAYER_BODY_R + 1.0f; /* free: the ship's body fits there */
+/* Walls: the cells merged into big rects (as wide, then as tall as they go). Blocks: one each. */
+static void grid_to_obstacles(void) {
+    static uint8_t used[GH][GW];
+    memset(used, 0, sizeof used);
+    G.room.nobs = 0;
     for (int y = 0; y < GH; y++)
         for (int x = 0; x < GW; x++) {
-            V2 p = cell_center(x, y);
-            state[y][x] = p.x >= ARENA_X0 + r && p.x <= ARENA_X1 - r && p.y >= ARENA_Y0 + r && p.y <= ARENA_Y1 - r;
+            if (cells[y][x] != C_WALL || used[y][x]) continue;
+            int w = 1, h = 1;
+            while (x + w < GW && cells[y][x + w] == C_WALL && !used[y][x + w]) w++;
+            for (bool grow = true; grow && y + h < GH;) {
+                for (int i = 0; i < w && grow; i++) grow = cells[y + h][x + i] == C_WALL && !used[y + h][x + i];
+                if (grow) h++;
+            }
+            for (int j = 0; j < h; j++)
+                for (int i = 0; i < w; i++) used[y + j][x + i] = 1;
+            add_obstacle(x, y, w, h, OB_WALL);
         }
-    for (int i = 0; i < G.room.nobs; i++) { /* only the cells around each wall */
-        if (G.room.obs[i].kind != OB_WALL) continue;
-        SDL_FRect w = G.room.obs[i].r;
-        int x0 = (int)fmaxf(0.0f, (w.x - r - ARENA_X0) / CELL - 1.0f), x1 = (int)fminf(GW - 1, (w.x + w.w + r - ARENA_X0) / CELL + 1.0f);
-        int y0 = (int)fmaxf(0.0f, (w.y - r - ARENA_Y0) / CELL - 1.0f), y1 = (int)fminf(GH - 1, (w.y + w.h + r - ARENA_Y0) / CELL + 1.0f);
-        for (int y = y0; y <= y1; y++)
-            for (int x = x0; x <= x1; x++)
-                if (state[y][x] && rect_dist(cell_center(x, y), w) < r) state[y][x] = 0;
-    }
-    V2 e = room_entry_spot();
-    int sx = (int)((e.x - ARENA_X0) / CELL), sy = (int)((e.y - ARENA_Y0) / CELL);
-    if (sx < 0 || sy < 0 || sx >= GW || sy >= GH || state[sy][sx] != 1) return false;
-    int head = 0, tail = 0;
-    state[sy][sx] = 2;
-    queue[tail++] = sy * GW + sx;
-    while (head < tail) {
-        int c = queue[head++], x = c % GW, y = c / GW;
-        const int dx[4] = {1, -1, 0, 0}, dy[4] = {0, 0, 1, -1};
-        for (int k = 0; k < 4; k++) {
-            int nx = x + dx[k], ny = y + dy[k];
-            if (nx < 0 || ny < 0 || nx >= GW || ny >= GH || state[ny][nx] != 1) continue;
-            state[ny][nx] = 2;
-            queue[tail++] = ny * GW + nx;
-        }
-    }
     for (int y = 0; y < GH; y++)
         for (int x = 0; x < GW; x++)
-            if (state[y][x] == 1) return false; /* a free spot the ship cannot reach */
-    for (int s = SIDE_LEFT; s <= SIDE_BOTTOM; s++) { /* every door */
-        V2 d = door_position((Side)s);
-        V2 in = v2_add(d, v2_scale(v2_norm(v2_sub(v2(ARENA_CX, ARENA_CY), d)), 30.0f));
-        int x = (int)((in.x - ARENA_X0) / CELL), y = (int)((in.y - ARENA_Y0) / CELL);
-        if (x < 0 || y < 0 || x >= GW || y >= GH || state[y][x] != 2) return false;
-    }
-    return true;
+            if (cells[y][x] == C_BLOCK) add_obstacle(x, y, 1, 1, cell_kind[y][x]);
 }
 
 void room_gen_layout(void) {
     for (int attempt = 0; attempt < 30; attempt++) {
-        G.room.nobs = 0;
+        grid_reset();
         int sym = attempt < 25 ? gen_walls() : 1; /* last attempts: blocks only */
         gen_blocks(sym);
-        if (room_walls_connected()) break;
+        if (grid_connected()) break;
     }
+    grid_to_obstacles();
     G.room.nfires = 0;
     room_nav_reset();
 }
@@ -993,19 +993,65 @@ static void draw_shatter_cracks(const Obstacle *o, int seed) {
     draw_blend_alpha();
 }
 
+/* A wall rect on whole grid cells (every generated wall): its cells, false otherwise. */
+static bool wall_cells(SDL_FRect o, int *x0, int *y0, int *x1, int *y1) {
+    float fx = (o.x - ARENA_X0) / GRID, fy = (o.y - ARENA_Y0) / GRID, fw = o.w / GRID, fh = o.h / GRID;
+    *x0 = (int)lroundf(fx), *y0 = (int)lroundf(fy), *x1 = *x0 + (int)lroundf(fw), *y1 = *y0 + (int)lroundf(fh);
+    return fabsf(fx - (float)*x0) < 0.01f && fabsf(fy - (float)*y0) < 0.01f && fabsf(fw - roundf(fw)) < 0.01f &&
+           fabsf(fh - roundf(fh)) < 0.01f && *x0 >= 0 && *y0 >= 0 && *x1 <= GW && *y1 <= GH && *x1 > *x0 && *y1 > *y0;
+}
+
 void blocks_draw(SDL_FColor wall, SDL_FColor edge) {
     const Room *r = &G.room;
-    /* Walls in passes, so the rects of one piece (L, T, cross...) merge under a single outline. */
-    for (int pass = 0; pass < 4; pass++)
-        for (int i = 0; i < r->nobs; i++) {
-            const Obstacle *ob = &r->obs[i];
-            if (ob->kind != OB_WALL) continue;
-            SDL_FRect o = ob->r;
-            if (pass == 0) draw_rect(o.x + 6, o.y + 8, o.w, o.h, rgba(0, 0, 0, 0.35f)); /* drop shadow */
-            else if (pass == 1) draw_rect(o.x, o.y, o.w, o.h, edge);
-            else if (pass == 2) draw_rect(o.x + 3, o.y + 3, o.w - 6, o.h - 6, wall);
-            else if (o.w > 14 && o.h > 14) draw_rect(o.x + 7, o.y + 7, o.w - 14, o.h - 14, col_mul(wall, 1.35f));
+    SDL_FColor panel = col_mul(wall, 1.35f);
+    /* Walls drawn cell by cell from one map of the wall cells, so walls side by side (an L, two
+     * pieces that merged) read as a single shape: the rim only runs along the sides facing the
+     * floor, and the inner corners get their bit of rim. Off-grid walls (tests) are drawn alone. */
+    static uint8_t cell[GH][GW];
+    memset(cell, 0, sizeof cell);
+    for (int i = 0; i < r->nobs; i++) {
+        const Obstacle *ob = &r->obs[i];
+        if (ob->kind != OB_WALL) continue;
+        SDL_FRect o = ob->r;
+        int x0, y0, x1, y1;
+        draw_rect(o.x + 6, o.y + 8, o.w, o.h, rgba(0, 0, 0, 0.35f)); /* drop shadow (wall rects never overlap) */
+        if (wall_cells(o, &x0, &y0, &x1, &y1)) {
+            for (int y = y0; y < y1; y++)
+                for (int x = x0; x < x1; x++) cell[y][x] = 1;
+        } else {
+            draw_rect(o.x, o.y, o.w, o.h, edge);
+            draw_rect(o.x + 3, o.y + 3, o.w - 6, o.h - 6, wall);
+            if (o.w > 14 && o.h > 14) draw_rect(o.x + 7, o.y + 7, o.w - 14, o.h - 14, panel);
         }
+    }
+#define WC(x, y) ((x) >= 0 && (y) >= 0 && (x) < GW && (y) < GH && cell[y][x])
+    /* rim, then the dark band (inset 3 px from the floor), then the lighter panel (inset 7 px) */
+    const float inset[3] = {0.0f, 3.0f, 7.0f};
+    const SDL_FColor fill[3] = {edge, wall, panel};
+    for (int pass = 0; pass < 3; pass++)
+        for (int y = 0; y < GH; y++)
+            for (int x = 0; x < GW; x++) {
+                if (!cell[y][x]) continue;
+                float k = inset[pass], cx = ARENA_X0 + (float)x * GRID, cy = ARENA_Y0 + (float)y * GRID;
+                /* a pixel over into a wall neighbour: no seam once scaled to the window */
+                float l = WC(x - 1, y) ? -1.0f : k, t = WC(x, y - 1) ? -1.0f : k;
+                float rr = WC(x + 1, y) ? -1.0f : k, b = WC(x, y + 1) ? -1.0f : k;
+                draw_rect(cx + l, cy + t, GRID - l - rr, GRID - t - b, fill[pass]);
+            }
+    /* Inner corners (two wall neighbours, the diagonal one free): the rim turns the corner. */
+    for (int y = 0; y < GH; y++)
+        for (int x = 0; x < GW; x++) {
+            if (!cell[y][x]) continue;
+            float cx = ARENA_X0 + (float)x * GRID, cy = ARENA_Y0 + (float)y * GRID;
+            for (int dy = -1; dy <= 1; dy += 2)
+                for (int dx = -1; dx <= 1; dx += 2) {
+                    if (!WC(x + dx, y) || !WC(x, y + dy) || WC(x + dx, y + dy)) continue;
+                    float px = dx < 0 ? cx : cx + GRID, py = dy < 0 ? cy : cy + GRID;
+                    draw_rect(dx < 0 ? px : px - 7.0f, dy < 0 ? py : py - 7.0f, 7.0f, 7.0f, wall);
+                    draw_rect(dx < 0 ? px : px - 3.0f, dy < 0 ? py : py - 3.0f, 3.0f, 3.0f, edge);
+                }
+        }
+#undef WC
     for (int i = 0; i < r->nobs; i++)
         if (r->obs[i].kind != OB_WALL && obstacle_solid(&r->obs[i])) draw_block(&r->obs[i], i);
     for (int i = 0; i < r->nobs; i++) draw_shatter_cracks(&r->obs[i], i + (int)r->obs[i].r.x);

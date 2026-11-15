@@ -11,7 +11,7 @@ enum {
     MAX_SPAWNS = 96,
     MAX_PARTICLES = 8192,
     MAX_PICKUPS = 256,
-    MAX_OBSTACLES = 64,
+    MAX_OBSTACLES = 96,
     MAX_FIRES = 24,
     MAX_POPUPS = 48,
     MAX_DRONES = 6,
@@ -334,7 +334,7 @@ typedef struct {
 #define FIRE_POOL_TIME 7.0f
 #define BARREL_BLAST_R 135.0f
 #define SPARK_BALLS 12
-#define BLOCK_TILE 46.0f
+#define BLOCK_TILE GRID /* a block fills one grid cell */
 /* Room cleared: a wave of cracks runs from the last enemy killed, every obstacle (walls too) bursts
  * like glass and fades away; the reward and the doors come ROOM_REVEAL_T later (clear_t < 0 until
  * then). The cleared room is always empty: rewards need no room left for them in the layout. */

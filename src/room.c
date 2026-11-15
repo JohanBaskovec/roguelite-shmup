@@ -839,9 +839,9 @@ void room_draw_floor(void) {
     SDL_FColor floor = col_hsv(r->hue, 0.55f, 0.075f, 1.0f);
     SDL_FColor grid = col_hsv(r->hue, 0.6f, 0.9f, 0.05f);
     draw_rect(ARENA_X0, ARENA_Y0, ARENA_W, ARENA_H, floor);
-    for (float x = ARENA_X0 + 60.0f; x < ARENA_X1; x += 60.0f)
+    for (float x = ARENA_X0 + GRID; x < ARENA_X1 - 1.0f; x += GRID)
         draw_line(v2(x, ARENA_Y0), v2(x, ARENA_Y1), 1.5f, grid);
-    for (float y = ARENA_Y0 + 60.0f; y < ARENA_Y1; y += 60.0f)
+    for (float y = ARENA_Y0 + GRID; y < ARENA_Y1 - 1.0f; y += GRID)
         draw_line(v2(ARENA_X0, y), v2(ARENA_X1, y), 1.5f, grid);
 
     /* Soft inner shading towards the walls. */

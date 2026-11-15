@@ -95,13 +95,23 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   and a bomb breaks them all (`room_blocks_break_all`). A broken block goes off in `blocks_update`, outside
   the entity loops (chains on the next tick); call `room_nav_reset()` whenever obstacles change. Connectivity
   counts walls only (`room_walls_connected`: every free cell and door reachable from the entry spot), so
-  blocks may close a passage but can always be shot through; only the entry spot is kept clear. Walls touch
-  (merged shapes) or keep `WALL_GAP`, stand `WALL_EDGE_MARGIN` off the edges or jut out of them (spurs,
-  `SPUR_FOOT` wide at most, never in front of a door); extra pieces / spurs / arms go through `add_sym_open`
-  (taken back if they close a pocket); `gen_corridors` is a braided grid maze. Anything touching the arena edge
-  must keep the crawler (stops at spurs, `crawler_blocked`) and `room_collide_obstacle` (never pushes out
-  through an edge-flush side) working. The bot digs through blocks, never fires at a barrel / oil drum within
-  its reach, aims for free floor near targets on the edge (`free_spot_near`) and roams when it hits nothing.
+  blocks may close a passage but can always be shot through; only the entry spot is kept clear.
+  **Everything sits on the floor grid**: `GRID` = 60 px cells, arena 1800x900 (`GW` x `GH` = 30 x 15); every
+  wall and block fills whole cells (blocks are 1 cell, `BLOCK_TILE`; walls 1 or 2 cells thick). Layouts are
+  built on `cells[GH][GW]` and every piece goes through `place()`: never a 1-cell passage (`pinched`, the edge
+  counts, diagonal slits too), never two solid cells touching only by a corner (`corner_only`), never a 3x3
+  slab of wall (`slab`); blocks stay `BLOCK_EDGE` cells off the edges. Every wall goes through `add_wall`,
+  taken back unless `cells_connected` still holds (a 2x2-cell "ship" flood fill from the entry must cover
+  every free cell and each door mouth; `room_walls_connected` runs the same test on the final obstacles).
+  Spurs jut out of the edges (never in front of a door), arms join walls, `gen_corridors` is a braided
+  maze; `grid_to_obstacles` merges wall cells into big rects, one obstacle per block. Anything touching the
+  arena edge must keep the crawler (stops at spurs, `crawler_blocked`) and `room_collide_obstacle` (never
+  pushes out through an edge-flush side) working. The bot digs through blocks, never fires at a barrel /
+  oil drum within its reach (it first goes to a safe spot it can shoot it from, `hazard_spot`, and sticks
+  to it), only fires at what it can hit (shots into a wall are only recoil), goes for a spot it can shoot a
+  hidden enemy from (`vantage_point`), sticks to a waypoint while two ways round are as short (narrow
+  corridors), slips sideways when it does not move, aims for free floor near targets on the edge
+  (`free_spot_near`) and roams when it hits nothing.
 - **A cleared room shatters**: when the last enemy dies every obstacle (walls too) cracks and breaks like
   glass in a wave from `Room.last_death` (`room_shatter_start`, no effects, fire put out), and only after
   `ROOM_REVEAL_T` (`Room.clear_t` goes from -1.2 to 0) does `room_reveal()` spawn the reward / shop /

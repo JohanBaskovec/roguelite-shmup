@@ -53,6 +53,85 @@ static V2 free_spot_near(V2 p) {
     return p;
 }
 
+/* A shot from `from` reaches e: no wall on the way (blocks get shot down). The end is pulled back
+ * out of e's body, so an enemy hugging a wall does not make a line grazing its corner look clear. */
+static bool shot_clear(V2 from, const Enemy *e) {
+    V2 d = v2_sub(e->pos, from);
+    float len = v2_len(d);
+    V2 end = len > e->radius ? v2_sub(e->pos, v2_scale(d, e->radius * 0.7f / len)) : e->pos;
+    return room_line_clear_walls(from, end, 6.0f);
+}
+
+/* Somewhere to shoot e from: free floor with a clear line of fire (and no barrel / oil drum close
+ * in the way), not too close nor too far, as near the ship as possible. e->pos if none. */
+static V2 vantage_point(const Enemy *e, V2 ship) {
+    static V2 cached;
+    static int uid = -1;
+    static int room = -1;
+    static float t;
+    static V2 at;
+    if (e->uid == uid && G.room.id == room && G.time - t < 0.5f && G.time >= t && v2_dist2(e->pos, at) < 80.0f * 80.0f) return cached;
+    uid = e->uid, room = G.room.id, t = G.time, at = e->pos;
+    cached = e->pos;
+    float best = 1e30f;
+    for (float y = ARENA_Y0 + GRID * 0.5f; y < ARENA_Y1; y += GRID)
+        for (float x = ARENA_X0 + GRID * 0.5f; x < ARENA_X1; x += GRID) {
+            V2 c = v2(x, y);
+            float d = v2_dist(c, e->pos);
+            if (d < 140.0f || d > 750.0f || hits_obstacle(c, NAV_MARGIN + 4.0f) || !shot_clear(c, e) || hazard_in_aim(c, e->pos) >= 0)
+                continue;
+            float cost = v2_dist(ship, c) + fabsf(d - 380.0f) * 0.4f + (room_line_clear(c, e->pos, 6.0f) ? 0.0f : 150.0f);
+            if (cost < best) {
+                best = cost;
+                cached = c;
+            }
+        }
+    return cached;
+}
+
+/* Where to shoot barrel / oil drum `h` from: free floor out of its reach, with a clear shot at it
+ * (nothing else in the way), as close to the ship as possible. False if none within reach of the
+ * ship (a tight pocket). */
+static bool hazard_spot(int h, V2 ship, V2 *out) {
+    static int room = -1, nobs = -1, idx = -1;
+    static bool found;
+    static V2 cached, from;
+    if (G.room.id == room && G.room.nobs == nobs && h == idx && v2_dist2(ship, from) < 40.0f * 40.0f) {
+        *out = cached;
+        return found;
+    }
+    room = G.room.id, nobs = G.room.nobs, idx = h, from = ship;
+    const Obstacle *o = &G.room.obs[h];
+    V2 hc = v2(o->r.x + o->r.w * 0.5f, o->r.y + o->r.h * 0.5f);
+    float reach = hazard_reach(o) + 15.0f, best = 1e30f;
+    found = false;
+    for (float y = ARENA_Y0 + GRID * 0.5f; y < ARENA_Y1; y += GRID)
+        for (float x = ARENA_X0 + GRID * 0.5f; x < ARENA_X1; x += GRID) {
+            V2 c = v2(x, y);
+            float d = v2_dist(c, hc), dist = v2_dist(c, ship);
+            if (d < reach || d > reach + 300.0f || dist > 500.0f || hits_obstacle(c, PLAYER_BODY_R + 6.0f)) continue;
+            bool safe = true; /* out of reach of every other barrel / drum too */
+            for (int i = 0; i < G.room.nobs && safe; i++) {
+                const Obstacle *q = &G.room.obs[i];
+                if ((q->kind == OB_BARREL || q->kind == OB_OIL) && obstacle_solid(q))
+                    safe = v2_dist(c, v2(q->r.x + q->r.w * 0.5f, q->r.y + q->r.h * 0.5f)) >= hazard_reach(q) + 15.0f;
+            }
+            if (!safe) continue;
+            int b = room_block_between(c, hc, 4.0f);
+            if ((b >= 0 && b != h) || !room_line_clear_walls(c, hc, 4.0f)) continue;
+            /* reachable without breaking anything (the ship is boxed in by blocks) */
+            bool reach_ok = true;
+            V2 nx = room_navigate_ex(ship, c, PLAYER_BODY_R + 4.0f, false, &reach_ok);
+            (void)nx;
+            if (!reach_ok || dist >= best) continue;
+            best = dist;
+            cached = c;
+            found = true;
+        }
+    *out = cached;
+    return found;
+}
+
 void bot_input(void) {
     Input *in = &G.in;
     const Player *pl = &G.pl;
@@ -88,6 +167,7 @@ void bot_input(void) {
     const bool short_range = !melee && upg_has(UPG_W_FLAMER); /* closes in, but not to contact */
     bool overlapped = false;
     int masked_by = -1; /* the hazard hiding the nearest enemy otherwise in sight */
+    const Enemy *masked = NULL;
     float best_masked = 1e30f;
     for (int i = 0; i < G.nen; i++) {
         Enemy *e = &G.en[i];
@@ -106,11 +186,12 @@ void bot_input(void) {
         if (enemy_untouchable(e)) d2 += 600.0f * 600.0f; /* rather shoot at something it can hit */
         /* Bullets are up to ~8 px wide. Breakable blocks in the way get shot down on the way to it
          * (but not a barrel about to blow up in its face). */
-        bool open = room_line_clear(pl->pos, e->pos, 10.0f) || room_line_clear_walls(pl->pos, e->pos, 10.0f);
+        bool open = shot_clear(pl->pos, e);
         int hz = open && !melee ? hazard_in_aim(pl->pos, e->pos) : -1;
         if (hz >= 0 && d2 < best_masked) { /* only a barrel / oil drum too close in the way */
             best_masked = d2;
             masked_by = hz;
+            masked = e;
         }
         if (open && hz < 0) {
             if (d2 < best) { best = d2; t = e; }
@@ -123,7 +204,10 @@ void bot_input(void) {
     in->mouse = melee && nearest ? nearest->pos
               : t ? t->pos : over ? over->pos : hidden ? hidden->pos : v2(ARENA_CX, ARENA_Y0 + 120.0f);
     /* Nothing left to shoot (cleared room): stop firing, recoil would only get in the way of the doors. */
-    in->fire = !(G.room.cleared && G.nen == 0);
+    /* Only at something it can hit (or past blocks it can shoot down): shots into a wall do
+     * nothing but recoil, and some upgrades push the ship back on every shot. */
+    in->fire = !(G.room.cleared && G.nen == 0) &&
+               (t || over || (hidden && room_line_clear_walls(pl->pos, hidden->pos, 4.0f)) || (melee && nearest));
 
     V2 goal;
     /* One-of-N choice (stat trades, weapon / upgrade rooms): take one (varies with depth), then leave. */
@@ -256,7 +340,7 @@ void bot_input(void) {
         goal.x = clampf(goal.x, ARENA_X0 + 60.0f, ARENA_X1 - 60.0f);
         goal.y = clampf(goal.y, ARENA_Y0 + 60.0f, ARENA_Y1 - 60.0f);
     } else if (!t && hidden) {
-        goal = hidden->pos; /* nothing visible: go hunt */
+        goal = vantage_point(hidden, pl->pos); /* nothing visible: go where it can be shot */
     } else {
         float a = G.time * 1.2f;
         goal = v2(ARENA_CX + cosf(a) * 450.0f, ARENA_CY + sinf(a) * 280.0f);
@@ -267,23 +351,20 @@ void bot_input(void) {
         static float roam_t = -1.0f;
         if (G.time - roam_t > 3.0f || G.time < roam_t) {
             roam_t = G.time;
-            for (int k = 0; k < 20; k++) { /* somewhere it can actually get to */
-                roam = v2(frand(ARENA_X0 + 100.0f, ARENA_X1 - 100.0f), frand(ARENA_Y0 + 100.0f, ARENA_Y1 - 100.0f));
-                if (!hits_obstacle(roam, NAV_MARGIN + 10.0f)) break;
+            /* a spot to shoot one of them (each in turn) from, or just somewhere it can get to */
+            const Enemy *e = &G.en[irand(0, G.nen - 1)];
+            roam = vantage_point(e, pl->pos);
+            for (int k = 0; k < 20 && v2_dist2(roam, e->pos) < 1.0f; k++) {
+                V2 p = v2(frand(ARENA_X0 + 100.0f, ARENA_X1 - 100.0f), frand(ARENA_Y0 + 100.0f, ARENA_Y1 - 100.0f));
+                if (!hits_obstacle(p, NAV_MARGIN + 10.0f)) roam = p;
             }
         }
         goal = roam;
         masked_by = -1;
     }
-    /* Nothing to shoot but behind a barrel / oil drum close by: step back out of its reach, then fire. */
-    if (!t && masked_by >= 0 && !G.room.cleared) {
-        const Obstacle *o = &G.room.obs[masked_by];
-        V2 hc = v2(o->r.x + o->r.w * 0.5f, o->r.y + o->r.h * 0.5f), away = v2_sub(pl->pos, hc);
-        away = v2_len2(away) > 1.0f ? v2_norm(away) : v2(0, 1);
-        goal = v2_add(hc, v2_scale(away, hazard_reach(o) + 90.0f));
-        goal.x = clampf(goal.x, ARENA_X0 + 60.0f, ARENA_X1 - 60.0f);
-        goal.y = clampf(goal.y, ARENA_Y0 + 60.0f, ARENA_Y1 - 60.0f);
-    }
+    /* Nothing to shoot but behind a barrel / oil drum close by: somewhere it can be shot from
+     * without hitting the drum (out of its reach). */
+    if (!t && masked_by >= 0 && masked && !G.room.cleared) goal = vantage_point(masked, pl->pos);
     /* A stand-off spot inside an obstacle cannot be reached (the path finder would push straight
      * into the wall): go for the enemy itself, the path then leads around the obstacle. */
     if ((melee || short_range) && nearest && hits_obstacle(goal, NAV_MARGIN)) goal = nearest->pos;
@@ -302,21 +383,61 @@ void bot_input(void) {
     static int nav_room = -1, nav_nobs = -1;
     if (G.room.id != nav_room || G.room.nobs != nav_nobs || G.ticks % 4 == 0 || v2_dist2(goal, nav_goal) > 30.0f * 30.0f ||
         v2_dist2(pl->pos, nav_next) < 10.0f * 10.0f) {
+        bool was_reach = nav_reach, same = G.room.id == nav_room && G.room.nobs == nav_nobs && v2_dist2(goal, nav_goal) < 30.0f * 30.0f;
+        V2 old = nav_next;
         nav_reach = true;
         nav_next = room_navigate_ex(pl->pos, goal, NAV_MARGIN, false, &nav_reach);
         if (!nav_reach) nav_next = room_navigate_ex(pl->pos, goal, NAV_MARGIN, true, NULL);
+        /* Two ways round of about the same length: the best one can flip as the ship moves (narrow
+         * corridors), leaving it dithering. Stick to the waypoint taken while it is still in sight. */
+        static float nav_since;
+        if (same && was_reach && nav_reach && v2_dist2(old, nav_next) > 60.0f * 60.0f && v2_dist2(pl->pos, old) > 10.0f * 10.0f &&
+            G.time - nav_since < 3.0f && G.time >= nav_since && room_line_clear(pl->pos, old, PLAYER_BODY_R + 2.0f))
+            nav_next = old;
+        else if (v2_dist2(old, nav_next) > 1.0f)
+            nav_since = G.time;
         nav_goal = goal;
         nav_room = G.room.id;
         nav_nobs = G.room.nobs;
     }
     V2 next = nav_next;
     int dig = nav_reach ? -1 : room_block_between(pl->pos, next, NAV_MARGIN);
+    bool edge_shot = false; /* cornered: shooting a barrel / drum from just outside its reach */
     V2 dir = v2_norm(v2_sub(next, pl->pos));
+    /* Committed to shooting a barrel / oil drum from a safe spot: go there, then shoot it (the way
+     * round changes as the ship moves, it would otherwise dither in and out of its reach). */
+    static int commit_h = -1, commit_room = -1;
+    static V2 commit_spot;
+    static float commit_t;
+    if (commit_h >= 0 && (commit_room != G.room.id || commit_h >= G.room.nobs || !obstacle_solid(&G.room.obs[commit_h]) ||
+                          (G.room.obs[commit_h].kind != OB_BARREL && G.room.obs[commit_h].kind != OB_OIL) ||
+                          G.time - commit_t > 5.0f || G.time < commit_t || melee || (t && !G.room.cleared)))
+        commit_h = -1;
+    if (commit_h >= 0) {
+        const Obstacle *o = &G.room.obs[commit_h];
+        V2 hc = v2(o->r.x + o->r.w * 0.5f, o->r.y + o->r.h * 0.5f);
+        in->mouse = hc;
+        if (v2_dist2(pl->pos, commit_spot) > 20.0f * 20.0f) {
+            dir = v2_norm(v2_sub(room_navigate_ex(pl->pos, commit_spot, PLAYER_BODY_R + 4.0f, false, NULL), pl->pos));
+            in->fire = false;
+        } else {
+            in->fire = true;
+            edge_shot = true;
+        }
+        dig = -1;
+    }
     if (dig >= 0 && (!t || G.room.cleared)) {
         /* A barrel / oil drum on the way or right next to the block: that one first, from afar. */
         SDL_FRect br = G.room.obs[dig].r;
         int h = melee ? -1 : hazard_in_aim(pl->pos, v2(br.x + br.w * 0.5f, br.y + br.h * 0.5f));
-        if (h >= 0) dig = h;
+        /* Between two drums side by side the nearest one flips: keep the one picked. */
+        static int last_h = -1, last_h_room = -1;
+        if (h >= 0 && last_h >= 0 && last_h != h && last_h_room == G.room.id && last_h < G.room.nobs &&
+            obstacle_solid(&G.room.obs[last_h]) && (G.room.obs[last_h].kind == OB_BARREL || G.room.obs[last_h].kind == OB_OIL)) {
+            const Obstacle *lo = &G.room.obs[last_h];
+            if (v2_dist(pl->pos, v2(lo->r.x + lo->r.w * 0.5f, lo->r.y + lo->r.h * 0.5f)) < hazard_reach(lo) + 80.0f) h = last_h;
+        }
+        if (h >= 0) dig = h, last_h = h, last_h_room = G.room.id;
         const Obstacle *bo = &G.room.obs[dig];
         br = bo->r;
         V2 bc = v2(br.x + br.w * 0.5f, br.y + br.h * 0.5f);
@@ -326,13 +447,35 @@ void bot_input(void) {
         if ((bo->kind == OB_BARREL || bo->kind == OB_OIL) && bd < hazard_reach(bo) + 60.0f) {
             if (melee && pl->bombs > 0 && G.room.cleared) in->bomb_pressed = true; /* a bomb breaks it from afar */
             else if (!melee) {
-                dir = v2_norm(v2_sub(pl->pos, bc)); /* back off, then shoot it */
-                in->fire = false;
+                /* Get out of its reach to a spot it can be shot from, then shoot it. Nowhere to go
+                 * (a tight pocket): a bomb, or a shot from the very edge of its reach. */
+                V2 spot;
+                if (hazard_spot(dig, pl->pos, &spot)) {
+                    V2 to = v2_sub(spot, pl->pos);
+                    dir = v2_len2(to) > 1.0f ? v2_norm(v2_sub(room_navigate_ex(pl->pos, spot, PLAYER_BODY_R + 4.0f, false, NULL), pl->pos)) : dir;
+                    in->fire = false;
+                    commit_h = dig, commit_room = G.room.id, commit_spot = spot, commit_t = G.time;
+                } else if (pl->bombs > 0 && bd < hazard_reach(bo)) {
+                    in->bomb_pressed = true;
+                    in->fire = false;
+                } else if (bd < hazard_reach(bo)) {
+                    dir = v2_norm(v2_sub(pl->pos, bc));
+                    in->fire = false;
+                } else {
+                    edge_shot = true;
+                }
             }
         }
     }
     /* Never shoot at a barrel / oil drum close by. */
-    if (!melee && in->fire && hazard_in_aim(pl->pos, in->mouse) >= 0) in->fire = false;
+    if (!melee && in->fire) {
+        int h = hazard_in_aim(pl->pos, in->mouse);
+        if (h >= 0) {
+            const Obstacle *o = &G.room.obs[h];
+            float hd = v2_dist(pl->pos, v2(o->r.x + o->r.w * 0.5f, o->r.y + o->r.h * 0.5f));
+            if (!edge_shot || hd < hazard_reach(o)) in->fire = false;
+        }
+    }
 
     /* Dodge: move sideways out of the path of incoming bullets, away from enemies. */
     V2 avoid = v2(0, 0);
@@ -349,7 +492,7 @@ void bot_input(void) {
             float keep = b->kind == EB_GRENADE ? 90.0f : b->kind == EB_MINE ? 125.0f : 45.0f;
             V2 d = v2_sub(pl->pos, spot);
             float dd = v2_len(d);
-            if (dd < keep && (b->kind != EB_GRENADE || b->life < 0.8f)) {
+            if (dd < keep && (b->kind != EB_GRENADE || b->life < 0.4f)) {
                 avoid = v2_add(avoid, v2_scale(dd > 0.5f ? v2_scale(d, 1.0f / dd) : v2(0, -1), 1.5f * (1.0f - dd / keep) + 0.3f));
                 if (b->kind != EB_GRENADE) threats++;
             }
@@ -385,6 +528,7 @@ void bot_input(void) {
     }
     float back = v2_dot(shy, dir);
     if (back < 0.0f) shy = v2_sub(shy, v2_scale(dir, back));
+    if (v2_len2(shy) > 0.1f * 0.1f) shy = v2_scale(v2_norm(shy), 0.1f); /* a row of drums: still a nudge */
     avoid = v2_add(avoid, shy);
     /* Burning oil: keep out of it. */
     for (int i = 0; i < G.room.nfires; i++) {
@@ -404,7 +548,8 @@ void bot_input(void) {
         V2 line = v2(0, 0);
         if ((e->type == EN_RAMMER || e->type == EN_HUNTER) && (e->state == 1 || e->state == 2)) line = v2_angle(e->angle);
         else if (e->type != EN_LEAPER && v2_len2(e->vel) > 330.0f * 330.0f) line = v2_norm(e->vel);
-        if (v2_len2(line) > 0.0f && v2_dot(line, d) > 0.0f && v2_len2(d) < 700.0f * 700.0f) {
+        if (v2_len2(line) > 0.0f && v2_dot(line, d) > 0.0f && v2_len2(d) < 700.0f * 700.0f &&
+            room_line_clear_walls(e->pos, pl->pos, 4.0f)) { /* a wall in between stops it */
             V2 lat = v2_sub(d, v2_scale(line, v2_dot(d, line)));
             float miss = v2_len(lat);
             if (miss < e->radius + 60.0f) {
@@ -458,6 +603,24 @@ void bot_input(void) {
     }
     if (pl->hp <= 2 && threats >= 6 && pl->bombs > 0 && pl->invuln <= 0.0f) in->bomb_pressed = true;
 
+    /* Not moving at all while trying to (pinned in a corner, pushed back): slip sideways a moment. */
+    {
+        static V2 ref, side;
+        static float still, slip;
+        static int room = -1;
+        if (G.room.id != room) room = G.room.id, ref = pl->pos, still = slip = 0.0f;
+        bool trying = v2_len2(dir) > 0.25f && v2_dist2(pl->pos, next) > 24.0f * 24.0f && !G.transitioning;
+        if (!trying || v2_dist2(pl->pos, ref) > 24.0f * 24.0f) ref = pl->pos, still = 0.0f;
+        else if ((still += DT) > 1.2f) {
+            still = 0.0f;
+            slip = 0.6f;
+            side = v2_scale(v2_perp(v2_norm(dir)), chance(0.5f) ? 1.0f : -1.0f);
+        }
+        if (slip > 0.0f) {
+            slip -= DT;
+            dir = side;
+        }
+    }
     /* Keys only give 8 directions. Take the one closest to dir that does not run into an
      * obstacle: a diagonal aimed exactly at a corner would otherwise pin the ship there. */
     int best_k = -1;

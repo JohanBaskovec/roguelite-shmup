@@ -18,10 +18,12 @@
 #define TAU_F 6.28318530717959f
 
 /* Playfield in logical pixels. A whole room always fits on screen. */
-#define ARENA_X0 70.0f
-#define ARENA_Y0 120.0f
-#define ARENA_X1 1850.0f
-#define ARENA_Y1 1040.0f
+/* The arena is a whole number of GRID cells (30 x 15): the floor's grid, room layouts sit on it. */
+#define GRID 60.0f
+#define ARENA_X0 60.0f
+#define ARENA_Y0 130.0f
+#define ARENA_X1 1860.0f
+#define ARENA_Y1 1030.0f
 #define ARENA_CX ((ARENA_X0 + ARENA_X1) * 0.5f)
 #define ARENA_CY ((ARENA_Y0 + ARENA_Y1) * 0.5f)
 #define WALL_T 28.0f
