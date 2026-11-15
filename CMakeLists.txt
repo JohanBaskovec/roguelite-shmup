@@ -23,6 +23,7 @@ add_executable(neon_breach
     src/bot.c
     src/headless.c
     src/game.c
+    src/title.c
     src/draw.c
     src/fx.c
     src/room.c
@@ -293,6 +294,9 @@ if(SHMUP_BUILD_TESTS)
              COMMAND neon_breach --shot ${_out}/render_stats.bmp --stats --seed 4 --frames 20)
     add_test(NAME render_stats_overlay
              COMMAND neon_breach --shot ${_out}/render_stats_overlay.bmp --show-stats --all-upgrades --depth 6 --seed 9 --frames 200)
+    # Main menu over the demo run the bot plays behind it (several rooms in 1500 frames).
+    add_test(NAME render_title
+             COMMAND neon_breach --shot ${_out}/render_title.bmp --title --seed 4 --frames 1500)
     add_test(NAME render_char_select
              COMMAND neon_breach --shot ${_out}/render_char_select.bmp --char-select --seed 4 --frames 30)
     add_test(NAME render_knight

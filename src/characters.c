@@ -87,7 +87,7 @@ void char_select_update(void) {
     if (G.char_hover != prev) sfx_play(SFX_WEAPON_SWITCH);
 
     if (in->pause_pressed) {
-        G.state = GS_TITLE;
+        title_open();
         sfx_play(SFX_PAUSE);
     } else if (in->confirm_pressed) {
         G.character = G.char_hover;

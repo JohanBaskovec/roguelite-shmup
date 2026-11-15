@@ -150,7 +150,12 @@ static const char *check_invariants(float room_time) {
         return "hitbox / luck out of range";
     for (int i = 0; i < G.nen; i++) {
         const Enemy *e = &G.en[i];
-        if (!finite_v2(e->pos) || !isfinite(e->hp)) return "enemy state is not finite";
+        if (!finite_v2(e->pos) || !isfinite(e->hp)) {
+            static char emsg[128];
+            snprintf(emsg, sizeof emsg, "enemy state is not finite (%s, state %d, hp %.1f, vel %.1f,%.1f)", ENEMIES[e->type].name, e->state,
+                     (double)e->hp, (double)e->vel.x, (double)e->vel.y);
+            return emsg;
+        }
         if (e->max_hp != ENEMIES[e->type].hp) return "enemy hp differs from its type's (enemies never scale with depth)";
         if (!in_arena(e->pos, e->radius)) {
             snprintf(msg, sizeof msg, "enemy type %d outside the arena at (%.1f, %.1f)", e->type, (double)e->pos.x, (double)e->pos.y);
@@ -1619,6 +1624,54 @@ static int debug_rooms_run(const HeadlessOptions *o) {
                order_ok ? "OK" : "FAILED", off_ok && sync ? "OK" : "FAILED", on_ok ? "OK" : "FAILED", trade_ok ? "OK" : "FAILED",
                menu_ok ? "OK" : "FAILED");
         failures += !order_ok + !(off_ok && sync) + !on_ok + !trade_ok + !menu_ok;
+    }
+
+    {
+        /* Main menu: a bot-played demo runs behind it (on its own generator: the game's stays
+         * untouched), OPTIONS / UNLOCKS are greyed out (skipped, clicks do nothing), PLAY opens
+         * the character select with the demo still going, and the run starts clean. */
+        game_init(o->seed);
+        Input *in = &G.in;
+        uint64_t rng0 = G.rng.s;
+        int kills = 0, rooms0 = -1;
+        bool demo_ok = true;
+        for (int t = 0; t < 120 * 60; t++) {
+            game_update();
+            clear_edges();
+            if (rooms0 < 0) rooms0 = G.room.id;
+            kills = G.kills > kills ? G.kills : kills;
+            demo_ok = demo_ok && G.state == GS_TITLE && G.demo && demo_visible();
+        }
+        demo_ok = demo_ok && G.rng.s == rng0 && G.room.id != rooms0; /* it played on, through rooms */
+        in->down = true; /* PLAY -> (OPTIONS, UNLOCKS greyed) -> QUIT */
+        game_update();
+        clear_edges();
+        in->down = false;
+        bool grey_ok = G.title_sel == 3;
+        in->mouse = v2(SCREEN_W * 0.5f, 470.0f + 86.0f + 30.0f); /* click on OPTIONS */
+        in->click_pressed = in->confirm_pressed = true;
+        game_update();
+        clear_edges();
+        grey_ok = grey_ok && G.state == GS_TITLE && !G.quit;
+        in->up = true; /* back to PLAY */
+        game_update();
+        clear_edges();
+        in->up = false;
+        in->confirm_pressed = true;
+        game_update();
+        clear_edges();
+        int demo_room = G.room.id;
+        float demo_t = G.run_time;
+        for (int t = 0; t < 120; t++) { game_update(); clear_edges(); }
+        bool play_ok = G.state == GS_CHAR_SELECT && G.demo && (G.run_time > demo_t || G.room.id != demo_room);
+        in->confirm_pressed = true;
+        game_update();
+        clear_edges();
+        play_ok = play_ok && G.state == GS_PLAYING && !G.demo && G.room.type == ROOM_START && G.kills == 0 && G.nen == 0 &&
+                  !demo_visible();
+        printf("scripted main menu: demo behind it -> %s, greyed items -> %s, play -> %s\n", demo_ok ? "OK" : "FAILED",
+               grey_ok ? "OK" : "FAILED", play_ok ? "OK" : "FAILED");
+        failures += !demo_ok + !grey_ok + !play_ok;
     }
 
     printf("debug teleports - %s\n", failures ? "FAILED" : "OK");

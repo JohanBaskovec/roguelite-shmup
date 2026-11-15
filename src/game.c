@@ -19,6 +19,7 @@ void game_init(uint64_t seed) {
     memset(&G, 0, sizeof G);
     rng_seed(&G.rng, seed);
     rng_seed(&vis_rng, seed ^ 0xA5A5A5A5ull);
+    rng_seed(&G.demo_rng, seed ^ 0x5EED5EEDull);
     G.in.number = -1;
     G.secret_shop_override = G.secret_ambush_override = -1; /* random */
     G.state = GS_TITLE;
@@ -38,6 +39,7 @@ void game_new_run(void) {
     G.banner_t = 0.0f;
     G.transitioning = false;
     G.gameover_t = 0.0f;
+    G.demo = false; /* the menu's demo run is wiped */
     room_enter(ROOM_START, RW_NONE, 0);
     G.state = GS_PLAYING;
     sfx_play(SFX_UI_START);
@@ -70,6 +72,10 @@ static void update_playing(void) {
         upgrade_menu_open();
         return;
     }
+    game_world_step();
+}
+
+void game_world_step(void) {
     if (G.hitstop > 0.0f) {
         G.hitstop -= DT;
         return;
@@ -122,13 +128,12 @@ void game_update(void) {
         debug_menu_update(); /* the world stays frozen behind the menu */
         break;
     case GS_TITLE:
-        if (G.in.pause_pressed) G.quit = true;
-        else if (G.in.confirm_pressed) char_select_open();
-        fx_update();
+        title_update(); /* runs the demo behind it (fx included) */
         break;
     case GS_CHAR_SELECT:
         char_select_update();
-        fx_update();
+        if (G.demo) demo_update(); /* opened from the menu: the demo keeps playing behind */
+        else fx_update();
         break;
     case GS_UPGRADES:
         upgrade_menu_update(); /* the world stays frozen behind the menu */
@@ -182,8 +187,10 @@ void game_render(void) {
     fx_draw();
 
     draw_set_offset(v2(0, 0));
-    fx_draw_popups();
-    hud_draw();
+    if (!demo_visible()) { /* the demo behind the menu shows the world only */
+        fx_draw_popups();
+        hud_draw();
+    }
     overlay_draw();
     draw_flush();
 }

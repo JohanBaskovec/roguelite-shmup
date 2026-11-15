@@ -508,8 +508,11 @@ bool audio_dump_wavs(const char *dir) {
 }
 bool audio_muted(void) { return muted; }
 
+static bool suppressed;
+void audio_suppress(bool on) { suppressed = on; }
+
 void sfx_play_ex(SfxId id, float vol, float pitch, float pan) {
-    if (!stream || id < 0 || id >= SFX_COUNT || samples[id].len == 0) return;
+    if (suppressed || !stream || id < 0 || id >= SFX_COUNT || samples[id].len == 0) return;
     uint64_t now = SDL_GetTicksNS();
     if (last_play_ns[id] != 0 && now - last_play_ns[id] < (uint64_t)(INFO[id].min_interval * 1e9f)) return;
     last_play_ns[id] = now;

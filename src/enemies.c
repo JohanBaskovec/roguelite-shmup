@@ -509,7 +509,7 @@ static void update_rammer(Enemy *e, float aim, float dist) {
         }
         break;
     case 2: {
-        V2 n;
+        V2 n = v2_scale(e->aux, -1.0f); /* out of time without hitting anything: just stops */
         e->vel = v2_scale(e->aux, RAMMER_SPEED);
         if ((G.ticks + e->uid) % 2 == 0) fx_particle(e->pos, v2(0, 0), 0.2f, e->radius, col_hex(d->color, 0.4f), 0.0f, PT_GLOW);
         if (blocked_ahead(e, e->aux, RAMMER_SPEED, &n) || e->state_t <= 0.0f) {

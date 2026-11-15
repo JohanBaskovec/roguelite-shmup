@@ -30,7 +30,9 @@ Preset `debug` disponible aussi (`build/debug`).
 
 ## Personnages
 
-Après l'écran titre, on choisit son vaisseau (A / D, 1-3 ou souris, puis clic / Entrée ; Échap revient au titre). Le choix est gardé pour les parties suivantes ; C (en pause ou au game over) ramène à l'écran de sélection. Table `CHARACTERS` dans `src/characters.c`.
+**Menu principal** (`src/title.c`) : le nom du jeu en haut et quatre boutons, **Play**, **Options**, **Unlocks** (grisés pour l'instant) et **Quit** (flèches / molette / souris, Entrée ou clic ; Échap quitte). En fond, **une vraie partie jouée par le bot** : un vaisseau avec quelques améliorations, quelques salles plus loin, qui enchaîne les salles et recommence à sa mort. Cette démo est muette, n'affiche pas le HUD et tire ses nombres aléatoires de son propre générateur : elle ne change rien à la vraie partie. Elle continue derrière l'écran de sélection.
+
+Play mène au choix du vaisseau (A / D, 1-3 ou souris, puis clic / Entrée ; Échap revient au menu). Le choix est gardé pour les parties suivantes ; C (en pause ou au game over) ramène à l'écran de sélection. Table `CHARACTERS` dans `src/characters.c`.
 
 | Vaisseau | Forme | PV | Particularités | Amélioration au départ |
 |---|---|---|---|---|
@@ -169,7 +171,8 @@ Après l'écran titre, on choisit son vaisseau (A / D, 1-3 ou souris, puis clic 
 | `headless.c` | Simulation sans fenêtre + vérification d'invariants |
 | `stats.c` | Stats échangeables des salles Stats (gains, pertes, bornes) |
 | `audio.c/h` | Synthèse procédurale des sons + mixeur (voix, panoramique, limitation de fréquence) |
-| `hud.c` | HUD, overlay des stats (F2), écrans (titre, pause, game over) |
+| `hud.c` | HUD, overlay des stats (F2), écrans (pause, game over) |
+| `title.c` | Menu principal et partie de démo jouée par le bot en fond |
 | `characters.c` | Personnages (stats et amélioration de départ) et écran de sélection |
 | `debug_menu.c` | Menu de debug F3 : téléportation dans chaque type de salle (avec / sans ennemis), cheats |
 
@@ -224,6 +227,7 @@ neon_breach --show-stats                                # démarre avec l'overla
 neon_breach --char knight --depth 3                     # joue un personnage (normal / shotgunner / knight)
 neon_breach --headless --char knight --runs 20          # simulations avec un personnage
 neon_breach --shot sel.bmp --char-select                # capture de l'écran de sélection
+neon_breach --shot menu.bmp --title --frames 1500       # capture du menu principal (la démo joue derrière)
 neon_breach --headless --debug-rooms                    # teste les téléportations du menu de debug
 neon_breach --headless --god --all-upgrades             # démarre avec toutes les améliorations
 neon_breach --hp 1                                      # démarre avec 1 PV (tester boucliers / Second Wind)

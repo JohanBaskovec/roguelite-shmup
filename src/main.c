@@ -34,6 +34,7 @@ typedef struct {
     bool toggle_upgrades;  /* --toggle-upgrades (headless): the bot keeps turning upgrades off and on */
     bool active_room;      /* --active-room: start in an active room (choice of 3 active items) */
     bool char_select;      /* --char-select: open the character select screen at startup */
+    bool title;            /* --title: stay on the main menu (screenshots: the bot only plays the demo behind it) */
     bool upgrades_menu;    /* --upgrades-menu: open the upgrades menu (TAB) at startup */
     bool show_secret;      /* --show-secret: mark hidden secrets (debug menu: SHOW SECRETS) */
     bool all_upgrades;     /* --all-upgrades: start with one of every upgrade */
@@ -75,6 +76,7 @@ static void parse_args(int argc, char **argv, Options *o) {
         else if (!strcmp(a, "--show-secret")) o->show_secret = true;
         else if (!strcmp(a, "--show-stats")) o->show_stats = true;
         else if (!strcmp(a, "--char-select")) o->char_select = true;
+        else if (!strcmp(a, "--title")) o->title = true;
         else if (!strcmp(a, "--upgrades-menu")) o->upgrades_menu = true;
         else if (!strcmp(a, "--char") && more) {
             const char *name = argv[++i];
@@ -139,7 +141,7 @@ static void parse_args(int argc, char **argv, Options *o) {
         else if (!strcmp(a, "--god")) o->god = true;
         else if (!strcmp(a, "--novsync")) o->novsync = true;
     }
-    if (o->shot_path && !o->char_select && !o->no_bot) o->bot = true; /* the bot would confirm the select screen at once */
+    if (o->shot_path && !o->char_select && !o->title && !o->no_bot) o->bot = true; /* the bot would confirm the select screen at once */
 }
 
 static void clear_edges(void) {

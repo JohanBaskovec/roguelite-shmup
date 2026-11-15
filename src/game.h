@@ -478,6 +478,13 @@ typedef struct {
     GameState state;
     Rng rng;
     Input in;
+    /* Main menu (title.c): a demo run played by the bot behind it, on its own generator. */
+    bool demo;
+    Rng demo_rng;
+    float demo_dead_t, demo_room_t;
+    int demo_room_id;
+    int title_sel;
+    bool title_up, title_down;
     Player pl;
     Room room;
 
@@ -739,6 +746,13 @@ void active_spawn_choices(V2 center);
 void character_apply(void); /* starting stats / weapon of G.character, after player_init's defaults */
 const char *character_option_name(int c); /* lowercase name for --char */
 void char_select_open(void);
+/* Main menu (title.c) with the bot-played demo run behind it. */
+void title_open(void);
+void title_update(void);
+void title_draw(void);
+void demo_update(void);
+bool demo_visible(void); /* the world on screen is the demo (menu / character select over it) */
+void game_world_step(void); /* one tick of the world in a run (hitstop, transitions, every system) */
 void char_select_update(void);
 void char_select_draw(void);
 

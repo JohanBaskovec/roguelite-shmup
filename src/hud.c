@@ -302,7 +302,7 @@ static void draw_stats(float y) {
 }
 
 void overlay_draw(void) {
-    if (G.hurt_flash > 0.0f) draw_vignette(col_hex(0xff1030, 0.55f * G.hurt_flash));
+    if (G.hurt_flash > 0.0f && !demo_visible()) draw_vignette(col_hex(0xff1030, 0.55f * G.hurt_flash));
 
     if (G.bomb_flash > 0.0f) {
         draw_blend_add();
@@ -328,23 +328,9 @@ void overlay_draw(void) {
 
     char tbuf[16];
     switch (G.state) {
-    case GS_TITLE: {
-        dim(0.8f);
-        float pulse = 0.5f + 0.5f * sinf(G.time * 3.0f);
-        draw_text_centered(SCREEN_W * 0.5f, 250.0f, 10.0f, col_hex(0x66f0ff, 1), "NEON BREACH");
-        draw_text_centered(SCREEN_W * 0.5f, 350.0f, 2.5f, col_hex(0xff4fd8, 1), "a roguelite bullet storm");
-        const char *lines[] = {
-            "WASD / ZQSD / ARROWS   move",
-            "MOUSE                  aim & shoot (hold)",
-            "SPACE / SHIFT / RMB    active item (dash, shield...)",
-            "E                      bomb - clears every bullet",
-            "TAB                    upgrades - turn them on / off",
-            "ESC  pause   M  mute   F2  stats   F11  fullscreen",
-        };
-        for (int i = 0; i < ARRAY_LEN(lines); i++)
-            draw_text_centered(SCREEN_W * 0.5f, 480.0f + (float)i * 34.0f, 2.0f, col_a(COL_WHITE, 0.8f), "%s", lines[i]);
-        draw_text_centered(SCREEN_W * 0.5f, 760.0f, 3.0f, col_a(COL_WHITE, 0.4f + 0.6f * pulse), "CLICK TO START");
-    } break;
+    case GS_TITLE:
+        title_draw();
+        break;
     case GS_PAUSED:
         dim(0.75f);
         draw_text_centered(SCREEN_W * 0.5f, 280.0f, 8.0f, COL_WHITE, "PAUSED");

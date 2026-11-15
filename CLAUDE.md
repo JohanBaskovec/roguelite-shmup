@@ -171,4 +171,8 @@ invariants / a CTest entry in `CMakeLists.txt`.
   (respects `proc()`, i.e. LOADED DICE). A `|` splits a description over two lines (`draw_desc`).
 - Shields (`Player.shield`, half-hearts, max `MAX_SHIELD`) absorb damage before hearts.
 - Game code only queues sounds (`sfx_play*`); never call SDL audio directly.
+- **Main menu** (`src/title.c`, `GS_TITLE`): a demo run played by the bot runs behind it in the normal world
+  (`G.demo`), on its own generator (`G.demo_rng`, swapped with `G.rng` for each demo tick) with sounds
+  suppressed (`audio_suppress`) and no HUD (`demo_visible()`); `game_new_run` wipes it. Any new per-run
+  state must be reset by `game_new_run` (the demo leaves its own behind). `--title` renders the menu.
 - In-game text is English and ASCII only (SDL's debug font has no accents). The user writes in French.

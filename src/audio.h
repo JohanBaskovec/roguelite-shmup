@@ -39,6 +39,8 @@ void audio_toggle_mute(void);
 bool audio_dump_wavs(const char *dir);
 bool audio_muted(void);
 
+/* While on, sfx_play* requests are dropped (the menu's background demo is silent). */
+void audio_suppress(bool on);
 void sfx_play(SfxId id);
 /* Panned from the horizontal position in the arena. */
 void sfx_play_at(SfxId id, V2 pos);
