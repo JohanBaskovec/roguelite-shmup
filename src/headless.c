@@ -191,6 +191,16 @@ static const char *check_invariants(float room_time) {
     for (int i = 0; i < G.room.ndoors; i++)
         if (G.room.doors[i].side == G.room.entry) return "an exit door on the side the ship came in by";
     if (G.room.secret_open && !G.room.has_secret) return "secret passage open in a room without a secret";
+    if (G.room.ghost_t > 0.0f) { /* the secret's ghost: only for a hidden secret, 0.5-2 s, inside the room */
+        const Room *r = &G.room;
+        float a = room_ghost_alpha();
+        if (!r->has_secret || r->secret_open || r->secret_used) return "a secret ghost in a room with no hidden secret";
+        if (r->ghost_life < GHOST_MIN_TIME || r->ghost_life > GHOST_MAX_TIME || r->ghost_t > r->ghost_life)
+            return "secret ghost stays outside 0.5-2 s";
+        if (!(a >= 0.0f && a <= 1.0f) || r->ghost_pos.x < ARENA_X0 || r->ghost_pos.x > ARENA_X1 || r->ghost_pos.y < ARENA_Y0 ||
+            r->ghost_pos.y > ARENA_Y1)
+            return "secret ghost out of the room or with a bad fade";
+    }
     for (int i = 0; i < G.nen; i++) { /* crawlers live on the wall (separation may nudge them a little) */
         const Enemy *c = &G.en[i];
         if (c->type != EN_CRAWLER || c->t < 0.05f) continue;
@@ -1675,6 +1685,47 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         printf("scripted main menu: demo behind it -> %s, greyed items -> %s, play -> %s\n", demo_ok ? "OK" : "FAILED",
                grey_ok ? "OK" : "FAILED", play_ok ? "OK" : "FAILED");
         failures += !demo_ok + !grey_ok + !play_ok;
+    }
+
+    {
+        /* Secret hint: a ghost shows up a few seconds into the fight, drifts for 0.5-2 s, fades in
+         * from nothing and out to nothing, comes back 5-10 s later; none once the secret is open. */
+        game_init(o->seed);
+        game_new_run();
+        G.force_secret = true;
+        room_enter(ROOM_COMBAT, RW_COINS, 4);
+        G.force_secret = false;
+        float t = 0.0f, first = -1.0f, second = -1.0f, max_a = 0.0f, first_a = -1.0f, last_a = 0.0f, travel = 0.0f;
+        int seen = 0;
+        V2 start = v2(0, 0);
+        bool ok = G.room.has_secret;
+        for (; t < 25.0f && ok && seen < 2; t += DT) {
+            int before = G.room.ghosts;
+            float prev_a = room_ghost_alpha();
+            room_update();
+            float a = room_ghost_alpha();
+            if (G.room.ghosts != before) {
+                seen = G.room.ghosts;
+                if (seen == 1) { first = t; start = G.room.ghost_pos; first_a = a; }
+                else second = t;
+                ok = ok && G.room.ghost_life >= GHOST_MIN_TIME && G.room.ghost_life <= GHOST_MAX_TIME;
+            }
+            if (seen == 1) {
+                max_a = fmaxf(max_a, a);
+                if (a > 0.0f) travel = fmaxf(travel, v2_dist(G.room.ghost_pos, start));
+                if (a == 0.0f && prev_a > 0.0f) last_a = prev_a;
+            }
+        }
+        bool timing_ok = ok && first >= 2.0f && first <= 5.0f + DT && second - first >= 5.0f - DT && second - first <= 10.0f + DT;
+        bool fade_ok = first_a >= 0.0f && first_a < 0.1f && max_a > 0.95f && last_a < 0.1f && travel > 10.0f;
+        G.room.secret_open = true; /* found: no more ghosts */
+        int n = G.room.ghosts;
+        for (int k = 0; k < 120 * 12; k++) room_update();
+        bool stop_ok = G.room.ghosts == n && room_ghost_alpha() == 0.0f;
+        printf("scripted secret ghost: first at %.1f s, next %.1f s later -> %s, fades in / out and drifts %.0f px -> %s, "
+               "none once open -> %s\n", (double)first, (double)(second - first), timing_ok ? "OK" : "FAILED", (double)travel,
+               fade_ok ? "OK" : "FAILED", stop_ok ? "OK" : "FAILED");
+        failures += !timing_ok + !fade_ok + !stop_ok;
     }
 
     printf("debug teleports - %s\n", failures ? "FAILED" : "OK");

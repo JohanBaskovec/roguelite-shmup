@@ -314,14 +314,15 @@ typedef struct {
     float hue;
     int id;              /* unique per room_enter; kept when returning from a secret room */
     bool revisit;        /* restored after leaving its secret room (the only re-entered room) */
-    /* Secret room: during combat a faint square flashes somewhere in the room every 5-10 s;
-     * a bomb next to the entry door (room_secret_spot) then opens it. */
+    /* Secret room: during combat a small see-through ghost shows up somewhere in the room every
+     * 5-10 s, drifts for 0.5-2 s (fading in and out) and vanishes; a bomb next to the entry door
+     * (room_secret_spot) then opens it. */
     bool has_secret;
-    V2 secret_flash_pos; /* where the current / last flash shows (anywhere in the room) */
+    V2 ghost_pos, ghost_vel; /* the current ghost (anywhere in the room) */
     bool secret_open, secret_used;
     Side entry;          /* door the ship came in by (the side opposite the one it left by); closed, or the secret passage */
-    float secret_flash_t, secret_flash_cd;
-    int secret_flashes;  /* how many times it flashed (the bot only "knows" after seeing one) */
+    float ghost_t, ghost_life, ghost_cd; /* time left / total time on screen, time to the next one */
+    int ghosts;          /* how many showed up (the bot only "knows" after seeing one) */
     bool peaceful;       /* starts without enemies: launch bay, secret room without an ambush */
     bool secret_shop;    /* secret room variant: a shop instead of the bonus item */
 } Room;
@@ -333,7 +334,10 @@ typedef struct {
 #define KEY_REWARD_2_CHANCE 0.14f /* key rooms: 2 keys */
 #define KEY_REWARD_3_CHANCE 0.04f /* key rooms: 3 keys */
 #define SECRET_BOMB_RADIUS 170.0f /* around room_secret_spot(), just inside the entry door */
-#define SECRET_FLASH_TIME 0.18f
+#define GHOST_MIN_TIME 0.5f /* a secret's ghost stays 0.5-2 s on screen */
+#define GHOST_MAX_TIME 2.0f
+#define GHOST_FADE 0.35f    /* fade in / out (at most a third of its time each) */
+float room_ghost_alpha(void); /* 0..1, how visible the secret's ghost is right now */
 
 /* ---- Player -------------------------------------------------------------- */
 

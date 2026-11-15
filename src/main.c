@@ -343,9 +343,9 @@ int main(int argc, char **argv) {
         frame++;
         if (opt.shot_path && frame >= opt.frames) {
             if (!save_screenshot(ren, opt.shot_path)) SDL_Log("Screenshot failed: %s", SDL_GetError());
-            else SDL_Log("Saved %s (room %d type %d, %d enemy bullets, cleared %d, secret %d open %d, coins %d, doors %s/%s/%s)",
+            else SDL_Log("Saved %s (room %d type %d, %d enemy bullets, cleared %d, secret %d open %d ghost %.2f, coins %d, doors %s/%s/%s)",
                          opt.shot_path, G.room.depth, G.room.type, G.neb, G.room.cleared, G.room.has_secret,
-                         G.room.secret_open, G.pl.coins, door_label(&G.room.doors[0]), door_label(&G.room.doors[1]),
+                         G.room.secret_open, (double)room_ghost_alpha(), G.pl.coins, door_label(&G.room.doors[0]), door_label(&G.room.doors[1]),
                          door_label(&G.room.doors[2]));
             G.quit = true;
         }

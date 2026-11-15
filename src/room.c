@@ -442,7 +442,7 @@ void room_enter(RoomType type, RewardType reward, int depth) {
     bool can_hide = type == ROOM_COMBAT || type == ROOM_STATS || type == ROOM_SHOP;
     if (can_hide && (G.force_secret || chance(SECRET_CHANCE))) {
         r->has_secret = true;
-        r->secret_flash_cd = frand(2.0f, 5.0f);
+        r->ghost_cd = frand(2.0f, 5.0f);
     }
 
     G.npb = G.neb = G.nen = G.nsp = G.npk = G.nmc = 0;
@@ -729,22 +729,33 @@ void room_update(void) {
     for (int i = 0; i < r->ndoors; i++)
         if (r->doors[i].anim > 0.0f) r->doors[i].anim -= DT;
 
-    /* A hidden secret flashes briefly, somewhere in the room, every 5-10 s - only during combat. */
-    if (r->secret_flash_t > 0.0f) r->secret_flash_t -= DT;
+    /* A hidden secret sends a little ghost, somewhere in the room, every 5-10 s - only during
+     * combat. It drifts and wobbles for 0.5-2 s, fading in and out, then vanishes. */
+    if (r->ghost_t > 0.0f) {
+        r->ghost_t -= DT;
+        r->ghost_pos = v2_add(r->ghost_pos, v2_scale(r->ghost_vel, DT));
+        const float m = 40.0f; /* drifts off a wall like it bumped into it */
+        if ((r->ghost_pos.x < ARENA_X0 + m && r->ghost_vel.x < 0) || (r->ghost_pos.x > ARENA_X1 - m && r->ghost_vel.x > 0)) r->ghost_vel.x = -r->ghost_vel.x;
+        if ((r->ghost_pos.y < ARENA_Y0 + m && r->ghost_vel.y < 0) || (r->ghost_pos.y > ARENA_Y1 - m && r->ghost_vel.y > 0)) r->ghost_vel.y = -r->ghost_vel.y;
+    }
     if (r->has_secret && !r->cleared && !r->secret_open && !r->secret_used) {
-        r->secret_flash_cd -= DT;
-        if (r->secret_flash_cd <= 0.0f) {
-            V2 p = v2(frand(ARENA_X0 + 40, ARENA_X1 - 40), frand(ARENA_Y0 + 40, ARENA_Y1 - 40));
-            for (int tries = 0; tries < 20; tries++) { /* not hidden inside an obstacle */
+        r->ghost_cd -= DT;
+        if (r->ghost_cd <= 0.0f) {
+            V2 p = v2(frand(ARENA_X0 + 80, ARENA_X1 - 80), frand(ARENA_Y0 + 80, ARENA_Y1 - 80));
+            for (int tries = 0; tries < 20; tries++) { /* not born inside an obstacle (it may drift through one) */
                 V2 q = p;
-                if (!room_collide_circle(&q, 12.0f, NULL)) break;
-                p = v2(frand(ARENA_X0 + 40, ARENA_X1 - 40), frand(ARENA_Y0 + 40, ARENA_Y1 - 40));
+                if (!room_collide_circle(&q, 20.0f, NULL)) break;
+                p = v2(frand(ARENA_X0 + 80, ARENA_X1 - 80), frand(ARENA_Y0 + 80, ARENA_Y1 - 80));
             }
-            r->secret_flash_pos = p;
-            r->secret_flash_t = SECRET_FLASH_TIME;
-            r->secret_flash_cd = frand(5.0f, 10.0f);
-            r->secret_flashes++;
+            float a = frand(0.0f, TAU_F);
+            r->ghost_pos = p;
+            r->ghost_vel = v2_scale(v2(cosf(a), sinf(a)), frand(35.0f, 75.0f));
+            r->ghost_life = r->ghost_t = frand(GHOST_MIN_TIME, GHOST_MAX_TIME);
+            r->ghost_cd = frand(5.0f, 10.0f);
+            r->ghosts++;
         }
+    } else if (r->secret_open || r->secret_used) {
+        r->ghost_t = 0.0f; /* found: no more hints */
     }
 
     if (!r->cleared) {
@@ -819,6 +830,46 @@ static SDL_FColor reward_color(RewardType rw) {
     }
 }
 
+float room_ghost_alpha(void) {
+    const Room *r = &G.room;
+    if (r->ghost_t <= 0.0f || r->ghost_life <= 0.0f) return 0.0f;
+    float fade = fminf(GHOST_FADE, r->ghost_life / 3.0f), age = r->ghost_life - r->ghost_t;
+    float k = fminf(1.0f, fminf(age / fade, r->ghost_t / fade));
+    return k * k * (3.0f - 2.0f * k); /* smooth in and out */
+}
+
+/* The secret's hint: a little see-through ghost, round head, wavy hem, two eyes looking where
+ * it drifts. Built from shapes that never overlap so it stays evenly transparent. */
+static void draw_secret_ghost(const Room *r) {
+    float a = room_ghost_alpha();
+    if (a <= 0.0f) return;
+    float age = r->ghost_life - r->ghost_t;
+    V2 c = v2_add(r->ghost_pos, v2(sinf(age * 5.0f) * 6.0f, sinf(age * 3.3f) * 4.0f)); /* wobbles as it floats */
+    const float R = 15.0f, H = 16.0f; /* head radius, body height below the head's center */
+    SDL_FColor body = col_hex(0xd8ecff, 0.55f * a);
+    draw_blend_add();
+    draw_glow(v2(c.x, c.y + 4.0f), 46.0f, col_hex(0x9fd0ff, 0.22f * a));
+    draw_blend_alpha();
+    for (int i = 0; i < 12; i++) { /* head: the top half of a disc */
+        float a0 = PI_F + PI_F * (float)i / 12.0f, a1 = PI_F + PI_F * (float)(i + 1) / 12.0f;
+        draw_tri(c, v2_add(c, v2(cosf(a0) * R, sinf(a0) * R)), v2_add(c, v2(cosf(a1) * R, sinf(a1) * R)), body);
+    }
+    draw_rect(c.x - R, c.y, 2.0f * R, H, body);
+    /* Wavy hem: 3 points hanging down, swaying. */
+    float sway = sinf(age * 9.0f) * 3.0f;
+    for (int i = 0; i < 3; i++) {
+        float x0 = c.x - R + (float)i * (2.0f * R / 3.0f), x1 = x0 + 2.0f * R / 3.0f;
+        float drop = 8.0f + (i == 1 ? sinf(age * 9.0f + 1.5f) * 2.0f : 0.0f);
+        draw_tri(v2(x0, c.y + H), v2(x1, c.y + H), v2((x0 + x1) * 0.5f + sway, c.y + H + drop), body);
+    }
+    /* Eyes looking the way it drifts, blinking now and then. */
+    V2 look = v2_scale(v2_norm(r->ghost_vel), 3.0f);
+    float eh = fmodf(age, 1.3f) > 1.18f ? 1.0f : 5.0f;
+    SDL_FColor eye = col_hex(0x10162a, 0.7f * a);
+    for (int s = -1; s <= 1; s += 2)
+        draw_rect(c.x + (float)s * 5.5f - 2.0f + look.x, c.y - 4.0f - eh * 0.5f + look.y, 4.0f, eh, eye);
+}
+
 void room_draw_floor(void) {
     const Room *r = &G.room;
     SDL_FColor floor = col_hsv(r->hue, 0.55f, 0.075f, 1.0f);
@@ -847,10 +898,7 @@ void room_draw_floor(void) {
     }
     if (r->has_secret && !r->secret_used) {
         V2 c = room_secret_spot();
-        if (r->secret_flash_t > 0.0f) { /* barely there: a small square for a few frames, anywhere */
-            V2 f = r->secret_flash_pos;
-            draw_rect(f.x - 9.0f, f.y - 9.0f, 18.0f, 18.0f, col_a(COL_WHITE, 0.32f * r->secret_flash_t / SECRET_FLASH_TIME));
-        }
+        draw_secret_ghost(r);
         if ((G.reveal_secrets || upg_has(UPG_XRAY)) && !r->secret_open) { /* debug menu: SHOW SECRETS, X-RAY VISOR */
             float pulse = 0.5f + 0.5f * sinf(G.time * 6.0f);
             SDL_FColor sc = col_hex(COLOR_SECRET, 1);

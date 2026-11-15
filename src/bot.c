@@ -114,7 +114,7 @@ void bot_input(void) {
     }
     /* Secret room: once it has seen the flash, bomb next to the bottom door after the fight, then go in. */
     const Room *r = &G.room;
-    bool secret_known = r->has_secret && (r->secret_flashes > 0 || upg_has(UPG_XRAY)) && !r->secret_used;
+    bool secret_known = r->has_secret && (r->ghosts > 0 || upg_has(UPG_XRAY)) && !r->secret_used;
 
     /* Workshop machines: the supply press while healthy, a few slot machine plays while
      * it has coins. A use needs a fresh step: walk on, step off below, repeat. */
