@@ -29,10 +29,13 @@ static SDL_FRect cell_box(void) {
     return (SDL_FRect){x0, y0, x1 - x0, y1 - y0};
 }
 
-void crush_start(void) {
+/* slow (MOD_COMPACTOR, from the first wave): towards the middle of the room, one cell every CRUSH_SLOW_STEP_T
+ * until the last wave's timer runs out; otherwise towards the ship, at full speed. */
+void crush_start(bool slow) {
     Room *r = &G.room;
     if (r->crushing || r->type == ROOM_BOSS || r->cleared) return;
-    int fx = (int)((G.pl.pos.x - ARENA_X0) / GRID), fy = (int)((G.pl.pos.y - ARENA_Y0) / GRID);
+    V2 focus = slow ? v2(ARENA_CX, ARENA_CY) : G.pl.pos;
+    int fx = (int)((focus.x - ARENA_X0) / GRID), fy = (int)((focus.y - ARENA_Y0) / GRID);
     int x0 = fx - CRUSH_MIN_W / 2, y0 = fy - CRUSH_MIN_H / 2;
     x0 = x0 < 0 ? 0 : x0 > GW - CRUSH_MIN_W ? GW - CRUSH_MIN_W : x0;
     y0 = y0 < 0 ? 0 : y0 > GH - CRUSH_MIN_H ? GH - CRUSH_MIN_H : y0;
@@ -43,7 +46,9 @@ void crush_start(void) {
     r->crush_goal[3] = GH - (y0 + CRUSH_MIN_H);
     for (int s = 0; s < 4; s++) r->crush_from[s] = r->crush_cell[s] = 0;
     r->crush_slide = 1.0f;
-    r->crush_t = 0.6f; /* the first step right after the warning */
+    r->crush_slow = slow;
+    r->crush_t = slow ? CRUSH_SLOW_STEP_T : 0.6f; /* the first step right after the warning */
+    if (slow) return; /* the compactor's own banner said it */
     fx_banner("THE WALLS CLOSE IN", "finish them!", col_hex(0xff3b5c, 1), 1.4f);
     sfx_play(SFX_WAVE);
     fx_shake(0.4f);
@@ -68,6 +73,7 @@ void crush_update(void) {
     if (!active_time_stop_on()) { /* TIME STOP holds the walls too */
         if (r->crush_slide < 1.0f) r->crush_slide = minf(1.0f, r->crush_slide + DT / CRUSH_SLIDE_T);
         r->crush_t -= DT;
+        if (!r->crush_slow && r->crush_t > CRUSH_STEP_T) r->crush_t = CRUSH_STEP_T; /* sped up */
         bool moving = false;
         for (int s = 0; s < 4; s++) moving |= r->crush_cell[s] < r->crush_goal[s];
         if (r->crush_t <= 0.0f && moving) {
@@ -76,7 +82,7 @@ void crush_update(void) {
                 if (r->crush_cell[s] < r->crush_goal[s]) r->crush_cell[s]++;
             }
             r->crush_slide = 0.0f;
-            r->crush_t = CRUSH_STEP_T;
+            r->crush_t = r->crush_slow ? CRUSH_SLOW_STEP_T : CRUSH_STEP_T;
             bool last = true;
             for (int s = 0; s < 4; s++) last = last && r->crush_cell[s] >= r->crush_goal[s];
             room_crush_grind(cell_box(), last); /* what the walls reach crumbles as they start to move */
@@ -131,7 +137,7 @@ void crush_end(void) {
                      j % 3 ? col_hex(0xff3b5c, 0.9f) : col_a(COL_WHITE, 0.9f), frand(-14.0f, 14.0f));
         }
     }
-    r->crushing = false;
+    r->crushing = r->crush_slow = false;
     memset(r->crush_in, 0, sizeof r->crush_in);
 }
 
@@ -192,7 +198,11 @@ void draw_wave_bar(void) {
         for (int s = 0; s < 4; s++) done += r->crush_cell[s], total += r->crush_goal[s];
         k = total > 0 ? 1.0f - (float)done / (float)total : 0.0f;
         col = col_hex(0xff3b5c, 0.6f + 0.4f * pulse);
-        label = "WALLS CLOSING IN";
+        label = r->crush_slow ? "COMPACTOR" : "WALLS CLOSING IN";
+        if (r->crush_slow) { /* the waves' timer still runs: show it, the walls crawl meanwhile */
+            k = clampf(r->wave_t / r->wave_time, 0.0f, 1.0f);
+            label = last ? "COMPACTOR - LAST WAVE" : "COMPACTOR - NEXT WAVE";
+        }
     } else {
         k = clampf(r->wave_t / r->wave_time, 0.0f, 1.0f);
         col = last ? col_hex(0xff5f7e, k < 0.3f ? 0.6f + 0.4f * pulse : 1.0f) : col_hex(0xb57cff, 1);
@@ -202,5 +212,5 @@ void draw_wave_bar(void) {
     draw_rect(x, y, w * k, h, col);
     draw_rect_outline(x - 2.0f, y - 2.0f, w + 4.0f, h + 4.0f, 1.0f, col_a(col, 0.6f));
     draw_text(x - 14.0f - draw_text_width(label, 1.5f), y - 1.0f, 1.5f, col, "%s", label);
-    if (!r->crushing) draw_text(x + w + 14.0f, y - 1.0f, 1.5f, col, "%.0fs", (double)ceilf(r->wave_t > 0.0f ? r->wave_t : 0.0f));
+    if (!r->crushing || r->crush_slow) draw_text(x + w + 14.0f, y - 1.0f, 1.5f, col, "%.0fs", (double)ceilf(r->wave_t > 0.0f ? r->wave_t : 0.0f));
 }

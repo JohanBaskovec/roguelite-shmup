@@ -37,7 +37,7 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   chosen) everything is unlocked (`profile_unlock_all`); `--fresh-profile` runs on a new save's unlocks, kept
   from run to run (headless checks: never a locked upgrade offered, +6 exactly when a boss dies and only then,
   saved at once, ships unlocked). A new unlock kind: `Profile` field + its condition + `unlock_percent` total.
-- **Upgrade rooms (and bosses) always offer a choice of `UPGRADE_CHOICES` = 2 upgrades** (take one, the other vanishes);
+- **Upgrade rooms (and bosses) always offer a choice of `UPGRADE_CHOICES` = 2 upgrades** (take one, the other vanishes; a WAGER room twice that, in two rows);
   active rooms offer `ACTIVE_CHOICES` = 3 items.
 - **Every upgrade has a bonus AND a malus** (`MALUSES` table in `src/maluses.c`, one `MalusKind` + amount
   per upgrade, or `MAL_CUSTOM` text when the trade-off is built into the effect, e.g. weapon-like ones).
@@ -155,9 +155,20 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   `ARENA_*`); `crush_update` keeps ship, enemies and spawns inside, a closing wall hurts the ship on touch, and
   every obstacle not strictly inside the box (all of them at the last step) bursts whole (`room_crush_grind`), so
   what is left never cuts the box in two. TIME STOP holds the timer and the walls. Cleared: `crush_end` (the room
-  is whole again before the reward). **Never in a boss room**, nor without `wave_time` (bestiary, scripted fights).
+  is whole again before the reward). **Never in a boss room** (nor before the last wave, but in a COMPACTOR room), nor without `wave_time` (bestiary, scripted fights).
   The bot keeps off the closing walls (`crush_hazards`). `--wave-time S` forces every timer (tests:
   `sim_rooms_closing_walls*`); headless checks all of it (inside the box, last wave only, no boss room).
+- **Room modifiers** (`src/mods.c`, `RoomMod`, `Door.mod` -> `G.entry_mod` -> `Room.mod`): a combat room with one more
+  rule, rolled with its door (`mod_roll`, `MOD_CHANCE`, a first depth each) and written under the door's reward; the
+  only exception to "what makes a room special comes after the fight". Combat rooms only, never two wager doors in a
+  room (a ship on its last heart must always have a way out). COMPACTOR: `crush_start(true)` at the first wave
+  (`crush_slow`, towards the centre), full speed when the last wave's timer runs out. BLACKOUT: drawing only
+  (`mods_draw_over`). POWDER: `theme_kind` / the block budget. HORDE: one wave (`HORDE_BUDGET`), its timer is the
+  last wave's. ELITE: `Room.elite` filters `spawn_wave`. STORM: strikes (`Room.strike_*`, `mods_update`, hazards for
+  the bot, hold under TIME STOP). WAGER: `mod_door_pay` takes `WAGER_COST` hp (refused on the last heart), the reward
+  drops twice (`room_reveal`; one-of-N offers have a group, `Pickup.choice` 1 / 2, one taken from each). A new one:
+  enum + `MODS` entry, its effect, bot support if needed, invariants, a line in the scripted check and
+  `sim_rooms_mod_<name>` CTests (`--mod NAME` forces it on every combat room).
 - After a room is cleared the player chooses between 3 doors; each door previews what the next
   room gives. One door may be locked (costs a key). The 3 doors are always different (no reward or
   special room behind two doors, locked or not).

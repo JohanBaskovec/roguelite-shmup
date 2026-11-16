@@ -14,6 +14,8 @@
 #define WAVE_TIME_PER_ENEMY 0.45f
 #define WAVE_TIME_MAX 22.0f
 #define WAVE_TIME_LAST 5.0f   /* the last wave: that much longer before the walls move */
+#define WAVE_TIME_HORDE_MAX 40.0f /* MOD_HORDE: its single wave's timer can be that long */
+#define HORDE_BUDGET 2.6f     /* MOD_HORDE: its wave is that much bigger than a normal one */
 float g_wave_time_override = 0.0f;
 #define ROOM_DEPTH_PER_WAVE 5 /* one more wave every 5 rooms */
 
@@ -449,6 +451,16 @@ static void gen_doors(void) {
         d->reward = roll_reward_except(used);
         used |= 1u << d->reward;
     }
+    /* Room modifiers: combat rooms only, shown on the door (mods.c). One wager door at most: a ship down to its
+     * last heart can always leave by another one. */
+    bool wager = false;
+    for (int i = 0; i < MAX_DOORS; i++) {
+        Door *d = &r->doors[i];
+        if (d->type != ROOM_COMBAT) continue;
+        d->mod = (uint8_t)(g_mod_override >= 0 ? g_mod_override : (int)mod_roll(r->depth + 1));
+        if (d->mod == MOD_WAGER && wager) d->mod = MOD_NONE;
+        wager |= d->mod == MOD_WAGER;
+    }
 }
 
 static void spawn_shop_items(void);
@@ -471,6 +483,8 @@ void room_enter(RoomType type, RewardType reward, int depth) {
     static int layouts;
     r->layout_id = ++layouts;
     r->entry = G.entry_side;
+    r->mod = type == ROOM_COMBAT ? (uint8_t)(g_mod_override >= 0 ? g_mod_override : G.entry_mod) : MOD_NONE;
+    G.entry_mod = MOD_NONE; /* used up */
     unlocks_on_room(depth); /* ships unlocked by depth (not in the demo) */
     bool can_hide = type == ROOM_COMBAT || type == ROOM_STATS || type == ROOM_SHOP;
     if (can_hide && (G.force_secret || chance(SECRET_CHANCE))) {
@@ -525,6 +539,7 @@ void room_enter(RoomType type, RewardType reward, int depth) {
         r->nwaves = 2 + (extra > 5 ? 5 : extra);
         r->wave_t = 0.35f;
     }
+    mods_on_room_enter(); /* the horde's single wave, the elite's type, the banner */
     upg_on_room_enter();
     actives_recharge_all();
 }
@@ -582,21 +597,23 @@ static void spawn_wave(void) {
     float budget = WAVE_BUDGET_BASE + WAVE_BUDGET_SCALE * powf((float)depth, WAVE_BUDGET_EXP) +
                    (float)r->wave * WAVE_BUDGET_PER_WAVE;
     budget *= 1.0f + malus_pct(MAL_CROWD); /* CROWD malus: bigger waves (more enemies, never stronger ones) */
-    int cap = (int)(20.0f + 2.0f * (float)depth);
+    bool horde = r->mod == MOD_HORDE;
+    if (horde) budget *= HORDE_BUDGET; /* the waves of a room all at once (a bit less) */
+    int cap = (int)((horde ? 40.0f : 20.0f) + 2.0f * (float)depth);
     if (cap > MAX_ENEMIES - 20) cap = MAX_ENEMIES - 20;
     int queued = 0;
     while (budget >= 1.0f && queued < cap) {
         EnemyType cand[EN_COUNT];
         int nc = 0;
         for (int t = 0; t < EN_COUNT; t++) {
-            bool ok = g_only_count ? g_only_enemies[t] : ENEMIES[t].min_depth <= depth;
+            bool ok = r->elite ? t == r->elite - 1 : g_only_count ? g_only_enemies[t] : ENEMIES[t].min_depth <= depth;
             if (ok && (float)ENEMIES[t].cost <= budget) cand[nc++] = (EnemyType)t;
         }
         if (nc == 0) break;
         EnemyType t = cand[irand(0, nc - 1)];
         budget -= (float)ENEMIES[t].cost;
         V2 p = t == EN_CRAWLER ? wall_spawn_point(ENEMIES[t].radius) : find_spawn_point(ENEMIES[t].radius);
-        float delay = 0.65f + frand(0.0f, 0.5f);
+        float delay = 0.65f + frand(0.0f, horde ? 2.5f : 0.5f); /* a horde pours in */
         if (t == EN_SWARM) {
             for (int k = 0; k < 5; k++)
                 enemy_queue_spawn(EN_SWARM, v2_add(p, v2_scale(v2_angle(TAU_F * (float)k / 5.0f), 34.0f)), delay);
@@ -609,11 +626,12 @@ static void spawn_wave(void) {
     r->last_wave_size = queued;
     sfx_play(SFX_WAVE);
     r->wave++;
-    float time = minf(WAVE_TIME_BASE + WAVE_TIME_PER_ENEMY * (float)queued, WAVE_TIME_MAX);
+    float time = minf(WAVE_TIME_BASE + WAVE_TIME_PER_ENEMY * (float)queued, horde ? WAVE_TIME_HORDE_MAX : WAVE_TIME_MAX);
     if (r->wave >= r->nwaves) time += WAVE_TIME_LAST;
     if (g_wave_time_override > 0.0f) time = g_wave_time_override;
     r->wave_t = r->wave_time = time;
     r->since_wave = 0.0f;
+    if (r->mod == MOD_COMPACTOR && r->wave == 1) crush_start(true); /* the walls start to crawl */
 }
 
 /* Stats room reward: a row of trades, take one and the others vanish. */
@@ -683,7 +701,13 @@ static void room_reveal(void) {
     else if (r->type == ROOM_SHOP) spawn_shop_items();
     else if (r->type == ROOM_WORKSHOP) workshop_spawn();
     else if (r->type == ROOM_SECRET) secret_loot(); /* after an ambush */
-    else if (r->reward != RW_NONE) reward_drop(r->reward, v2(ARENA_CX, ARENA_CY));
+    else if (r->mod == MOD_WAGER && r->reward != RW_NONE) { /* the reward twice: two choices / twice the loot */
+        bool offers = r->reward == RW_UPGRADE || r->reward == RW_ACTIVE;
+        reward_drop(r->reward, v2(ARENA_CX, ARENA_CY - (offers ? 150.0f : 0.0f)));
+        pickups_set_choice_group(2);
+        reward_drop(r->reward, v2(ARENA_CX, ARENA_CY + (offers ? 150.0f : 0.0f)));
+        pickups_set_choice_group(1);
+    } else if (r->reward != RW_NONE) reward_drop(r->reward, v2(ARENA_CX, ARENA_CY));
 }
 
 /* instant (debug clear): no shatter, the room is empty and its reward out at once. */
@@ -826,10 +850,14 @@ void room_update(void) {
             if (trigger) spawn_wave();
         } else if (alive == 0) {
             room_clear(false);
-        } else if (r->wave_t <= 0.0f && r->wave_time > 0.0f && !r->crushing && r->type != ROOM_BOSS) {
-            crush_start(); /* too slow: the walls close in */
+        } else if (r->wave_t <= 0.0f && r->wave_time > 0.0f && r->type != ROOM_BOSS) {
+            if (!r->crushing) crush_start(false); /* too slow: the walls close in */
+            else r->crush_slow = false;           /* the compactor speeds up */
         }
-        if (!r->cleared) crush_update();
+        if (!r->cleared) {
+            crush_update();
+            mods_update();
+        }
         return;
     }
 
@@ -865,6 +893,7 @@ void room_update(void) {
             continue;
         }
         if (d->anim > 0.0f) continue;
+        if (!mod_door_pay(d)) continue; /* a wager the ship cannot pay */
         game_start_transition(i);
         break;
     }
@@ -1094,6 +1123,10 @@ static void draw_door(const Door *d, bool cleared, bool entry) {
     else if (d->type == ROOM_SECRET) draw_text_centered(ip.x + 1.0f, ip.y - 12.0f * sc, 3.0f * sc, col_hex(COLOR_SECRET, 1), "%s", G.room.type == ROOM_SECRET ? "v" : "?");
     else draw_pickup_icon(d->type == ROOM_STATS ? PK_STAT : reward_icon(d->reward), -1, ip, 11.0f * sc, G.time);
     if (pop >= 1.0f) draw_text_centered(ip.x, ip.y + 34.0f, 1.5f, col_a(rc, 0.9f), "%s", door_label(d));
+    if (pop >= 1.0f && d->mod != MOD_NONE) { /* the room's modifier, under its reward */
+        SDL_FColor mc = col_hex(mod_color(d->mod), 0.75f + 0.25f * pulse);
+        draw_text_centered(ip.x, ip.y + 50.0f, 1.5f, mc, "+ %s", mod_name(d->mod));
+    }
 }
 
 /* Boss door: a watching eye. */
@@ -1125,5 +1158,6 @@ void room_draw_walls(void) {
     bool open = r->cleared && r->clear_t >= DOORS_AT; /* not while the room shatters, nor right after */
     draw_door(&entry, open, !(r->secret_open || r->type == ROOM_SECRET));
     for (int i = 0; i < r->ndoors; i++) draw_door(&r->doors[i], open, false);
+    mods_draw_under(); /* the storm's strikes */
     crush_draw(); /* the closing walls, over everything they cover */
 }

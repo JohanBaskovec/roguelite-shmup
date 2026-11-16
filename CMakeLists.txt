@@ -41,6 +41,7 @@ add_executable(neon_breach
     src/upgrades.c
     src/upgrades2.c
     src/crush.c
+    src/mods.c
     src/debug_menu.c
     src/characters.c
     src/workshop.c
@@ -207,6 +208,21 @@ if(SHMUP_BUILD_TESTS)
     add_test(NAME sim_rooms_closing_walls_mortal
              COMMAND neon_breach --headless --wave-time 3 --seed 94 --runs 12
                      --fail-shot ${_out}/fail_sim_rooms_closing_walls_mortal.bmp)
+    # Room modifiers, each forced on every combat room (god, then mortal), and their looks.
+    foreach(_m compactor blackout powder-keg horde elite storm wager)
+        add_test(NAME sim_rooms_mod_${_m}
+                 COMMAND neon_breach --headless --god --mod ${_m} --hp 20 --seed 40 --runs 2 --ticks 36000 --expect-rooms 4
+                         --fail-shot ${_out}/fail_sim_rooms_mod_${_m}.bmp)
+        add_test(NAME sim_rooms_mod_${_m}_mortal
+                 COMMAND neon_breach --headless --mod ${_m} --seed 44 --runs 4
+                         --fail-shot ${_out}/fail_sim_rooms_mod_${_m}_mortal.bmp)
+    endforeach()
+    add_test(NAME render_rooms_mod_blackout
+             COMMAND neon_breach --shot ${_out}/rooms_mod_blackout.bmp --frames 600 --depth 6 --seed 3 --god --mod blackout)
+    add_test(NAME render_rooms_mod_storm
+             COMMAND neon_breach --shot ${_out}/rooms_mod_storm.bmp --frames 700 --depth 6 --seed 3 --god --mod storm)
+    add_test(NAME render_rooms_mod_wager
+             COMMAND neon_breach --shot ${_out}/rooms_mod_wager.bmp --frames 200 --depth 6 --seed 3 --cleared --no-bot --mod wager)
     add_test(NAME render_rooms_closing_walls
              COMMAND neon_breach --shot ${_out}/closing_walls.bmp --frames 1500 --depth 6 --seed 3 --wave-time 2 --god --no-bot)
     # Mixed rooms of the newest ones, mortal: supports with the ones they help, the hard ones together.

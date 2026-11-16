@@ -157,6 +157,13 @@ static void parse_args(int argc, char **argv, Options *o) {
             g_only_enemies[t] = true;
         }
         else if (!strcmp(a, "--wave-time") && more) g_wave_time_override = (float)atof(argv[++i]);
+        else if (!strcmp(a, "--mod") && more) {
+            g_mod_override = mod_by_name(argv[++i]);
+            if (g_mod_override < 0) {
+                fprintf(stderr, "unknown room modifier '%s' (compactor, blackout, powder-keg, horde, elite, storm, wager)\n", argv[i]);
+                exit(2);
+            }
+        }
         else if (!strcmp(a, "--boss-kind") && more) {
             int t = enemy_by_name(argv[++i]);
             if (!type_is_boss(t)) {

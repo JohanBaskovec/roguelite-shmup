@@ -107,8 +107,10 @@ static const char *check_invariants(float room_time) {
             bool in = false;
             for (int s = 0; s < 4; s++) in = in || r->crush_in[s] != 0.0f;
             if (in && !r->crushing) return "the room's bounds are moved in without closing walls";
-            if (r->crushing && (r->cleared || r->type == ROOM_BOSS || r->wave < r->nwaves || r->peaceful))
-                return "walls closing in a boss room, a cleared room or before the last wave";
+            if (r->crushing && (r->cleared || r->type == ROOM_BOSS || (r->wave < r->nwaves && r->mod != MOD_COMPACTOR) || r->peaceful))
+                return "walls closing in a boss room, a cleared room or before the last wave (but in a compactor)";
+            if (r->crush_slow && (r->mod != MOD_COMPACTOR || !r->crushing)) return "slow closing walls outside a compactor";
+            if (r->mod == MOD_COMPACTOR && !r->cleared && r->wave >= 1 && !r->crushing) return "compactor whose walls do not move";
             if (!r->cleared && r->type != ROOM_BOSS && r->wave > 0 && r->wave < r->nwaves && r->wave_t < -0.05f)
                 return "a wave's timer ran out and the next wave did not come";
             if (r->crushing) {
@@ -124,6 +126,19 @@ static const char *check_invariants(float room_time) {
                         return "obstacle left behind the closing walls";
                 }
             }
+        }
+        { /* Room modifiers: combat rooms only, on their doors too (never the boss door); each one's rule. */
+            const Room *r = &G.room;
+            if (r->mod >= MOD_COUNT || (r->mod != MOD_NONE && r->type != ROOM_COMBAT)) return "room modifier outside a combat room";
+            int wagers = 0;
+            for (int i = 0; i < r->ndoors; i++) wagers += r->doors[i].mod == MOD_WAGER;
+            if (wagers > 1) return "more than one wager door (a ship on its last heart could not leave)";
+            for (int i = 0; i < r->ndoors; i++)
+                if (r->doors[i].mod >= MOD_COUNT || (r->doors[i].mod != MOD_NONE && r->doors[i].type != ROOM_COMBAT))
+                    return "door with a modifier to a room that is not a combat room";
+            if (r->mod == MOD_HORDE && r->nwaves != 1) return "horde room with more than one wave";
+            if ((r->elite != 0) != (r->mod == MOD_ELITE)) return "elite type without the elite modifier (or none with it)";
+            if (r->nstrikes && r->mod != MOD_STORM) return "lightning strikes outside a storm room";
         }
         if (G.room.nobs < 0 || G.room.nobs > MAX_OBSTACLES || G.room.nfires < 0 || G.room.nfires > MAX_FIRES) return "obstacle / fire count out of range";
         for (int i = 0; i < G.room.nobs; i++) {
@@ -336,7 +351,16 @@ static const char *check_invariants(float room_time) {
 
 static int count_choices(void) {
     int n = 0;
-    for (int i = 0; i < G.npk; i++) n += G.pk[i].choice;
+    for (int i = 0; i < G.npk; i++) n += G.pk[i].choice != 0;
+    return n;
+}
+
+/* One-of-N offers of a group (MOD_WAGER: two groups, one taken from each). */
+static int count_group(int g);
+static int choice_groups(void) { return (count_group(1) << 8) | (count_group(2) << 16); }
+static int count_group(int g) {
+    int n = 0;
+    for (int i = 0; i < G.npk; i++) n += G.pk[i].choice == g;
     return n;
 }
 
@@ -369,7 +393,7 @@ static const char *check_room_reward(void) {
             if (G.pk[i].type != PK_UPGRADE && G.pk[i].type != PK_STAT) return "boss reward is not an upgrade choice";
     }
     bool item_room = G.room.type == ROOM_COMBAT && (G.room.reward == RW_UPGRADE || G.room.reward == RW_ACTIVE);
-    int want_choices = G.room.reward == RW_ACTIVE ? ACTIVE_CHOICES : UPGRADE_CHOICES;
+    int want_choices = (G.room.reward == RW_ACTIVE ? ACTIVE_CHOICES : UPGRADE_CHOICES) * (G.room.mod == MOD_WAGER ? 2 : 1);
     if (item_room && count_choices() != want_choices) {
         snprintf(buf, sizeof buf, "%s room offers %d items to choose from instead of %d",
                  reward_name(G.room.reward), count_choices(), want_choices);
@@ -1366,7 +1390,7 @@ static int debug_rooms_run(const HeadlessOptions *o) {
 
         FRESH(); /* every character can find the sword */
         bool sword_seen = false;
-        for (int k = 0; k < 400 && !sword_seen; k++) sword_seen = upgrade_roll() == UPG_W_SWORD;
+        for (int k = 0; k < 4000 && !sword_seen; k++) sword_seen = upgrade_roll() == UPG_W_SWORD;
         names[nres] = "sword for everyone", oks[nres++] = sword_seen && !upgrade_capped(UPG_W_SWORD);
 
         /* An upgrade owned never comes back: not rolled, not offered, not taken twice; an offer
@@ -2529,17 +2553,17 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         for (int t = 0; t < (int)((BLOCK_SPREAD_T + 0.1f) * TICK_RATE); t++) BTICK();
         fire_ok = fire_ok && block_at(cb) >= 0 && G.room.obs[block_at(cb)].burn_t > 0.0f && G.room.obs[block_at(cbar)].burn_t <= 0.0f &&
                   block_at(cspark) >= 0 && G.room.obs[block_at(cspark)].burn_t > 0.0f && G.room.obs[block_at(cnest)].burn_t <= 0.0f;
-        bool spread_ok = true, nest_lit = false;
+        bool spread_ok = true, nest_lit = false, hatched = false;
         int balls_seen = 0;
         for (int t = 0; t < 4 * TICK_RATE; t++) {
             BTICK();
             int c = block_at(cc), d = block_at(cd), ne = block_at(cnest);
             nest_lit |= ne >= 0 && G.room.obs[ne].burn_t > 0.0f;
+            hatched |= G.nen + G.nsp >= 2; /* the dummy and what crawled out of the burnt nest (the fire may kill it) */
             int balls = count_ebullets(EB_BALL);
             balls_seen = balls > balls_seen ? balls : balls_seen;
             spread_ok = spread_ok && c >= 0 && G.room.obs[c].burn_t <= 0.0f && (d < 0 || G.room.obs[d].burn_t <= 0.0f);
         }
-        bool hatched = G.nen + G.nsp >= 2; /* the dummy and what crawled out of the burnt nest */
         fire_ok = fire_ok && spread_ok && nest_lit && hatched && balls_seen >= SPARK_BALLS && block_at(ca) < 0 && block_at(cb) < 0 &&
                   block_at(cbar) < 0 && block_at(cd) < 0 && block_at(cspark) < 0 && block_at(cnest) < 0;
 
@@ -2722,10 +2746,14 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         G.god = false; /* against a closing wall: hurt */
         pl->invuln = 0.0f;
         int crush_hp0 = pl->hp + pl->shield;
-        pl->pos = v2(room_x0() + PLAYER_BODY_R, (room_y0() + room_y1()) * 0.5f);
-        pl->vel = v2(0, 0);
-        BTICK();
-        bool hurt_ok = pl->hp + pl->shield < crush_hp0;
+        G.hitstop = 0.0f;
+        bool hurt_ok = false;
+        for (int t = 0; t < 10 && !hurt_ok; t++) { /* (a hit stop from a shot may hold the world a tick or two) */
+            pl->pos = v2(room_x0() + PLAYER_BODY_R, (room_y0() + room_y1()) * 0.5f);
+            pl->vel = v2(0, 0);
+            BTICK();
+            hurt_ok = pl->hp + pl->shield < crush_hp0;
+        }
         G.god = true;
         for (int i = 0; i < G.nen; i++) enemy_damage(&G.en[i], 1e6f, v2(0, 0));
         for (int t = 0; t < 30; t++) BTICK();
@@ -2748,6 +2776,152 @@ static int debug_rooms_run(const HeadlessOptions *o) {
                timer_ok ? "OK" : "FAILED", crush_ok ? "OK" : "FAILED", hold_ok ? "OK" : "FAILED", hurt_ok ? "OK" : "FAILED",
                back_ok ? "OK" : "FAILED", boss_ok ? "OK" : "FAILED");
         failures += !timer_ok + !crush_ok + !hold_ok + !hurt_ok + !back_ok + !boss_ok;
+
+        /* Room modifiers: on combat doors only (each one met, never two wager doors); a wager door takes a whole
+         * heart (refused on the last one) and the room gives two one-of-N rows (one taken from each); a horde is
+         * one wave, much bigger; an elite room's waves are of one type; a powder keg is packed with barrels and
+         * oil drums; a storm strike hurts only once it lands (the enemies too); a compactor's walls crawl from
+         * the first wave and speed up when the last wave's timer runs out. */
+        {
+            int seen = 0, bad_doors = 0;
+            for (int k = 0; k < 400; k++) {
+                game_init(o->seed + (uint64_t)k);
+                game_new_run();
+                room_enter(ROOM_COMBAT, RW_COINS, 10);
+                int wagers = 0;
+                for (int i = 0; i < G.room.ndoors; i++) {
+                    const Door *d = &G.room.doors[i];
+                    seen |= 1 << d->mod;
+                    wagers += d->mod == MOD_WAGER;
+                    bad_doors += d->mod != MOD_NONE && d->type != ROOM_COMBAT;
+                }
+                bad_doors += wagers > 1;
+            }
+            bool doors_mod_ok = seen == (1 << MOD_COUNT) - 1 && bad_doors == 0;
+
+            /* Wager: a whole heart through the door, refused on the last one; two rows of offers. */
+            game_init(o->seed);
+            game_new_run();
+            debug_teleport(ROOM_COMBAT, RW_COINS, 3, false); /* cleared */
+            G.state = GS_PLAYING;
+            for (int i = 0; i < G.room.ndoors; i++) {
+                Door *d = &G.room.doors[i];
+                d->mod = i == 0 ? MOD_WAGER : MOD_NONE;
+                if (i == 0) d->type = ROOM_COMBAT, d->reward = RW_UPGRADE, d->locked = false;
+            }
+            G.god = true; /* nothing else hurts it meanwhile (the wager's heart is paid all the same) */
+            G.room.clear_t = DOORS_AT + 0.3f;
+            V2 wdoor = door_position(G.room.doors[0].side);
+            wdoor = v2_add(wdoor, v2_scale(v2_norm(v2_sub(v2(ARENA_CX, ARENA_CY), wdoor)), PLAYER_BODY_R + 2.0f));
+            pl->hp = WAGER_COST;
+            bool refused = true;
+            for (int t = 0; t < 120; t++) {
+                pl->pos = wdoor, pl->vel = v2(0, 0);
+                BTICK();
+                refused = refused && !G.transitioning;
+            }
+            pl->hp = 6;
+            for (int t = 0; t < 120 && !G.transitioning; t++) {
+                pl->pos = wdoor, pl->vel = v2(0, 0);
+                BTICK();
+            }
+            bool paid = G.transitioning && pl->hp == 6 - WAGER_COST;
+            for (int t = 0; t < (int)(TRANS_TIME * TICK_RATE) + 4; t++) BTICK();
+            bool wager_ok = refused && paid && G.room.mod == MOD_WAGER && G.room.reward == RW_UPGRADE;
+            G.god = true;
+            for (int t = 0; t < 120; t++) BTICK(); /* its first wave */
+            G.room.wave = G.room.nwaves;
+            G.nsp = 0;
+            for (int i = 0; i < G.nen; i++) enemy_damage(&G.en[i], 1e6f, v2(0, 0));
+            for (int t = 0; t < (int)(ROOM_REVEAL_T * TICK_RATE) + 20; t++) BTICK();
+            wager_ok = wager_ok && G.room.cleared && count_group(1) == UPGRADE_CHOICES && count_group(2) == UPGRADE_CHOICES;
+            int g1 = -1;
+            for (int i = 0; i < G.npk; i++)
+                if (G.pk[i].choice == 1) g1 = i;
+            if (g1 >= 0) {
+                pl->pos = G.pk[g1].pos;
+                for (int t = 0; t < 70; t++) BTICK();
+                in->interact_pressed = true;
+                BTICK();
+            }
+            wager_ok = wager_ok && count_group(1) == 0 && count_group(2) == UPGRADE_CHOICES;
+
+            /* Horde: one wave, much bigger than a normal first wave. Elite: one type. */
+#define FIRST_WAVE(mod) do { game_init(o->seed); game_new_run(); g_mod_override = (mod); room_enter(ROOM_COMBAT, RW_COINS, 8); \
+                             g_mod_override = -1; G.state = GS_PLAYING; G.god = true; \
+                             for (int t = 0; t < 200 && G.room.wave == 0; t++) BTICK(); } while (0)
+            FIRST_WAVE(MOD_NONE);
+            int normal = G.room.last_wave_size, normal_waves = G.room.nwaves;
+            FIRST_WAVE(MOD_HORDE);
+            bool horde_ok = G.room.nwaves == 1 && normal_waves > 1 && G.room.last_wave_size * 10 >= normal * 16 && G.room.mod == MOD_HORDE;
+            FIRST_WAVE(MOD_ELITE);
+            bool elite_ok = G.room.elite > 0 && G.nsp + G.nen > 0;
+            for (int i = 0; i < G.nsp; i++) elite_ok = elite_ok && G.sp[i].type == (EnemyType)(G.room.elite - 1);
+            for (int i = 0; i < G.nen; i++) elite_ok = elite_ok && G.en[i].type == (EnemyType)(G.room.elite - 1);
+
+            /* Powder keg: barrels and oil drums (a few crates), many of them. */
+            game_init(o->seed);
+            game_new_run();
+            g_mod_override = MOD_POWDER;
+            room_enter(ROOM_COMBAT, RW_COINS, 6);
+            g_mod_override = -1;
+            int blocks = 0, boom = 0, other = 0;
+            for (int i = 0; i < G.room.nobs; i++) {
+                int k = G.room.obs[i].kind;
+                if (k == OB_WALL) continue;
+                blocks++;
+                boom += k == OB_BARREL || k == OB_OIL;
+                other += k != OB_BARREL && k != OB_OIL && k != OB_CRATE;
+            }
+            bool powder_ok = blocks >= POWDER_BLOCKS_MIN * 2 / 3 && boom * 10 >= blocks * 6 && other == 0;
+
+            /* Storm: shown first (no harm), then it lands: the ship and the enemy under it hurt. */
+            FIRST_WAVE(MOD_STORM);
+            G.god = false;
+            G.nsp = 0, G.nen = 0, G.neb = 0;
+            G.room.nobs = G.room.nfires = 0; /* open floor */
+            room_nav_reset();
+            BDUMMY(ARENA_X0 + 300.0f, ARENA_Y0 + 200.0f, 22.0f);
+            V2 dummy_at = G.en[0].pos;
+            G.room.storm_cd = 1e6f;
+            pl->pos = v2(ARENA_X1 - 300.0f, ARENA_Y1 - 200.0f);
+            pl->invuln = 0.0f;
+            G.room.nstrikes = 2;
+            G.room.strike_pos[0] = pl->pos, G.room.strike_t[0] = STORM_WARN;
+            G.room.strike_pos[1] = G.en[0].pos, G.room.strike_t[1] = STORM_WARN;
+            int storm_hp = pl->hp + pl->shield;
+            float dummy_hp = G.en[0].hp;
+            bool storm_ok = true;
+            for (int t = 0; t < (int)(STORM_WARN * TICK_RATE) - 4; t++) {
+                pl->vel = v2(0, 0), G.neb = 0, G.en[0].pos = dummy_at, G.en[0].vel = v2(0, 0); /* both stay put */
+                BTICK();
+                storm_ok = storm_ok && pl->hp + pl->shield == storm_hp && G.en[0].hp == dummy_hp;
+            }
+            for (int t = 0; t < 120 && (t < 8 || G.room.nstrikes > 0); t++) { /* (the hit stops time a moment) */
+                pl->vel = v2(0, 0), G.neb = 0, G.en[0].pos = dummy_at, G.en[0].vel = v2(0, 0); /* both stay put */
+                BTICK();
+            }
+            storm_ok = storm_ok && pl->hp + pl->shield < storm_hp && G.en[0].hp < dummy_hp && G.room.nstrikes == 0;
+            G.god = true;
+
+            /* Compactor: the walls crawl from the first wave, then speed up. */
+            FIRST_WAVE(MOD_COMPACTOR);
+            bool comp_ok = G.room.crushing && G.room.crush_slow;
+            for (int t = 0; t < (int)((CRUSH_SLOW_STEP_T + 0.5f) * TICK_RATE); t++) BTICK();
+            int c1 = G.room.crush_cell[0];
+            comp_ok = comp_ok && c1 >= 1 && c1 <= 2;
+            G.room.wave = G.room.nwaves;
+            G.room.wave_t = 0.0f;
+            for (int t = 0; t < (int)(4.0f * CRUSH_STEP_T * TICK_RATE); t++) BTICK();
+            comp_ok = comp_ok && !G.room.crush_slow && G.room.crush_cell[0] >= c1 + 3;
+#undef FIRST_WAVE
+            G.god = false;
+            printf("scripted room modifiers: on combat doors (all met, one wager at most) -> %s, wager: a heart in, refused on the last one, "
+                   "two rows -> %s, horde -> %s, elite -> %s, powder keg -> %s, storm -> %s, compactor -> %s\n",
+                   doors_mod_ok ? "OK" : "FAILED", wager_ok ? "OK" : "FAILED", horde_ok ? "OK" : "FAILED", elite_ok ? "OK" : "FAILED",
+                   powder_ok ? "OK" : "FAILED", storm_ok ? "OK" : "FAILED", comp_ok ? "OK" : "FAILED");
+            failures += !doors_mod_ok + !wager_ok + !horde_ok + !elite_ok + !powder_ok + !storm_ok + !comp_ok;
+        }
 #undef BTICK
 #undef BFRESH
 #undef BDUMMY
@@ -3479,7 +3653,7 @@ int headless_run(const HeadlessOptions *o) {
                         break;
                     }
                     was_cleared = true;
-                    choices = count_choices();
+                    choices = choice_groups();
                 } else {
                     if (G.room.cleared != G.room.peaceful) {
                         err = "new room: every room starts with enemies, except the launch bay and secret rooms";
@@ -3504,7 +3678,7 @@ int headless_run(const HeadlessOptions *o) {
             /* The reward comes once the room has shattered (clear_t back to 0). */
             if (G.room.cleared && G.room.clear_t >= 0.0f && G.room.clear_t < DT * 1.5f && !G.room.revisit) {
                 if ((err = check_room_reward()) != NULL) break;
-                choices = count_choices();
+                choices = choice_groups();
             }
             if (G.room.cleared && !was_cleared && G.room.type == ROOM_BOSS && !G.room.revisit) {
                 int want = unlocked + (UPG_COUNT - unlocked < UNLOCK_BATCH ? UPG_COUNT - unlocked : UNLOCK_BATCH);
@@ -3533,14 +3707,17 @@ int headless_run(const HeadlessOptions *o) {
                     boss_time += room_time;
                     boss_hits += hits - hits_at_entry;
                 }
-                choices = count_choices();
+                choices = choice_groups();
             }
             was_cleared = G.room.cleared;
             /* A one-of-N choice goes all at once: never a leftover after picking one. */
-            if (G.room.cleared && count_choices() != 0 && count_choices() != choices) {
-                err = "some one-of-N choices remained after one was taken";
-                break;
-            }
+            if (G.room.cleared) /* per group (MOD_WAGER has two): all of it or none of it */
+                for (int g = 1; g <= 2; g++)
+                    if (count_group(g) != 0 && count_group(g) != ((choices >> (8 * g)) & 0xff)) {
+                        err = "some one-of-N choices remained after one was taken";
+                        break;
+                    }
+            if (err) break;
             room_time += DT;
             if ((err = check_invariants(room_time)) != NULL) break;
         }

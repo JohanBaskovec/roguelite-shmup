@@ -229,16 +229,18 @@ void hud_draw(void) {
     } else {
         bool offers = false, items = false;
         int noffers = 0;
+        bool two_rows = false;
         for (int i = 0; i < G.npk; i++) {
-            offers |= G.pk[i].choice;
-            noffers += G.pk[i].choice;
+            offers |= G.pk[i].choice != 0;
+            noffers += G.pk[i].choice == 1;
+            two_rows |= G.pk[i].choice == 2; /* MOD_WAGER: the reward twice */
             items |= G.pk[i].price > 0;
         }
         float a = 0.55f + 0.45f * sinf(G.time * 5.0f);
         if (r->type == ROOM_WORKSHOP && G.nmc > 0) draw_text_centered(SCREEN_W * 0.5f, 52.0f, 2.0f, col_hex(COLOR_WORKSHOP, a), "STEP ON A MACHINE TO USE IT");
         else if (offers && r->type == ROOM_STATS) draw_text_centered(SCREEN_W * 0.5f, 52.0f, 2.0f, col_hex(COLOR_STATS, a), "TAKE ONE TRADE - OR SKIP IT");
         else if (offers) draw_text_centered(SCREEN_W * 0.5f, 52.0f, 2.0f, col_hex(0xb57cff, a), 
-                                         noffers == 2 ? "PICK ONE - THE OTHER VANISHES" : "PICK ONE - THE OTHERS VANISH");
+                                         two_rows ? "PICK ONE PER ROW" : noffers == 2 ? "PICK ONE - THE OTHER VANISHES" : "PICK ONE - THE OTHERS VANISH");
         else if (r->type == ROOM_SECRET && !items) draw_text_centered(SCREEN_W * 0.5f, 52.0f, 2.0f, col_hex(COLOR_SECRET, a), "GRAB THE LOOT - EXIT AT THE BOTTOM");
         else if (items) draw_text_centered(SCREEN_W * 0.5f, 52.0f, 2.0f, col_hex(COLOR_SHOP, a), "SPEND COINS - OR SKIP IT");
         else draw_text_centered(SCREEN_W * 0.5f, 52.0f, 2.0f, col_hex(0x66f0ff, a), "CHOOSE A DOOR");

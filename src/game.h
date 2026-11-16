@@ -317,7 +317,7 @@ typedef struct {
     PickupType type;
     int sub;        /* coin value, UpgradeId or encoded stat offer */
     int price;      /* shop price in coins, 0 = free */
-    bool choice;    /* one-of-N pick: taking it makes the other choice pickups vanish */
+    uint8_t choice; /* one-of-N pick (its group, 1..): taking it makes the other pickups of its group vanish */
     V2 pos, vel;
     float t;
 } Pickup;
@@ -349,11 +349,24 @@ typedef enum { ROOM_START, ROOM_COMBAT, ROOM_STATS, ROOM_TREASURE, ROOM_SHOP, RO
 /* RW_UPGRADE: a choice of UPGRADE_CHOICES (2) upgrades not owned (any of them, those reshaping the shots included). */
 typedef enum { RW_NONE, RW_COINS, RW_KEY, RW_BOMBS, RW_HEART, RW_UPGRADE, RW_ACTIVE, RW_COUNT } RewardType;
 typedef enum { SIDE_LEFT, SIDE_TOP, SIDE_RIGHT, SIDE_BOTTOM } Side;
+/* Room modifiers (mods.c): a combat room with one more rule, shown on its door. */
+typedef enum {
+    MOD_NONE,
+    MOD_COMPACTOR, /* the walls close in slowly from the first wave on (fast once the last wave's timer runs out) */
+    MOD_BLACKOUT,  /* dark: only a circle of light round the ship, the shots and the enemies' glow */
+    MOD_POWDER,    /* powder keg: packed with barrels and oil drums */
+    MOD_HORDE,     /* a single huge wave (its timer is the last wave's: then the walls) */
+    MOD_ELITE,     /* a single enemy type (Room.elite) */
+    MOD_STORM,     /* lightning strikes the floor, on spots shown a moment before (ship and enemies alike) */
+    MOD_WAGER,     /* the door costs a whole heart to go through; the room gives its reward twice */
+    MOD_COUNT
+} RoomMod;
 
 typedef struct {
     Side side;
     RoomType type;       /* room behind the door */
     RewardType reward;   /* reward granted when that room is cleared */
+    uint8_t mod;         /* RoomMod of the room behind it (combat rooms only) */
     bool locked;
     V2 pos;
     float anim;
@@ -461,6 +474,14 @@ typedef struct {
     V2 graves[8];           /* NECRO: where the last enemies died (and what they were), to raise them */
     uint8_t grave_type[8];
     int ngraves;
+    uint8_t mod;            /* RoomMod (mods.c) */
+    int elite;              /* MOD_ELITE: the only enemy type of the waves + 1 (0 = none) */
+    bool crush_slow;        /* MOD_COMPACTOR: the walls crawl until the last wave's timer runs out */
+    /* MOD_STORM: strikes shown at `pos` STORM_WARN before they land (t counts down to 0, live down to -STORM_LIVE). */
+    V2 strike_pos[8];
+    float strike_t[8];
+    int nstrikes;
+    float storm_cd;
 } Room;
 
 /* Something a boss is about to do / doing that the ship must stay out of (the bot reads them,
@@ -659,6 +680,7 @@ typedef struct {
     Rng rng;
     Input in;
     Side entry_side; /* entry door of the next room_enter (opposite the door taken) */
+    uint8_t entry_mod; /* RoomMod of the next room_enter (the door taken), used up by it */
     /* Main menu (title.c): a demo run played by the bot behind it, on its own generator. */
     bool demo;
     Rng demo_rng;
@@ -957,12 +979,34 @@ void room_crush_grind(SDL_FRect box, bool all); /* the closing walls: obstacles 
 #define CRUSH_SLIDE_T 0.3f /* ...sliding in this long */
 #define CRUSH_MIN_W 10     /* the walls stop at a box this many cells wide... */
 #define CRUSH_MIN_H 8      /* ...and high, around where the ship was */
-void crush_start(void);
+#define CRUSH_SLOW_STEP_T 3.2f /* MOD_COMPACTOR: one cell every... until the last wave's timer runs out */
+void crush_start(bool slow);
 void crush_update(void);  /* a step every CRUSH_STEP_T, then everything is kept inside (room_update) */
 void crush_end(void);     /* the room is cleared: the closing walls burst too */
 int crush_hazards(BossHazard *out, int max); /* their inner edges, for the bot */
 void crush_draw(void);
 void draw_wave_bar(void); /* hud: the wave timer at the bottom */
+
+/* Room modifiers (mods.c). */
+#define WAGER_COST 2      /* MOD_WAGER: hp (a whole heart) to go through its door */
+#define STORM_R 74.0f     /* a lightning strike's radius */
+#define STORM_WARN 1.1f   /* shown that long before it lands */
+#define STORM_LIVE 0.12f  /* hurts that long */
+#define STORM_ENEMY_DMG 40.0f
+#define POWDER_BLOCKS_MIN 26 /* MOD_POWDER: at least that many blocks (barrels, oil drums, a few crates) */
+extern int g_mod_override; /* tests (--mod NAME): every combat room has that modifier, -1 = random */
+const char *mod_name(int mod);
+const char *mod_desc(int mod);
+uint32_t mod_color(int mod);
+int mod_by_name(const char *name);
+RoomMod mod_roll(int depth);   /* a door's modifier: usually none */
+void mods_on_room_enter(void); /* after the room is set up (banner, elite type, horde) */
+void mods_update(void);        /* the storm (room_update, while fighting) */
+int mods_hazards(BossHazard *out, int max); /* the strikes, for the bot */
+void mods_draw_under(void);    /* strikes on the floor */
+void mods_draw_over(void);     /* the blackout's darkness, over the world */
+bool mod_door_pay(const Door *d); /* going through a door: pays a wager (false = refused) */
+void pickups_set_choice_group(int group); /* the group of the next one-of-N offers (default 1) */
 extern bool g_fx_off; /* no particles (headless): the game plays the same without them */
 extern bool g_dense_blocks; /* --dense-blocks: as many blocks and gates as possible (test) */
 V2 door_position(Side side);

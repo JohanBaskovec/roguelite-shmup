@@ -612,10 +612,17 @@ void draw_active_icon(int a, V2 p, float s, float t) {
     }
 }
 
+/* Already offered (MOD_WAGER's second row never repeats the first). */
+static bool active_on_floor(int a) {
+    for (int i = 0; i < G.npk; i++)
+        if (G.pk[i].type == PK_ACTIVE && G.pk[i].sub == a) return true;
+    return false;
+}
+
 void active_spawn_choices(V2 center) {
     int cand[ACT_COUNT], n = 0;
     for (int a = ACT_NONE + 1; a < ACT_COUNT; a++)
-        if (G.pl.act[a].level < MAX_ACTIVE_LEVEL) cand[n++] = a; /* one owned = a level up */
+        if (G.pl.act[a].level < MAX_ACTIVE_LEVEL && !active_on_floor(a)) cand[n++] = a; /* one owned = a level up */
     int k = n < ACTIVE_CHOICES ? n : ACTIVE_CHOICES;
     for (int i = 0; i < k; i++) {
         int j = irand(i, n - 1), t = cand[i];

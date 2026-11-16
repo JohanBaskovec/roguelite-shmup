@@ -109,6 +109,7 @@ void game_world_step(void) {
             } else {
                 Door d = G.room.doors[G.trans_door];
                 G.entry_side = side_opposite(d.side); /* out on the right: in on the left */
+                G.entry_mod = d.mod;
                 room_enter(d.type, d.reward, G.room.depth + 1);
             }
             save_autosave(); /* a new screen, its enemies about to show up: the only time the game saves */
@@ -195,6 +196,7 @@ static void render_world(void) {
     }
     bullets_draw_enemy();
     fx_draw();
+    mods_draw_over(); /* the blackout's darkness */
 
     draw_set_offset(v2(0, 0));
     if (!demo_visible()) { /* the demo behind the menu shows the world only */

@@ -76,10 +76,14 @@ static int luck_adjust(int n) {
     return n;
 }
 
+/* MOD_WAGER drops its reward twice: two one-of-N groups, one taken from each. */
+static int choice_group = 1;
+void pickups_set_choice_group(int group) { choice_group = group; }
+
 void pickup_spawn_choice(PickupType type, int sub, V2 pos) {
     int before = G.npk;
     pickup_spawn(type, sub, pos, v2(0, 0));
-    if (G.npk > before) G.pk[G.npk - 1].choice = true;
+    if (G.npk > before) G.pk[G.npk - 1].choice = (uint8_t)choice_group;
 }
 
 static bool item_present(PickupType type, int sub) {
@@ -321,7 +325,7 @@ void pickups_update(void) {
     const Player *pl = &G.pl;
     /* Once the room is cleared, resources fly to the player: no backtracking chores. */
     bool vacuum = G.room.cleared && G.room.clear_t > 0.6f;
-    bool choice_taken = false;
+    int choice_taken = 0; /* the group of the one-of-N offer taken */
     pickups_refresh_owned();
     for (int i = 0; i < G.npk; i++) G.pk[i].t += DT;
 
@@ -376,10 +380,10 @@ void pickups_update(void) {
         }
     }
 
-    /* One-of-N choices (stat trades, weapon / upgrade rooms): the other offers vanish. */
+    /* One-of-N choices (stat trades, weapon / upgrade rooms): the other offers of its group vanish. */
     if (choice_taken) {
         for (int i = 0; i < G.npk; i++) {
-            if (!G.pk[i].choice) continue;
+            if (G.pk[i].choice != choice_taken) continue;
             SDL_FColor c = pickup_glow_color(&G.pk[i]);
             fx_particle(G.pk[i].pos, v2(0, 0), 0.4f, 120.0f, c, 0.0f, PT_RING);
             fx_burst(G.pk[i].pos, 20, 80.0f, 300.0f, 0.4f, 2.5f, c);
