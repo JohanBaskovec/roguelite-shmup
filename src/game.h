@@ -176,7 +176,14 @@ typedef enum {
     EN_CHASER, EN_SWARM, EN_SHOOTER, EN_BURSTER, EN_SPINNER, EN_SNIPER, EN_TANK, EN_WARDEN, EN_HUNTER, EN_HIVE,
     EN_RAMMER, EN_GRENADIER, EN_CRAWLER, EN_TOP, EN_KAMIKAZE, EN_DODGER, EN_ROOK, EN_SPLITTER, EN_LEAPER, EN_MINELAYER,
     EN_BOOMERANG, EN_RICOCHET, EN_ORBITER, EN_BLINKER, EN_SERPENT, EN_MIRROR, EN_LANCER, EN_MORTAR, EN_GUARDIAN, EN_WRAITH,
-    EN_BOSS,
+    /* Bosses (bosses.c), EN_BOSS .. EN_SINGULARITY: one per boss room. */
+    EN_BOSS,        /* THE OVERSEER (room 10) */
+    EN_LIGHTHOUSE,  /* room 10 alternative: beams swept from the centre of a room with pillars */
+    EN_WYRM,        /* room 10 alternative: a burrowing serpent, its armoured body stops shots */
+    EN_STORM,       /* room 10 alternative: arcs of lightning between four pylons */
+    EN_FORGE,       /* room 20: hammer slams that leave fire, molten rain */
+    EN_CARRIER,     /* room 30: rotating shield plates, drones, missiles */
+    EN_SINGULARITY, /* room 40: a black hole that pulls the ship in */
     EN_SPLITLING, /* only born from a dying splitter (min_depth keeps it out of waves) */
     EN_COUNT
 } EnemyType;
@@ -223,6 +230,12 @@ extern uint64_t g_only_enemies;
 /* Boss rooms: every BOSS_EVERY rooms (depth 10, 20...); the room before has a single door. */
 #define BOSS_EVERY 10
 #define BOSS_PHASES 3
+#define BOSS_FIRST EN_BOSS
+#define BOSS_LAST EN_SINGULARITY
+#define BOSS_COUNT (BOSS_LAST - BOSS_FIRST + 1)
+#define WYRM_SEGS 14 /* the wyrm's body (it sheds 3 per phase) */
+static inline bool type_is_boss(int t) { return t >= BOSS_FIRST && t <= BOSS_LAST; }
+static inline bool enemy_is_boss(const Enemy *e) { return type_is_boss(e->type); }
 
 typedef struct {
     EnemyType type;
@@ -383,7 +396,24 @@ typedef struct {
     int ghosts;          /* how many showed up (the bot only "knows" after seeing one) */
     bool peaceful;       /* starts without enemies: launch bay, secret room without an ambush */
     bool secret_shop;    /* secret room variant: a shop instead of the bonus item */
+    /* Boss room: which boss (bosses.c), and what it keeps outside its Enemy. */
+    EnemyType boss;
+    V2 boss_seg[WYRM_SEGS]; /* WYRM: body segments, head first */
+    int boss_nseg;
+    int arc_mask;           /* STORM: arcs between pylons (bit per StormArc) */
+    float arc_t;            /* > 0 warning, then < 0 live (counting up to 0) */
+    V2 wells[2];            /* SINGULARITY: small black holes orbiting it (phase 3) */
+    float wells_t;          /* time they have left */
+    float gravity;          /* SINGULARITY: pull on the ship (px/s at 300 px; < 0 pushes) */
 } Room;
+
+/* Something a boss is about to do / doing that the ship must stay out of (the bot reads them,
+ * the boss draws them): a segment a-b (a circle of radius r if a == b), live or still a warning. */
+typedef struct {
+    V2 a, b;
+    float r;
+    bool live;
+} BossHazard;
 
 /* Pseudo door indices for game_start_transition(). */
 #define DOOR_SECRET (-1) /* entry door, bombed open: into the secret room */
@@ -803,6 +833,10 @@ bool room_walls_connected(void);
 bool fire_pool_at(V2 p, float r); /* is a circle touching burning oil? */
 /* blocks.c: room layouts (walls + breakable blocks), what breaking a block does, burning oil. */
 void room_gen_layout(void);
+/* Boss rooms: the boss's own fixed layout (symmetric; nothing for an open-floor boss). */
+void room_boss_layout(EnemyType boss);
+/* A pool of burning oil (blocks.c: oil drums, the FORGE). */
+void room_fire_add(V2 c, float r, float life);
 void blocks_update(void);
 void blocks_draw(SDL_FColor wall, SDL_FColor edge);
 void fires_draw(void);
@@ -939,6 +973,26 @@ float enemy_damage_cap(const Enemy *e, float dmg); /* the boss: 0 while invulner
 float boss_phase_threshold(int phase);             /* hp fraction where phase `phase` starts */
 const Enemy *boss_alive(void);
 bool is_boss_depth(int depth);
+/* Shared helpers for bosses.c. */
+void enemy_steer(Enemy *e, V2 desired_vel, float responsiveness);
+void enemy_fire_ring(V2 pos, int n, float speed, float radius, float offset, SDL_FColor col);
+void enemy_fire_fan(V2 pos, float angle, int n, float spread, float speed, float radius, SDL_FColor col);
+/* bosses.c */
+EnemyType boss_for_depth(int depth);      /* 10: one of four, 20 / 30 / 40: their own, beyond: any */
+const char *boss_title(EnemyType t);      /* "THE OVERSEER"... */
+V2 boss_spawn_point(EnemyType t);
+void boss_update(Enemy *e, float aim);
+void boss_draw_under(const Enemy *e);     /* telegraphs, hazards, body (before every enemy) */
+void boss_draw(const Enemy *e);           /* details over its shape */
+bool boss_draws_body(const Enemy *e);     /* its own shape instead of the generic polygon */
+bool boss_armor_hit(V2 pos, float r);     /* a player shot there is stopped (WYRM body, CARRIER plates) */
+bool boss_armor_line(V2 a, V2 b, float r); /* the WYRM's body lies across a-b (bot: line of fire) */
+int boss_hazards(BossHazard *out, int max);
+bool boss_cover_spot(V2 from, V2 *out);   /* LIGHTHOUSE beams: a spot hidden from them (bot) */
+void boss_on_death(Enemy *e);
+extern int g_boss_override;               /* dev / tests (--boss-kind, debug menu): -1 random, else the EnemyType */
+/* A few boss states the tests set (bosses.c has the full lists, checked against these). */
+enum { BOSS_STATE_REST = 0, LH_STATE_WARN = 1, WY_STATE_BURROW = 1, FG_STATE_JUMP = 1, SG_STATE_REVERSE = 5 };
 Enemy *enemy_nearest(V2 pos, float max_dist);
 EnemyType enemy_hatchling(int depth); /* the small enemy a nest lets out (one of the --enemy ones if set) */
 

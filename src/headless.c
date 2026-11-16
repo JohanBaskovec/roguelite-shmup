@@ -42,6 +42,40 @@ static bool on_floor(int u) {
 }
 
 /* Returns NULL when everything is fine, otherwise a description of the problem. */
+/* A boss fights in its own room (room_boss_layout): the LIGHTHOUSE, the STORMCALLER and the FORGE
+ * among walls only, symmetric both ways and always the same for the same boss; the others on open
+ * floor. Once it is dead the room shatters like any other. */
+static bool boss_has_walls(EnemyType t) { return t == EN_LIGHTHOUSE || t == EN_STORM || t == EN_FORGE; }
+
+static const char *check_boss_layout(void) {
+    const Room *r = &G.room;
+    if (r->cleared) return NULL;
+    if (!boss_has_walls(r->boss)) return r->nobs ? "open-floor boss room with obstacles" : NULL;
+    if (!r->nobs) return "boss room without its walls";
+    static bool solid[GH][GW];
+    memset(solid, 0, sizeof solid);
+    for (int i = 0; i < r->nobs; i++) {
+        const Obstacle *o = &r->obs[i];
+        if (o->kind != OB_WALL) return "breakable block in a boss room";
+        for (int y = 0; y < GH; y++)
+            for (int x = 0; x < GW; x++) {
+                float cx = ARENA_X0 + ((float)x + 0.5f) * GRID, cy = ARENA_Y0 + ((float)y + 0.5f) * GRID;
+                if (cx > o->r.x && cx < o->r.x + o->r.w && cy > o->r.y && cy < o->r.y + o->r.h) solid[y][x] = true;
+            }
+    }
+    uint64_t h = 1469598103934665603ull;
+    for (int y = 0; y < GH; y++)
+        for (int x = 0; x < GW; x++) {
+            if (solid[y][x] != solid[y][GW - 1 - x] || solid[y][x] != solid[GH - 1 - y][x]) return "boss room layout not symmetric";
+            h = (h ^ (uint64_t)solid[y][x]) * 1099511628211ull;
+        }
+    static uint64_t seen[BOSS_COUNT]; /* the first layout met for each boss (the test's own memory) */
+    uint64_t *s = &seen[r->boss - BOSS_FIRST];
+    if (*s == 0) *s = h;
+    else if (*s != h) return "boss room layout changed (must always be the same for a boss)";
+    return NULL;
+}
+
 static const char *check_invariants(float room_time) {
     static char msg[512];
     const Player *p = &G.pl;
@@ -77,7 +111,7 @@ static const char *check_invariants(float room_time) {
         }
         for (int i = 0; i < G.room.nfires; i++)
             if (!(G.room.fires[i].t > 0.0f) || G.room.fires[i].t > G.room.fires[i].life) return "burning oil pool with a bad timer";
-        if (G.room.type == ROOM_BOSS && G.room.nfires) return "burning oil in the boss room (open floor)";
+        if (G.room.type == ROOM_BOSS && G.room.nfires && G.room.boss != EN_FORGE) return "fire in a boss room (only the FORGE pours it)";
         if (G.room.cleared && G.room.clear_t >= 0.0f && (G.room.nobs || G.room.nfires))
             return "cleared room not empty (every obstacle shatters before the reward shows up)";
         if (G.room.cleared && G.room.clear_t < 0.0f && G.npk && !G.room.revisit) return "reward out while the room still shatters";
@@ -151,21 +185,26 @@ static const char *check_invariants(float room_time) {
     }
     if (G.room.type == ROOM_BOSS) {
         if (!is_boss_depth(G.room.depth)) return "boss room at a depth that is not a multiple of BOSS_EVERY";
-        if (G.room.reward != RW_UPGRADE || G.room.nwaves != 1 || G.room.nobs != 0 || G.room.has_secret)
-            return "boss room set up wrong (upgrade reward, one wave, open floor, no secret)";
+        if (G.room.reward != RW_UPGRADE || G.room.nwaves != 1 || G.room.has_secret || !type_is_boss(G.room.boss))
+            return "boss room set up wrong (upgrade reward, one wave, a boss, no secret)";
+        const char *lay = check_boss_layout();
+        if (lay) return lay;
     }
     {
         int bosses = 0;
         for (int i = 0; i < G.nen; i++) {
             const Enemy *e = &G.en[i];
-            if (e->type != EN_BOSS) continue;
+            if (!enemy_is_boss(e)) continue;
             bosses++;
             if (G.room.type != ROOM_BOSS) return "boss outside a boss room";
+            if (e->type != G.room.boss) return "not the room's boss";
             if (e->phase < 0 || e->phase >= BOSS_PHASES) return "boss phase out of range";
             if (e->hp > 0.0f && e->phase + 1 < BOSS_PHASES && e->hp < e->max_hp * boss_phase_threshold(e->phase + 1) - 1.5f)
                 return "boss skipped a phase (damage must stop at each threshold)";
         }
-        for (int i = 0; i < G.nsp; i++) bosses += G.sp[i].type == EN_BOSS;
+        for (int i = 0; i < G.nsp; i++) bosses += type_is_boss(G.sp[i].type);
+        if (G.room.type != ROOM_BOSS && (G.room.gravity != 0.0f || G.room.arc_mask || G.room.wells_t > 0.0f || G.room.boss_nseg))
+            return "boss state outside a boss room";
         if (bosses > 1) return "more than one boss";
     }
     if (G.nmc < 0 || G.nmc > MAX_MACHINES) return "machine count out of range";
@@ -393,6 +432,195 @@ static void clear_edges(void) {
     in->wheel = 0;
 }
 
+/* ---- Scripted boss checks ---------------------------------------------------- */
+
+static void boss_step(void) {
+    G.hitstop = 0.0f; /* hitstop would skip the ticks */
+    game_update();
+    clear_edges();
+}
+
+/* A boss room with that boss, the boss out (its spawn delay over). */
+static Enemy *boss_setup(int type, uint32_t seed) {
+    g_boss_override = type;
+    game_init(seed);
+    G.god = true;
+    game_new_run();
+    debug_teleport(ROOM_BOSS, RW_UPGRADE, BOSS_EVERY, true);
+    G.state = GS_PLAYING;
+    memset(&G.in, 0, sizeof G.in);
+    G.in.number = -1;
+    for (int t = 0; t < 120 * 4 && !boss_alive(); t++) boss_step();
+    return (Enemy *)boss_alive();
+}
+
+/* Back to resting, on the ground, for a long while (nothing fired in the middle of a check). */
+static void boss_calm(Enemy *b) {
+    b->state = BOSS_STATE_REST;
+    b->state_t = 30.0f;
+    b->fire_t = 30.0f;
+    b->alt = 0.0f;
+}
+
+static bool ship_hurt_once(void) {
+    Player *p = &G.pl;
+    p->invuln = 0.0f;
+    p->dash_t = 0.0f;
+    p->hp = p->max_hp;
+    G.neb = 0;
+    boss_step();
+    return p->hp < p->max_hp;
+}
+
+/* What makes each boss different works: the walled rooms are always the same, the wyrm's body
+ * stops shots and sheds serpents, the carrier's plates stop shots and leave gaps, the storm's
+ * arcs hurt only once live, the singularity pulls (and pushes when reversed), the lighthouse
+ * cannot be moved and leaves shadows to hide in, the forge cannot be hurt in the air and leaves
+ * fire that does not burn it. */
+static int boss_mechanics_run(uint32_t seed) {
+    int failures = 0;
+    /* walled rooms: the same walls for two different runs */
+    bool layout_ok = true;
+    static const EnemyType WALLED[] = {EN_LIGHTHOUSE, EN_STORM, EN_FORGE};
+    for (int k = 0; k < 3; k++) {
+        boss_setup(WALLED[k], seed + 1);
+        int n = G.room.nobs;
+        SDL_FRect first[MAX_OBSTACLES];
+        for (int i = 0; i < n; i++) first[i] = G.room.obs[i].r;
+        boss_setup(WALLED[k], seed + 977);
+        layout_ok &= n > 0 && G.room.nobs == n && check_boss_layout() == NULL;
+        for (int i = 0; i < n && layout_ok; i++) layout_ok &= !memcmp(&first[i], &G.room.obs[i].r, sizeof first[i]);
+    }
+    boss_setup(EN_CARRIER, seed);
+    layout_ok &= G.room.nobs == 0;
+
+    /* WYRM */
+    bool armor_ok = false, buried_ok = false, shed_ok = false;
+    Enemy *b = boss_setup(EN_WYRM, seed);
+    if (b) {
+        boss_calm(b);
+        for (int t = 0; t < 60; t++) boss_step();
+        V2 seg = G.room.boss_seg[5];
+        armor_ok = G.room.boss_nseg == WYRM_SEGS && boss_armor_hit(seg, 4.0f) && !boss_armor_hit(v2_add(seg, v2(0, 200.0f)), 4.0f) &&
+                   !boss_armor_hit(v2(b->pos.x + 300.0f, b->pos.y + 300.0f), 4.0f);
+        b->state = WY_STATE_BURROW;
+        buried_ok = enemy_untouchable(b) && !boss_armor_hit(seg, 4.0f);
+        boss_calm(b);
+        enemy_damage(b, b->max_hp, v2(0, 0));
+        boss_step();
+        int serpents = 0;
+        for (int i = 0; i < G.nsp; i++) serpents += G.sp[i].type == EN_SERPENT;
+        shed_ok = b->phase == 1 && G.room.boss_nseg == WYRM_SEGS - 3 && serpents == 3;
+    }
+
+    /* CARRIER: a plate where it turns, a gap half-way between two */
+    bool plates_ok = false;
+    b = boss_setup(EN_CARRIER, seed);
+    if (b) {
+        b->aux.x = 0.0f; /* plate angle: plates at 0 and PI in phase 1 */
+        float rm = b->radius + 27.0f;
+        plates_ok = boss_armor_hit(v2_add(b->pos, v2(rm, 0)), 4.0f) && boss_armor_hit(v2_add(b->pos, v2(-rm, 0)), 4.0f) &&
+                    !boss_armor_hit(v2_add(b->pos, v2(0, rm)), 4.0f) && !boss_armor_hit(v2_add(b->pos, v2(rm + 120.0f, 0)), 4.0f);
+    }
+
+    /* STORMCALLER: an arc hurts the ship once live, not while it warns */
+    bool arcs_ok = false;
+    b = boss_setup(EN_STORM, seed);
+    if (b) {
+        boss_calm(b);
+        b->dodge_cd = 30.0f;
+        G.god = false;
+        G.pl.pos = v2(ARENA_X0 + 560.0f, ARENA_Y0 + 180.0f); /* on the top arc, away from the boss */
+        G.room.arc_mask = 1;
+        G.room.arc_t = 0.6f;
+        bool warn_hurts = ship_hurt_once();
+        G.room.arc_t = -1.0f;
+        bool live_hurts = ship_hurt_once();
+        G.god = true;
+        arcs_ok = !warn_hurts && live_hurts;
+    }
+
+    /* SINGULARITY: pulled in, pushed off when reversed; shots bend towards it */
+    bool pull_ok = false, push_ok = false, bend_ok = false;
+    b = boss_setup(EN_SINGULARITY, seed);
+    if (b) {
+        boss_calm(b);
+        G.pl.pos = v2_add(b->pos, v2(350.0f, 0));
+        G.pl.vel = v2(0, 0);
+        for (int t = 0; t < 60; t++) boss_step(), G.neb = 0;
+        pull_ok = v2_dist(G.pl.pos, b->pos) < 330.0f;
+        b->state = SG_STATE_REVERSE;
+        b->state_t = 30.0f;
+        G.pl.pos = v2_add(b->pos, v2(350.0f, 0));
+        G.pl.vel = v2(0, 0);
+        for (int t = 0; t < 60; t++) boss_step(), G.neb = 0;
+        push_ok = v2_dist(G.pl.pos, b->pos) > 370.0f;
+        boss_calm(b);
+        G.npb = 0;
+        G.pl.pos = v2_add(b->pos, v2(-250.0f, 250.0f)); /* a shot passing it by on its way up */
+        PBullet *pb = &G.pb[G.npb++];
+        memset(pb, 0, sizeof *pb);
+        pb->pos = v2_add(b->pos, v2(-200.0f, 0));
+        pb->vel = v2(0, -800.0f);
+        pb->life = 2.0f;
+        pb->radius = 4.0f;
+        pbullet_arm(pb, false);
+        boss_step();
+        bend_ok = G.npb > 0 && G.pb[0].vel.x > 1.0f;
+    }
+
+    /* LIGHTHOUSE: bolted down; while its beams are out there is a shadow to hide in */
+    bool bolted_ok = false, cover_ok = false;
+    b = boss_setup(EN_LIGHTHOUSE, seed);
+    if (b) {
+        boss_calm(b);
+        V2 at = b->pos;
+        enemy_damage(b, 10.0f, v2(5000.0f, 0));
+        for (int t = 0; t < 10; t++) boss_step();
+        bolted_ok = v2_dist(b->pos, at) < 0.5f;
+        b->state = LH_STATE_WARN;
+        b->state_t = 0.9f;
+        b->spin = v2_heading(v2_sub(G.pl.pos, b->pos)); /* the beam about to sweep over the ship */
+        V2 spot;
+        cover_ok = boss_cover_spot(G.pl.pos, &spot) && !room_line_clear_walls(b->pos, spot, 16.0f);
+        V2 q = spot;
+        cover_ok &= !room_collide_circle(&q, PLAYER_BODY_R, NULL);
+        boss_calm(b);
+        cover_ok &= !boss_cover_spot(G.pl.pos, &spot); /* nothing to hide from */
+    }
+
+    /* FORGE: untouchable in the air, its landing leaves fire that does not burn it */
+    bool air_ok = false, fire_ok = false;
+    b = boss_setup(EN_FORGE, seed);
+    if (b) {
+        boss_calm(b);
+        b->state = FG_STATE_JUMP;
+        b->spin = 0.0f;
+        b->fire_t = 0.0f;
+        b->dodge_cd = 1.0f;
+        G.pl.pos = v2(ARENA_X0 + 150.0f, ARENA_CY);
+        int t = 0;
+        while (t++ < 120 && b->alt < 100.0f) boss_step();
+        float hp = b->hp;
+        enemy_damage(b, 100.0f, v2(0, 0));
+        air_ok = b->alt >= 100.0f && enemy_untouchable(b) && b->hp == hp;
+        while (t++ < 400 && b->state == FG_STATE_JUMP) boss_step(), G.neb = 0;
+        for (int k = 0; k < 60; k++) boss_step(), G.neb = 0;
+        fire_ok = b->state != FG_STATE_JUMP && b->alt == 0.0f && G.room.nfires > 0 && b->burn_t <= 0.0f;
+    }
+
+    printf("scripted: boss rooms always the same walls -> %s, WYRM armour -> %s, burrowed -> %s, sheds serpents -> %s, "
+           "CARRIER plates -> %s, STORM arcs -> %s\n", layout_ok ? "OK" : "FAILED", armor_ok ? "OK" : "FAILED", buried_ok ? "OK" : "FAILED",
+           shed_ok ? "OK" : "FAILED", plates_ok ? "OK" : "FAILED", arcs_ok ? "OK" : "FAILED");
+    printf("scripted: SINGULARITY pull -> %s, reversed -> %s, bends shots -> %s, LIGHTHOUSE bolted -> %s, cover -> %s, "
+           "FORGE in the air -> %s, its fire -> %s\n", pull_ok ? "OK" : "FAILED", push_ok ? "OK" : "FAILED", bend_ok ? "OK" : "FAILED",
+           bolted_ok ? "OK" : "FAILED", cover_ok ? "OK" : "FAILED", air_ok ? "OK" : "FAILED", fire_ok ? "OK" : "FAILED");
+    failures += !layout_ok + !armor_ok + !buried_ok + !shed_ok + !plates_ok + !arcs_ok + !pull_ok + !push_ok + !bend_ok + !bolted_ok + !cover_ok + !air_ok +
+                !fire_ok;
+    g_boss_override = -1;
+    return failures;
+}
+
 /* Debug-menu teleports: every room type, with and without enemies, must land in a
  * coherent state, and the bot must be able to finish the room and leave it. */
 /* Scripted block checks: put one block (or wall) in the room. */
@@ -521,11 +749,10 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         failures += !shield_ok + !wind_ok;
     }
 
-    /* Scripted: the boss. The room before has a single door leading to it; damage stops at
-     * each phase threshold, a phase change makes it invulnerable; its death takes the minions
-     * along and leaves a choice of 3 upgrades. */
+    /* Scripted: the bosses. The room before has a single door leading to it (room 10: one of
+     * four); for each boss, damage stops at each phase threshold, a phase change makes it
+     * invulnerable; its death takes the minions along and leaves a choice of 3 upgrades. */
     {
-#define STEP() do { G.hitstop = 0.0f; game_update(); clear_edges(); } while (0) /* hitstop would skip the ticks */
         game_init(o->seed);
         G.god = true;
         game_new_run();
@@ -534,38 +761,54 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         bool door_ok = G.room.ndoors == 1 && G.room.doors[0].type == ROOM_BOSS && !G.room.doors[0].locked;
         int id = G.room.id;
         for (int t = 0; t < 120 * 20 && G.room.id == id; t++) { bot_input(); game_update(); clear_edges(); }
-        bool enter_ok = G.room.type == ROOM_BOSS && G.room.depth == BOSS_EVERY && !G.room.cleared;
-        for (int t = 0; t < 120 * 4 && !boss_alive(); t++) { game_update(); clear_edges(); }
-        Enemy *b = (Enemy *)boss_alive();
-        bool phase_ok = false, inv_ok = false, death_ok = false;
-        if (b) {
-            int uid = b->uid;
-            enemy_damage(b, b->max_hp, v2(0, 0)); /* one huge hit: stops just under 66% */
-            phase_ok = b->hp > b->max_hp * 0.6f && b->hp < b->max_hp * boss_phase_threshold(1);
-            STEP();
-            b = (Enemy *)boss_alive();
-            if (b && b->uid == uid) {
-                float hp = b->hp;
-                enemy_damage(b, 500.0f, v2(0, 0));
-                inv_ok = b->phase == 1 && b->inv_t > 0.0f && b->hp == hp;
-                b->inv_t = 0.0f;
-                enemy_damage(b, b->max_hp, v2(0, 0));
-                STEP();
-                b->inv_t = 0.0f;
-                enemy_queue_spawn(EN_CHASER, v2(ARENA_CX - 300.0f, ARENA_CY), 0.0f);
-                STEP();
-                int last_phase = b->phase, minions = G.nen - 1;
-                enemy_damage(b, b->max_hp, v2(0, 0));
-                for (int t = 0; t < 10 + (int)(ROOM_REVEAL_T * TICK_RATE); t++) STEP(); /* the room shatters first */
-                death_ok = phase_ok && last_phase == BOSS_PHASES - 1 && minions > 0 && G.room.cleared && G.nen == 0 && count_choices() == REWARD_CHOICES &&
-                           check_room_reward() == NULL;
-            }
+        bool enter_ok = G.room.type == ROOM_BOSS && G.room.depth == BOSS_EVERY && !G.room.cleared &&
+                        (G.room.boss == EN_BOSS || G.room.boss == EN_LIGHTHOUSE || G.room.boss == EN_WYRM || G.room.boss == EN_STORM);
+        bool depth_ok = true; /* rooms 20 / 30 / 40: their own boss */
+        static const EnemyType DEEP[] = {EN_FORGE, EN_CARRIER, EN_SINGULARITY};
+        for (int k = 0; k < 3; k++) {
+            room_enter(ROOM_BOSS, RW_UPGRADE, BOSS_EVERY * (k + 2));
+            depth_ok &= G.room.boss == DEEP[k] && !strcmp(boss_title(G.room.boss), k == 0 ? "THE FORGE" : k == 1 ? "THE CARRIER" : "THE SINGULARITY");
         }
-        printf("scripted: boss door at room %d -> %s, entered -> %s, phase threshold -> %s, phase invulnerability -> %s, "
-               "death + 3 upgrades -> %s\n", BOSS_EVERY - 1, door_ok ? "OK" : "FAILED", enter_ok ? "OK" : "FAILED",
-               phase_ok ? "OK" : "FAILED", inv_ok ? "OK" : "FAILED", death_ok ? "OK" : "FAILED");
-        failures += !door_ok + !enter_ok + !phase_ok + !inv_ok + !death_ok;
-#undef STEP
+        printf("scripted: boss door at room %d -> %s, entered (room 10 boss) -> %s, rooms 20 / 30 / 40 bosses -> %s\n", BOSS_EVERY - 1,
+               door_ok ? "OK" : "FAILED", enter_ok ? "OK" : "FAILED", depth_ok ? "OK" : "FAILED");
+        failures += !door_ok + !enter_ok + !depth_ok;
+
+        for (int type = BOSS_FIRST; type <= BOSS_LAST; type++) {
+            Enemy *b = boss_setup(type, o->seed + (uint32_t)type);
+            bool phase_ok = false, inv_ok = false, death_ok = false;
+            if (b) {
+                int uid = b->uid;
+                boss_calm(b);
+                enemy_damage(b, b->max_hp, v2(0, 0)); /* one huge hit: stops just under 66% */
+                phase_ok = b->hp > b->max_hp * 0.6f && b->hp < b->max_hp * boss_phase_threshold(1);
+                boss_step();
+                b = (Enemy *)boss_alive();
+                if (b && b->uid == uid) {
+                    float hp = b->hp;
+                    boss_calm(b);
+                    enemy_damage(b, 500.0f, v2(0, 0));
+                    inv_ok = b->phase == 1 && b->inv_t > 0.0f && b->hp == hp;
+                    b->inv_t = 0.0f;
+                    enemy_damage(b, b->max_hp, v2(0, 0));
+                    boss_step();
+                    b->inv_t = 0.0f;
+                    enemy_queue_spawn(EN_CHASER, v2(ARENA_CX - 300.0f, ARENA_CY), 0.0f);
+                    boss_step();
+                    int last_phase = b->phase, minions = G.nen - 1;
+                    boss_calm(b);
+                    enemy_damage(b, b->max_hp, v2(0, 0));
+                    for (int t = 0; t < 10 + (int)(ROOM_REVEAL_T * TICK_RATE); t++) boss_step(); /* the room shatters first */
+                    death_ok = phase_ok && last_phase == BOSS_PHASES - 1 && minions > 0 && G.room.cleared && G.nen == 0 &&
+                               count_choices() == REWARD_CHOICES && check_room_reward() == NULL && G.room.gravity == 0.0f &&
+                               G.room.arc_mask == 0 && G.room.nobs == 0;
+                }
+            }
+            printf("scripted: %s: phase threshold -> %s, phase invulnerability -> %s, death + 3 upgrades -> %s\n", boss_title((EnemyType)type),
+                   phase_ok ? "OK" : "FAILED", inv_ok ? "OK" : "FAILED", death_ok ? "OK" : "FAILED");
+            failures += !phase_ok + !inv_ok + !death_ok;
+        }
+        failures += boss_mechanics_run(o->seed);
+        g_boss_override = -1;
     }
 
     /* Scripted: every player shot carries the upgrades - tail gun shots, turret shots, enemy
@@ -1913,7 +2156,7 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         int nest = test_block(ARENA_CX, ARENA_CY, OB_NEST);
         room_block_damage(nest, 100.0f);
         for (int t = 0; t < 90; t++) BTICK();
-        bool nest_ok = G.nen == 1 && G.nsp == 0 && G.en[0].type != EN_BOSS && ENEMIES[G.en[0].type].radius <= 18.0f && !G.room.cleared;
+        bool nest_ok = G.nen == 1 && G.nsp == 0 && !enemy_is_boss(&G.en[0]) && ENEMIES[G.en[0].type].radius <= 18.0f && !G.room.cleared;
 
         /* Fire: crate A on fire spreads to crate B next to it, then to the barrel next to B, each going
          * off in turn; the spark pod next to A never catches, nor crate C two cells away. */
@@ -2455,6 +2698,7 @@ int headless_run(const HeadlessOptions *o) {
         for (int i = 0; i < o->nupgrades; i++) upgrade_apply(o->upgrades[i]);
         G.bot_toggles = o->toggle_upgrades;
         G.pl.coins += o->coins;
+        G.pl.bombs += o->bombs;
         if (o->all_upgrades)
             for (int u = 0; u < UPG_COUNT; u++)
                 if (!upgrade_capped(u)) upgrade_apply(u);

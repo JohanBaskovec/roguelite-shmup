@@ -486,9 +486,11 @@ void room_enter(RoomType type, RewardType reward, int depth) {
     if (type == ROOM_BOSS) {
         r->hue = 350.0f;
         r->reward = RW_UPGRADE; /* the boss always leaves a choice of 3 upgrades */
+        r->boss = boss_for_depth(depth);
     }
-    /* Open floor for the tutorial / the loot / the boss fight. */
-    if (!room_type_peaceful(type) && type != ROOM_BOSS) room_gen_layout();
+    /* Open floor for the tutorial / the loot; the boss fights in its own room (always the same). */
+    if (type == ROOM_BOSS) room_boss_layout(r->boss);
+    else if (!room_type_peaceful(type)) room_gen_layout();
     if (type != ROOM_SECRET) gen_doors();          /* the secret room's only exit leads back */
     r->peaceful = type == ROOM_START;
     if (type == ROOM_SECRET) {
@@ -508,7 +510,7 @@ void room_enter(RoomType type, RewardType reward, int depth) {
     } else if (type == ROOM_BOSS) {
         r->nwaves = 1; /* the boss itself (it calls its own minions) */
         r->wave_t = 1.0f;
-        fx_banner("THE OVERSEER", "destroy it", col_hex(COLOR_BOSS, 1), 1.8f);
+        fx_banner(boss_title(r->boss), "destroy it", col_hex(COLOR_BOSS, 1), 1.8f);
     } else {
         /* Enemies never get stronger: deeper rooms have more waves (and bigger ones). */
         int extra = depth / ROOM_DEPTH_PER_WAVE;
@@ -557,7 +559,7 @@ static V2 wall_spawn_point(float r) {
 static void spawn_wave(void) {
     Room *r = &G.room;
     if (r->type == ROOM_BOSS) {
-        enemy_queue_spawn(EN_BOSS, v2(ARENA_CX, ARENA_Y0 + 230.0f), 1.4f);
+        enemy_queue_spawn(r->boss, boss_spawn_point(r->boss), 1.4f);
         r->last_wave_size = 1;
         sfx_play(SFX_WAVE);
         fx_shake(0.3f);

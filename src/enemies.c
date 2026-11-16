@@ -37,7 +37,14 @@ const EnemyDef ENEMIES[EN_COUNT] = {
     [EN_GUARDIAN]  = {"guardian",  26.0f, 100.0f, 130.0f, 6, 12, 0x6dd2ff, 6},
     [EN_WRAITH]    = {"wraith",    20.0f,  70.0f, 200.0f, 5, 14, 0xc0a8ff, 3},
     /* Boss rooms only (cost / min_depth keep it out of normal waves). */
-    [EN_BOSS]    = {"overseer", 64.0f, 4800.0f, 120.0f, 999, 999, 0xff3df0, 6},
+    /* Bosses: only in boss rooms (bosses.c). */
+    [EN_BOSS]        = {"overseer", 64.0f, 4800.0f, 120.0f, 999, 999, 0xff3df0, 6},
+    [EN_LIGHTHOUSE]  = {"lighthouse", 58.0f, 3000.0f, 0.0f, 999, 999, 0xffe36a, 8},
+    [EN_WYRM]        = {"wyrm", 34.0f, 2800.0f, 220.0f, 999, 999, 0x7dff9a, 5},
+    [EN_STORM]       = {"stormcaller", 50.0f, 4800.0f, 140.0f, 999, 999, 0x8fd8ff, 7},
+    [EN_FORGE]       = {"forge", 62.0f, 6800.0f, 150.0f, 999, 999, 0xff7a2e, 4},
+    [EN_CARRIER]     = {"carrier", 80.0f, 6200.0f, 90.0f, 999, 999, 0x9ab8ff, 8},
+    [EN_SINGULARITY] = {"singularity", 56.0f, 11000.0f, 60.0f, 999, 999, 0xb06dff, 12},
     /* Born from a dying splitter only. */
     [EN_SPLITLING] = {"splitling", 13.0f, 18.0f, 280.0f, 999, 999, 0x6dff6d, 5},
 };
@@ -104,7 +111,7 @@ EnemyType enemy_hatchling(int depth) {
     int n = 0;
     if (g_only_enemies) {
         for (int t = 0; t < EN_COUNT; t++)
-            if (((g_only_enemies >> t) & 1u) && t != EN_BOSS) cand[n++] = (EnemyType)t;
+            if (((g_only_enemies >> t) & 1u) && !type_is_boss(t)) cand[n++] = (EnemyType)t;
     } else {
         for (int i = 0; i < ARRAY_LEN(SMALL); i++)
             if (ENEMIES[SMALL[i]].min_depth <= depth) cand[n++] = SMALL[i];
@@ -133,14 +140,14 @@ float boss_phase_threshold(int phase) { return phase <= 0 ? 1.0f : phase == 1 ? 
 
 const Enemy *boss_alive(void) {
     for (int i = 0; i < G.nen; i++)
-        if (G.en[i].type == EN_BOSS && G.en[i].hp > 0.0f) return &G.en[i];
+        if (enemy_is_boss(&G.en[i]) && G.en[i].hp > 0.0f) return &G.en[i];
     return NULL;
 }
 
 /* The boss shrugs off everything during a phase change, and one huge hit cannot skip a
  * phase: damage stops just under the next threshold (the phase change then triggers). */
 float enemy_damage_cap(const Enemy *e, float dmg) {
-    if (e->type != EN_BOSS) return dmg;
+    if (!enemy_is_boss(e)) return dmg;
     if (e->inv_t > 0.0f) return 0.0f;
     if (e->phase + 1 < BOSS_PHASES) {
         float floor_hp = e->max_hp * boss_phase_threshold(e->phase + 1) - 1.0f;
@@ -151,7 +158,8 @@ float enemy_damage_cap(const Enemy *e, float dmg) {
 
 bool enemy_untouchable(const Enemy *e) {
     if (e->type == EN_WRAITH) return e->state == 0;  /* faded out */
-    if (e->type == EN_LEAPER) return e->alt > 20.0f; /* in the air */
+    if (e->alt > 20.0f) return true;                 /* in the air (LEAPER, FORGE) */
+    if (e->type == EN_WYRM) return e->state == 1 || e->state == 2; /* burrowed (WS_BURROW / WS_RISE) */
     return false;
 }
 
@@ -164,7 +172,7 @@ bool enemy_blocks_shot(const Enemy *e, V2 from) {
 
 /* GUARDIAN: is a guardian (other than e) shielding it? */
 static const Enemy *guarded_by(const Enemy *e) {
-    if (e->type == EN_GUARDIAN || e->type == EN_BOSS) return NULL;
+    if (e->type == EN_GUARDIAN || enemy_is_boss(e)) return NULL;
     for (int i = 0; i < G.nen; i++) {
         const Enemy *g = &G.en[i];
         if (g->type == EN_GUARDIAN && g->hp > 0.0f && v2_dist2(g->pos, e->pos) < GUARDIAN_RANGE * GUARDIAN_RANGE) return g;
@@ -177,12 +185,12 @@ void enemy_damage(Enemy *e, float dmg, V2 knock) {
     if (guarded_by(e)) dmg *= GUARDIAN_SHIELD;
     dmg = enemy_damage_cap(e, dmg);
     e->hp -= dmg;
-    e->flash = e->type == EN_BOSS && e->inv_t > 0.0f ? 0.0f : 0.07f;
+    e->flash = enemy_is_boss(e) && e->inv_t > 0.0f ? 0.0f : 0.07f;
     G.last_enemy_damage_t = G.time;
     float mass = e->radius / 16.0f;
     if (e->type == EN_TANK || e->type == EN_MORTAR) mass *= 2.5f;
     if (e->type == EN_RAMMER && e->state == 2) mass *= 6.0f; /* a charging ram does not stop */
-    if (e->type == EN_BOSS) mass *= 12.0f; /* barely budges */
+    if (enemy_is_boss(e)) mass *= e->type == EN_LIGHTHOUSE ? 1e6f : 12.0f; /* barely budges (the lighthouse: not at all) */
     e->vel = v2_add(e->vel, v2_scale(knock, 1.0f / mass));
 }
 
@@ -235,224 +243,11 @@ static void fire_fan(V2 pos, float angle, int n, float spread, float speed, floa
     }
 }
 
-/* ---- THE OVERSEER (boss rooms) ------------------------------------------- */
-/*
- * Hovers in the upper half and cycles through attacks, with a short rest between two.
- * Phase 1 (100-66%): spiral, aimed fans, rings with a gap.
- * Phase 2 (66-33%):  + telegraphed charge leaving a bullet trail, rotating cross of streams.
- * Phase 3 (33-0%):   everything faster, double counter-rotating spiral, calls in minions.
- * A phase change clears the screen, makes it invulnerable for a moment and sends a shockwave.
- * Like every enemy, it never scales with depth: later bosses only bring more minions.
- */
-enum { BA_REST, BA_SPIRAL, BA_FANS, BA_RING, BA_CHARGE_AIM, BA_CHARGE, BA_CROSS, BA_SUMMON };
-#define BOSS_CHARGE_SPEED 1100.0f
-#define BOSS_CHARGE_AIM_T 0.8f
-#define BOSS_INVULN_T 1.4f
-#define BOSS_MAX_MINIONS 6
-
-static int boss_minions(void) {
-    int n = G.nsp;
-    for (int i = 0; i < G.nen; i++)
-        if (G.en[i].type != EN_BOSS && G.en[i].hp > 0.0f) n++;
-    return n;
-}
-
-static void boss_pick_attack(Enemy *e) {
-    int pool[8], n = 0;
-    pool[n++] = BA_SPIRAL;
-    pool[n++] = BA_FANS;
-    pool[n++] = BA_RING;
-    if (e->phase >= 1) {
-        pool[n++] = BA_CHARGE_AIM;
-        pool[n++] = BA_CROSS;
-    }
-    if (e->phase >= 2 && boss_minions() < BOSS_MAX_MINIONS / 2) pool[n++] = BA_SUMMON;
-    int a;
-    do a = pool[irand(0, n - 1)];
-    while (a == e->burst && n > 1); /* never the same attack twice in a row */
-    e->burst = a;
-    e->state = a;
-    e->fire_t = 0.0f;
-    e->spin = frand(0.0f, TAU_F);
-    switch (a) {
-    case BA_SPIRAL: e->state_t = 2.8f; break;
-    case BA_FANS: e->state_t = 1.3f; break;
-    case BA_RING: e->state_t = 1.7f; break;
-    case BA_CHARGE_AIM: e->state_t = BOSS_CHARGE_AIM_T; sfx_play_at(SFX_SNIPER_CHARGE, e->pos); break;
-    case BA_CROSS: e->state_t = 3.2f; break;
-    default: e->state_t = 0.6f; break;
-    }
-}
-
-static void update_boss(Enemy *e, float aim) {
-    const EnemyDef *d = &ENEMIES[e->type];
-    const SDL_FColor c1 = col_hex(0xff3df0, 1), c2 = col_hex(0xff9af5, 1), c3 = col_hex(0xffd23d, 1);
-    /* Enraged: the last phase runs every timer faster. */
-    if (e->phase >= 2) {
-        e->fire_t -= DT * 0.3f;
-        e->state_t -= DT * 0.3f;
-    }
-    if (e->inv_t > 0.0f) e->inv_t -= DT;
-
-    /* Phase change. */
-    if (e->phase + 1 < BOSS_PHASES && e->hp < e->max_hp * boss_phase_threshold(e->phase + 1)) {
-        e->phase++;
-        e->inv_t = BOSS_INVULN_T;
-        ebullets_clear(true);
-        fire_ring(e->pos, 40, 210.0f, 9.0f, frand(0.0f, TAU_F), c3);
-        fx_particle(e->pos, v2(0, 0), 0.6f, 420.0f, c3, 0.0f, PT_RING);
-        fx_explosion(e->pos, e->radius, c1);
-        fx_shake(0.35f);
-        G.hitstop = fmaxf(G.hitstop, 0.12f);
-        fx_popup(v2(e->pos.x, e->pos.y - e->radius - 30.0f), c3, e->phase == 2 ? "ENRAGED!" : "PHASE %d", e->phase + 1);
-        sfx_play_ex(SFX_EXPLODE_BIG, 1.0f, 0.7f, 0.0f);
-        e->state = BA_REST;
-        e->state_t = BOSS_INVULN_T;
-        return;
-    }
-
-    /* Movement: drift between points of the upper half, nearly still while firing. */
-    if (e->state != BA_CHARGE) {
-        if (v2_dist2(e->pos, e->target) < 40.0f * 40.0f || e->t < DT * 2.0f)
-            e->target = v2(frand(ARENA_X0 + 260.0f, ARENA_X1 - 260.0f), frand(ARENA_Y0 + 150.0f, ARENA_CY - 60.0f));
-        float sp = e->state == BA_REST ? d->speed * 1.6f : e->state == BA_CHARGE_AIM ? 0.0f : d->speed * 0.5f;
-        move_towards(e, v2_scale(v2_norm(v2_sub(e->target, e->pos)), sp), 2.0f);
-    }
-
-    switch (e->state) {
-    case BA_REST:
-        e->angle += 0.6f * DT;
-        if (e->state_t <= 0.0f) boss_pick_attack(e);
-        break;
-
-    case BA_SPIRAL: {
-        e->spin += 1.7f * DT * (float)e->spin_dir;
-        e->angle = e->spin;
-        if (e->fire_t <= 0.0f) {
-            for (int k = 0; k < 3; k++) {
-                ebullet_spawn(e->pos, e->spin + TAU_F * (float)k / 3.0f, 240.0f, 8.0f, c1);
-                if (e->phase >= 2) ebullet_spawn(e->pos, -e->spin + TAU_F * ((float)k + 0.5f) / 3.0f, 200.0f, 8.0f, c2);
-            }
-            e->fire_t = 0.07f;
-            sfx_play_at(SFX_ENEMY_SPIRAL, e->pos);
-        }
-        if (e->state_t <= 0.0f) {
-            e->spin_dir = -e->spin_dir;
-            e->state = BA_REST;
-            e->state_t = 0.9f;
-        }
-    } break;
-
-    case BA_FANS:
-        e->angle = aim;
-        if (e->fire_t <= 0.0f) {
-            fire_fan(e->pos, aim, 7, 1.0f, 360.0f, 9.0f, c2);
-            if (e->phase >= 1) fire_fan(e->pos, aim, 6, 0.85f, 260.0f, 8.0f, c1); /* a slower fan in the gaps */
-            sfx_play_at(SFX_ENEMY_SHOT, e->pos);
-            e->fire_t = 0.42f;
-        }
-        if (e->state_t <= 0.0f) {
-            e->state = BA_REST;
-            e->state_t = 0.8f;
-        }
-        break;
-
-    case BA_RING:
-        e->angle -= 1.2f * DT;
-        if (e->fire_t <= 0.0f) {
-            /* 32 slots, 4 left empty: the gap drifts each ring, find it and slip through. */
-            const int n = 32, gap = 4;
-            int start = irand(0, n - 1);
-            for (int k = 0; k < n; k++) {
-                int slot = (k - start + n) % n;
-                if (slot < gap) continue;
-                ebullet_spawn(e->pos, e->spin + TAU_F * (float)k / (float)n, 230.0f, 9.0f, c3);
-            }
-            sfx_play_at(SFX_ENEMY_RING, e->pos);
-            e->fire_t = 0.55f;
-        }
-        if (e->state_t <= 0.0f) {
-            e->state = BA_REST;
-            e->state_t = 0.9f;
-        }
-        break;
-
-    case BA_CHARGE_AIM:
-        move_towards(e, v2(0, 0), 8.0f);
-        if (e->state_t > 0.25f) e->angle = aim; /* tracks, then locks just before charging */
-        if (e->state_t <= 0.0f) {
-            e->state = BA_CHARGE;
-            e->state_t = 0.75f;
-            e->vel = v2_scale(v2_angle(e->angle), BOSS_CHARGE_SPEED);
-            sfx_play_at(SFX_DASH, e->pos);
-            fx_shake(0.15f);
-        }
-        break;
-
-    case BA_CHARGE: {
-        V2 fwd = v2_angle(e->angle);
-        e->vel = v2_scale(fwd, BOSS_CHARGE_SPEED);
-        if (e->fire_t <= 0.0f) { /* a trail of slow bullets drifting sideways */
-            ebullet_spawn(e->pos, e->angle + PI_F * 0.5f, 70.0f, 8.0f, c1);
-            ebullet_spawn(e->pos, e->angle - PI_F * 0.5f, 70.0f, 8.0f, c1);
-            e->fire_t = 0.045f;
-        }
-        if ((G.ticks & 1) == 0) fx_particle(e->pos, v2(0, 0), 0.25f, e->radius * 1.2f, col_a(c1, 0.4f), 0.0f, PT_GLOW);
-        V2 ahead = v2_add(e->pos, v2_scale(fwd, e->radius + 10.0f));
-        bool wall = ahead.x < ARENA_X0 || ahead.x > ARENA_X1 || ahead.y < ARENA_Y0 || ahead.y > ARENA_Y1;
-        if (e->state_t <= 0.0f || wall) {
-            e->vel = v2_scale(e->vel, 0.1f);
-            fire_ring(e->pos, 20, 260.0f, 9.0f, e->angle, c3);
-            sfx_play_at(SFX_TANK_FIRE, e->pos);
-            fx_shake(0.2f);
-            e->state = BA_REST;
-            e->state_t = 1.0f;
-        }
-    } break;
-
-    case BA_CROSS: {
-        /* Mid-way the cross reverses: dodging around it in the same direction stops working. */
-        float dirn = e->state_t > 1.6f ? 1.0f : -1.0f;
-        e->spin += 0.95f * DT * dirn * (float)e->spin_dir;
-        e->angle = e->spin;
-        if (e->fire_t <= 0.0f) {
-            int arms = e->phase >= 2 ? 6 : 4;
-            for (int k = 0; k < arms; k++) ebullet_spawn(e->pos, e->spin + TAU_F * (float)k / (float)arms, 290.0f, 8.0f, c2);
-            e->fire_t = 0.085f;
-            sfx_play_at(SFX_ENEMY_SPIRAL, e->pos);
-        }
-        if (e->state_t <= 0.0f) {
-            e->state = BA_REST;
-            e->state_t = 0.9f;
-        }
-    } break;
-
-    case BA_SUMMON:
-        e->angle += 4.0f * DT;
-        if (e->fire_t <= 0.0f && e->fire_t > -1.0f) {
-            /* Later bosses bring more minions (the minions themselves never change). */
-            int n = 2 + G.room.depth / BOSS_EVERY;
-            if (n > BOSS_MAX_MINIONS) n = BOSS_MAX_MINIONS;
-            for (int k = 0; k < n && G.nen + G.nsp < MAX_ENEMIES - 4; k++) {
-                V2 p = v2_add(e->pos, v2_scale(v2_angle(TAU_F * (float)k / (float)n + frand(-0.2f, 0.2f)), e->radius + 70.0f));
-                p.x = clampf(p.x, ARENA_X0 + 60.0f, ARENA_X1 - 60.0f);
-                p.y = clampf(p.y, ARENA_Y0 + 60.0f, ARENA_Y1 - 60.0f);
-                enemy_queue_spawn(k & 1 ? EN_SHOOTER : EN_CHASER, p, 0.8f);
-            }
-            fx_particle(e->pos, v2(0, 0), 0.5f, 260.0f, c1, 0.0f, PT_RING);
-            sfx_play_at(SFX_ENEMY_APPEAR, e->pos);
-            e->fire_t = -2.0f; /* once */
-        }
-        if (e->state_t <= 0.0f) {
-            e->state = BA_REST;
-            e->state_t = 0.5f;
-        }
-        break;
-
-    default:
-        e->state = BA_REST;
-        break;
-    }
+/* Shared with the bosses (bosses.c). */
+void enemy_steer(Enemy *e, V2 desired_vel, float responsiveness) { move_towards(e, desired_vel, responsiveness); }
+void enemy_fire_ring(V2 pos, int n, float speed, float radius, float offset, SDL_FColor col) { fire_ring(pos, n, speed, radius, offset, col); }
+void enemy_fire_fan(V2 pos, float angle, int n, float spread, float speed, float radius, SDL_FColor col) {
+    fire_fan(pos, angle, n, spread, speed, radius, col);
 }
 
 /* ---- The 20 newer types --------------------------------------------------- */
@@ -1043,7 +838,7 @@ static void update_guardian(Enemy *e, float dist, V2 dir) {
     int n = 0;
     for (int i = 0; i < G.nen; i++) {
         const Enemy *o = &G.en[i];
-        if (o == e || o->hp <= 0.0f || o->type == EN_GUARDIAN || o->type == EN_BOSS) continue;
+        if (o == e || o->hp <= 0.0f || o->type == EN_GUARDIAN || enemy_is_boss(o)) continue;
         if (v2_dist2(o->pos, e->pos) > 700.0f * 700.0f) continue;
         sum = v2_add(sum, o->pos);
         n++;
@@ -1346,7 +1141,13 @@ static void update_enemy(Enemy *e) {
     } break;
 
     case EN_BOSS:
-        update_boss(e, aim);
+    case EN_LIGHTHOUSE:
+    case EN_WYRM:
+    case EN_STORM:
+    case EN_FORGE:
+    case EN_CARRIER:
+    case EN_SINGULARITY:
+        boss_update(e, aim);
         break;
 
     case EN_RAMMER: update_rammer(e, aim, dist); break;
@@ -1378,7 +1179,7 @@ static void update_enemy(Enemy *e) {
 
     if (e->type != EN_CRAWLER) { /* the crawler is glued to the wall (placed by update_crawler) */
         /* A leaper in the air flies over obstacles; it lands back outside them. */
-        e->pos = v2_add(e->pos, v2_scale(e->vel, DT * (e->type == EN_LEAPER ? 1.0f : tempo)));
+        e->pos = v2_add(e->pos, v2_scale(e->vel, DT * (e->alt > 0.0f ? 1.0f : tempo)));
         V2 n;
         if (e->alt <= 0.0f && room_collide_circle(&e->pos, e->radius, &n)) {
             float into = v2_dot(e->vel, n);
@@ -1426,8 +1227,9 @@ static void on_death(Enemy *e) {
     G.room.last_death = e->pos; /* the shatter wave starts from the last one */
     G.kills++;
     if (e->type == EN_TANK) G.hitstop = fmaxf(G.hitstop, 0.05f);
-    if (e->type == EN_BOSS) {
+    if (enemy_is_boss(e)) {
         /* The boss takes its minions and every bullet with it. */
+        boss_on_death(e);
         G.hitstop = fmaxf(G.hitstop, 0.25f);
         fx_shake(0.6f);
         for (int k = 0; k < 6; k++)
@@ -1438,7 +1240,7 @@ static void on_death(Enemy *e) {
         for (int i = 0; i < G.nen; i++)
             if (&G.en[i] != e && G.en[i].hp > 0.0f) G.en[i].hp = 0.0f;
     }
-    if (e->type == EN_TANK || e->type == EN_BOSS) sfx_play_at(SFX_EXPLODE_BIG, e->pos);
+    if (e->type == EN_TANK || enemy_is_boss(e)) sfx_play_at(SFX_EXPLODE_BIG, e->pos);
     else if (e->type == EN_SWARM) sfx_play_ex(SFX_EXPLODE_SMALL, 0.7f, 1.5f, (e->pos.x - ARENA_CX) / (ARENA_X1 - ARENA_CX) * 0.7f);
     else sfx_play_at(SFX_EXPLODE_SMALL, e->pos);
 
@@ -1452,7 +1254,7 @@ static void on_death(Enemy *e) {
         sfx_play_at(SFX_SPLAT, e->pos);
     }
     /* REVENGE malus: a last bullet for the ship (never point-blank). */
-    if (e->type != EN_BOSS && !G.room.cleared && v2_dist2(e->pos, G.pl.pos) > 160.0f * 160.0f && chance(malus_pct(MAL_REVENGE)))
+    if (!enemy_is_boss(e) && !G.room.cleared && v2_dist2(e->pos, G.pl.pos) > 160.0f * 160.0f && chance(malus_pct(MAL_REVENGE)))
         ebullet_spawn(e->pos, v2_heading(v2_sub(G.pl.pos, e->pos)), 300.0f, 8.0f, col_hex(0xff5a6e, 1));
     /* No drops: resources only ever come from room rewards. A kamikaze that blew itself up
      * was not killed: no kill effects. */
@@ -1526,15 +1328,7 @@ void enemies_draw(void) {
             V2 dir = v2_angle(e->angle);
             draw_line(e->pos, v2_add(e->pos, v2_scale(dir, 2400.0f)), 1.0f + 3.0f * k, c);
         }
-        if (e->type == EN_BOSS && e->state == BA_CHARGE_AIM) {
-            float k = 1.0f - e->state_t / BOSS_CHARGE_AIM_T;
-            bool locked = e->state_t <= 0.25f;
-            V2 dir = v2_angle(e->angle);
-            draw_line(e->pos, v2_add(e->pos, v2_scale(dir, 2400.0f)), e->radius * 2.0f * (0.3f + 0.7f * k),
-                      locked ? col_hex(0xffffff, 0.25f) : col_hex(0xff3df0, 0.08f + 0.2f * k));
-        }
-        if (e->type == EN_BOSS && e->inv_t > 0.0f)
-            draw_ring(e->pos, e->radius * 1.45f, 6.0f, col_hex(0xffd23d, 0.3f + 0.3f * sinf(G.time * 30.0f)));
+        if (enemy_is_boss(e)) boss_draw_under(e); /* telegraphs, hazards, bodies */
         if (e->type == EN_HUNTER && e->state == 1) {
             float k = 1.0f - e->state_t / 0.45f;
             V2 dir = v2_angle(e->angle);
@@ -1574,7 +1368,7 @@ void enemies_draw(void) {
             draw_ring(e->pos, GUARDIAN_RANGE, 1.5f, col_hex(0x6dd2ff, 0.06f + 0.05f * pulse));
             for (int j = 0; j < G.nen; j++) {
                 const Enemy *o = &G.en[j];
-                if (o == e || o->hp <= 0.0f || o->type == EN_GUARDIAN || o->type == EN_BOSS) continue;
+                if (o == e || o->hp <= 0.0f || o->type == EN_GUARDIAN || enemy_is_boss(o)) continue;
                 if (v2_dist2(o->pos, e->pos) > GUARDIAN_RANGE * GUARDIAN_RANGE) continue;
                 draw_line(e->pos, o->pos, 2.0f, col_hex(0x6dd2ff, 0.2f + 0.15f * pulse));
                 draw_ring(o->pos, o->radius + 7.0f, 2.0f, col_hex(0x6dd2ff, 0.35f + 0.2f * pulse));
@@ -1659,10 +1453,11 @@ void enemies_draw(void) {
             float w = 1.0f + 0.08f * sinf(e->t * 7.0f + (float)e->uid);
             draw_circle(at, rad * w, fill);
             draw_ring(at, rad * w, 3.0f, c);
-        } else {
+        } else if (!enemy_is_boss(e) || !boss_draws_body(e)) {
             draw_ngon(at, rad, d->sides, ang, fill);
             draw_ngon_outline(at, rad, d->sides, ang, 3.0f, c);
         }
+        if (enemy_is_boss(e)) boss_draw(e);
 
         switch (e->type) {
         case EN_RAMMER:
@@ -1780,24 +1575,6 @@ void enemies_draw(void) {
         case EN_SWARM:
             draw_circle(v2_add(e->pos, v2_scale(v2_angle(e->angle), e->radius * 0.25f)), e->radius * 0.25f, c);
             break;
-        case EN_BOSS: {
-            /* Inner counter-rotating hexagon, orbiting nodes (one per phase left), and an
-             * eye that follows the ship. */
-            draw_ngon_outline(e->pos, e->radius * 0.68f, 6, -ang * 1.7f, 3.0f, c);
-            int nodes = BOSS_PHASES - e->phase;
-            for (int k = 0; k < nodes * 2; k++) {
-                V2 np = v2_add(e->pos, v2_scale(v2_angle(G.time * 1.3f + TAU_F * (float)k / (float)(nodes * 2)), e->radius + 22.0f));
-                draw_ngon(np, 8.0f, 4, G.time * 3.0f, c);
-            }
-            V2 look = v2_sub(G.pl.pos, e->pos);
-            float ll = v2_len(look);
-            V2 eye = v2_add(e->pos, ll > 1.0f ? v2_scale(look, e->radius * 0.22f / ll) : v2(0, 0));
-            SDL_FColor iris = e->phase >= 2 ? col_hex(0xff4040, 1) : col_hex(0xffd23d, 1);
-            if (e->flash > 0.0f) iris = COL_WHITE;
-            draw_circle(e->pos, e->radius * 0.42f, rgba(0.05f, 0.0f, 0.06f, 1.0f));
-            draw_circle(eye, e->radius * 0.2f, iris);
-            draw_circle(eye, e->radius * 0.08f, rgba(0, 0, 0, 1));
-        } break;
         default:
             break;
         }
@@ -1806,7 +1583,7 @@ void enemies_draw(void) {
             float blink = fmodf(e->sticky_t, 0.16f) < 0.08f ? 1.0f : 0.35f;
             draw_ngon(v2_add(e->pos, v2(e->radius * 0.5f, -e->radius * 0.5f)), 6.0f, 4, G.time * 6.0f, col_hex(0xffc23d, blink));
         }
-        if (e->hp < e->max_hp && e->radius >= 18.0f && e->type != EN_BOSS && !(e->type == EN_WRAITH && e->state == 0)) {
+        if (e->hp < e->max_hp && e->radius >= 18.0f && !enemy_is_boss(e) && !(e->type == EN_WRAITH && e->state == 0)) {
             float w = e->radius * 2.0f, k = clampf(e->hp / e->max_hp, 0.0f, 1.0f);
             float x = at.x - w * 0.5f, y = at.y - e->radius - 12.0f;
             draw_rect(x, y, w, 4.0f, rgba(0, 0, 0, 0.6f));

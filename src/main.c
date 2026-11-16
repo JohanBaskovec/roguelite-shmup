@@ -26,6 +26,7 @@ typedef struct {
     bool stats_room;       /* --stats: start in a Stats room */
     bool shop_room;        /* --shop: start in a Shop */
     int coins;             /* --coins N: extra starting coins */
+    int bombs;             /* --bombs N: starting bombs (the run starts with none) */
     bool debug_rooms;      /* --debug-rooms (with --headless): test the debug menu teleports */
     bool debug_menu;       /* --debug-menu: open the F3 debug menu at startup */
     bool secret;           /* --secret: every eligible room hides a secret room */
@@ -141,7 +142,7 @@ static void parse_args(int argc, char **argv, Options *o) {
         }
         else if (!strcmp(a, "--enemy") && more) {
             int t = enemy_by_name(argv[++i]);
-            if (t < 0 || t == EN_BOSS) {
+            if (t < 0 || type_is_boss(t)) {
                 fprintf(stderr, "unknown enemy '%s' (chaser, swarm, shooter, ... rammer, grenadier, crawler, top, kamikaze,\n"
                                 "dodger, rook, splitter, leaper, minelayer, boomerang, ricochet, orbiter, blinker, serpent,\n"
                                 "mirror, lancer, mortar, guardian, wraith)\n", argv[i]);
@@ -149,10 +150,19 @@ static void parse_args(int argc, char **argv, Options *o) {
             }
             g_only_enemies |= (uint64_t)1 << t;
         }
+        else if (!strcmp(a, "--boss-kind") && more) {
+            int t = enemy_by_name(argv[++i]);
+            if (!type_is_boss(t)) {
+                fprintf(stderr, "unknown boss '%s' (overseer, lighthouse, wyrm, stormcaller, forge, carrier, singularity)\n", argv[i]);
+                exit(2);
+            }
+            g_boss_override = t; /* every boss room: that boss */
+        }
         else if (!strcmp(a, "--toggle-upgrades")) o->toggle_upgrades = true;
         else if (!strcmp(a, "--all-upgrades")) o->all_upgrades = true;
         else if (!strcmp(a, "--hp") && more) o->hp = atoi(argv[++i]);
         else if (!strcmp(a, "--coins") && more) o->coins = atoi(argv[++i]);
+        else if (!strcmp(a, "--bombs") && more) o->bombs = atoi(argv[++i]);
         else if (!strcmp(a, "--fail-shot") && more) o->fail_shot = argv[++i];
         else if (!strcmp(a, "--ticks") && more) o->ticks = atoi(argv[++i]);
         else if (!strcmp(a, "--runs") && more) o->runs = atoi(argv[++i]);
@@ -300,7 +310,7 @@ int main(int argc, char **argv) {
         HeadlessOptions h = {
             .seed = opt.has_seed ? opt.seed : SDL_GetPerformanceCounter(),
             .runs = opt.runs, .max_ticks = opt.ticks, .depth = opt.depth, .stats_room = opt.stats_room,
-            .shop_room = opt.shop_room, .coins = opt.coins, .debug_rooms = opt.debug_rooms, .secret = opt.secret,
+            .shop_room = opt.shop_room, .coins = opt.coins, .bombs = opt.bombs, .debug_rooms = opt.debug_rooms, .secret = opt.secret,
             .all_upgrades = opt.all_upgrades, .hp = opt.hp, .character = opt.character, .workshop_room = opt.workshop_room, .boss_room = opt.boss_room,
             .actives = opt.actives, .active_room = opt.active_room, .weapons = opt.weapons, .upgrades = opt.upgrades, .nupgrades = opt.nupgrades, .toggle_upgrades = opt.toggle_upgrades, .god = opt.god, .expect_rooms = opt.expect_rooms, .fail_shot = opt.fail_shot,
             .fx = opt.fx, .save_dir = opt.save_dir, .save_test = opt.save_test, .fresh_profile = opt.fresh_profile, .argc = argc, .argv = (const char *const *)argv,
@@ -368,9 +378,10 @@ int main(int argc, char **argv) {
     G.show_stats = opt.show_stats;
     G.character = opt.character;
     if (opt.stats_room || opt.shop_room || opt.workshop_room || opt.boss_room || opt.active_room || opt.actives || opt.weapons || opt.nupgrades || opt.cleared || opt.depth > 0 ||
-        opt.coins > 0 || opt.debug_menu || opt.all_upgrades || opt.upgrades_menu) {
+        opt.coins > 0 || opt.bombs > 0 || opt.debug_menu || opt.all_upgrades || opt.upgrades_menu) {
         game_new_run();
         G.pl.coins += opt.coins;
+        G.pl.bombs += opt.bombs;
         for (int a = ACT_NONE + 1; a < ACT_COUNT; a++)
             if (opt.actives & (1u << a)) active_give(a);
         for (int u = UPG_W_SCATTER; u <= UPG_W_SWORD; u++)

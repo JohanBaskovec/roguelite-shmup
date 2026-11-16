@@ -144,7 +144,7 @@ static void update_player_bullets(void) {
                     Enemy *e = &G.en[j];
                     V2 d = v2_sub(b->pos, e->pos);
                     float dist = v2_len(d);
-                    if (e->hp > 0.0f && e->type != EN_BOSS && dist < 190.0f && dist > 1.0f)
+                    if (e->hp > 0.0f && !enemy_is_boss(e) && dist < 190.0f && dist > 1.0f)
                         e->vel = v2_add(e->vel, v2_scale(d, 1400.0f * DT / dist));
                 }
             }
@@ -180,6 +180,12 @@ static void update_player_bullets(void) {
             upg_reflect(b); /* may append bullets to G.pb: b stays valid (fixed array) */
         }
 
+        /* The WYRM's armoured body, the CARRIER's shield plates: the shot stops there. */
+        if (!dead && !(b->flags & PB_VORTEX) && boss_armor_hit(b->pos, b->radius)) {
+            fx_burst(b->pos, 4, 80.0f, 300.0f, 0.15f, 2.0f, col_hex(0xd8f6ff, 1));
+            if ((G.ticks + i) % 4 == 0) sfx_play_at(SFX_DEFLECT, b->pos);
+            dead = true;
+        }
         if (!dead && !(b->flags & PB_VORTEX)) {
             for (int j = 0; j < G.nen; j++) {
                 Enemy *e = &G.en[j];

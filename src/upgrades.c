@@ -573,7 +573,7 @@ void upg_bullet_update(PBullet *b) {
             V2 d = v2_sub(b->pos, e->pos);
             float dist = v2_len(d);
             if (e->hp <= 0.0f || dist > (syn(SYN_SINGULARITY) ? 360.0f : 260.0f) || dist < 1.0f) continue;
-            if (e->type != EN_BOSS) e->vel = v2_add(e->vel, v2_scale(d, 900.0f * DT / dist));
+            if (!enemy_is_boss(e)) e->vel = v2_add(e->vel, v2_scale(d, 900.0f * DT / dist));
             if (dist < 70.0f + e->radius) enemy_damage(e, b->damage * DT, v2(0, 0));
         }
         return;
@@ -616,7 +616,7 @@ float upg_hit_damage(const PBullet *b, const Enemy *e) {
     if (has(UPG_ALCHEMIST)) dmg *= 1.0f + 0.3f * (float)((e->slow_t > 0.0f) + (e->poison_t > 0.0f) + (e->burn_t > 0.0f));
     if (has(UPG_FIRST_BLOOD) && e->hp >= e->max_hp) dmg *= 3.0f;
     /* GUILLOTINE: a hit that leaves an enemy under 15% finishes it (never the boss). */
-    if (has(UPG_GUILLOTINE) && e->type != EN_BOSS && e->hp - dmg < e->max_hp * (syn(SYN_EXECUTIONER) ? 0.25f : 0.15f)) {
+    if (has(UPG_GUILLOTINE) && !enemy_is_boss(e) && e->hp - dmg < e->max_hp * (syn(SYN_EXECUTIONER) ? 0.25f : 0.15f)) {
         fx_particle(e->pos, v2(0, 0), 0.3f, e->radius * 3.0f, col_hex(0xff4466, 1), 0.0f, PT_RING);
         return e->hp + 1.0f;
     }

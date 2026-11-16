@@ -157,7 +157,7 @@ static void draw_boss_bar(void) {
         k = clampf(b->hp / b->max_hp, 0.0f, 1.0f);
     } else {
         for (int i = 0; i < G.nsp; i++)
-            if (G.sp[i].type == EN_BOSS) { intro = 1.0f - G.sp[i].t / G.sp[i].max_t; k = 1.0f; }
+            if (type_is_boss(G.sp[i].type)) { intro = 1.0f - G.sp[i].t / G.sp[i].max_t; k = 1.0f; }
         if (k <= 0.0f) return; /* not there yet (or already dead) */
         k *= intro;
     }
@@ -174,7 +174,7 @@ static void draw_boss_bar(void) {
     }
     bool inv = b && b->inv_t > 0.0f;
     draw_rect_outline(x - 3, y - 3, w + 6, h + 6, 2, inv ? col_hex(0xffd23d, 0.6f + 0.4f * sinf(G.time * 30.0f)) : col_hex(COLOR_BOSS, 0.8f));
-    draw_text_centered(SCREEN_W * 0.5f, y + h + 6.0f, 1.5f, col_hex(0xffd6dc, 0.9f), "THE OVERSEER%s", b && b->phase >= BOSS_PHASES - 1 ? " - ENRAGED" : "");
+    draw_text_centered(SCREEN_W * 0.5f, y + h + 6.0f, 1.5f, col_hex(0xffd6dc, 0.9f), "%s%s", boss_title(b ? b->type : G.room.boss), b && b->phase >= BOSS_PHASES - 1 ? " - ENRAGED" : "");
 }
 
 void hud_draw(void) {

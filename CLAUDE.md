@@ -101,7 +101,8 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   stats rooms, shops and the slot machine never offer one (headless checks). Only workshop augments cost max HP.
 - A shop always sells exactly 5 items (upgrades, stat trades), plus a supply counter (`SHOP_SUPPLIES`,
   `shop_supply_spot`): one heart, one bomb, one key, flat prices; all paid with coins, descriptions shown like on any pedestal.
-- **Room layouts** (`src/blocks.c`, `room_gen_layout`; every room with enemies except the boss room):
+- **Room layouts** (`src/blocks.c`, `room_gen_layout`; every room with enemies except the boss room, which has
+  its boss's own fixed layout, `room_boss_layout`):
   indestructible walls (`OB_WALL`) plus breakable blocks: crate, barrel (explodes, `BARREL_BLAST_R`), oil drum
   (leaves a `FirePool` that sets the ship and enemies on fire; a dash jumps over), spark pod (ring of `EB_BALL`
   that hurt enemies too), nest (`OB_NEST`: hatches one small enemy, `enemy_hatchling`, through `enemy_queue_spawn`;
@@ -158,13 +159,27 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   only be deleted); bump `SAVE_VERSION` when saved data changes meaning without changing its layout.
 - **Boss rooms** (`ROOM_BOSS`, every `BOSS_EVERY` = 10 rooms: depth 10, 20...): the room before has a
   single, never locked door, the boss room (`gen_doors`; the only room without 3 doors). Like every room
-  it starts with its fight: one wave, the boss (`EN_BOSS`, THE OVERSEER, `update_boss` in `enemies.c`),
-  open floor, no secret; once it is dead (its minions die with it) it leaves a choice of 3 upgrades
-  (`RW_UPGRADE`). Health bar at the top of the HUD (`draw_boss_bar`). The boss never scales either: later
-  bosses only call more minions. Its damage goes through `enemy_damage_cap` (0 while invulnerable after a
-  phase change, stops at each phase threshold) - any new direct `e->hp -=` must use it too; execute
-  effects (GUILLOTINE) and pulls skip it. A new boss attack must respect TIME STOP (it does as long as it
-  lives in `update_boss`).
+  it starts with its fight: one wave, the boss (`Room.boss`, chosen by `boss_for_depth`: room 10 one of
+  four of the same strength - THE OVERSEER `EN_BOSS`, THE LIGHTHOUSE, THE WYRM, THE STORMCALLER -, rooms
+  20 / 30 / 40 THE FORGE / THE CARRIER / THE SINGULARITY, each harder than the last, beyond any of the
+  seven; `--boss-kind NAME` / the F3 menu force one, `g_boss_override`). All of them live in
+  `src/bosses.c` (`boss_update` dispatch, `boss_draw*`, `type_is_boss` / `enemy_is_boss` for
+  `EN_BOSS .. EN_SINGULARITY`); state kept outside the `Enemy` lives in `Room` (wyrm segments, storm arcs,
+  black hole wells / gravity), reset by `boss_on_death`. No secret; a boss either fights on open floor or
+  in its own room (`room_boss_layout`: walls only, symmetric both ways, always the same for the same boss -
+  headless checks both). Once it is dead (its minions die with it) it leaves a choice of 3 upgrades
+  (`RW_UPGRADE`). Health bar at the top of the HUD (`draw_boss_bar`, named by `boss_title`). Three phases:
+  a phase change clears the bullets, makes it invulnerable `BOSS_INVULN_T`; the last one is faster. A boss
+  never scales either: later bosses only call more minions. Its damage goes through `enemy_damage_cap` (0
+  while invulnerable after a phase change, stops at each phase threshold) - any new direct `e->hp -=` must
+  use it too; execute effects (GUILLOTINE) and pulls skip it. Anything that hurts besides bullets and the
+  body (arcs, the wyrm's body) is a `BossHazard` from `boss_hazards` (the boss hurts the ship with the live
+  ones, the bot keeps off all of them, `boss_draw_under` shows them); shots stopped by armour go through
+  `boss_armor_hit` (bullets.c), the bot's line of fire through `boss_armor_line`. Only THE FORGE leaves fire
+  in its room (headless checks). A new boss: enum between `EN_BOSS` and `EN_SINGULARITY` (+ `BOSS_LAST`),
+  `ENEMIES` entry (cost / min_depth 999), its update / draw / title / spawn point, its layout if any, bot
+  support, a `boss_mechanics_run` check and `sim_boss_<name>` / `render_boss_<name>` CTests. A new boss
+  attack must respect TIME STOP (it does as long as it lives in `boss_update`).
 
 These rules are enforced by invariants in `src/headless.c`; keep them there when adding rooms.
 Besides the two peaceful room types, the only exception is the F3 debug menu (`src/debug_menu.c`), a dev tool that can teleport into a
@@ -203,7 +218,7 @@ cmake --preset asan && cmake --build --preset asan -j && ctest --preset asan   #
 
 Do not launch the game in a real window to test it. Use:
 
-- `neon_breach --headless [--god] [--seed N] [--runs N] [--depth N] [--stats] [--boss]` — simulation only,
+- `neon_breach --headless [--god] [--seed N] [--runs N] [--depth N] [--stats] [--boss [--boss-kind NAME]] [--bombs N]` — simulation only,
   driven by the autopilot in `src/bot.c`, invariants checked every tick. Add `--fail-shot f.bmp`
   to get an offscreen render of the failing frame. `--toggle-upgrades` makes the bot turn random
   upgrades off / on (the bot also turns a weapon mod off by itself when its shots hit nothing for 10 s).

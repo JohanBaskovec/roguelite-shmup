@@ -330,7 +330,7 @@ static void sword_swing(void) {
             Enemy *e = &G.en[i];
             V2 d = v2_sub(p->pos, e->pos);
             float dist = v2_len(d);
-            if (e->hp > 0.0f && e->type != EN_BOSS && dist > 60.0f && dist < 360.0f) e->vel = v2_add(e->vel, v2_scale(d, 520.0f / dist));
+            if (e->hp > 0.0f && !enemy_is_boss(e) && dist > 60.0f && dist < 360.0f) e->vel = v2_add(e->vel, v2_scale(d, 520.0f / dist));
         }
     sfx_play_ex(SFX_SWORD, 1.0f, upg_has(UPG_W_LASER) ? 0.6f : upg_has(UPG_W_RAILGUN) ? 0.75f : 1.0f, 0.0f);
 }

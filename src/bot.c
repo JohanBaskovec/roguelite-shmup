@@ -94,7 +94,7 @@ static bool shot_clear(V2 from, const Enemy *e) {
     V2 d = v2_sub(e->pos, from);
     float len = v2_len(d);
     V2 end = len > e->radius ? v2_sub(e->pos, v2_scale(d, e->radius * 0.7f / len)) : e->pos;
-    return room_line_clear_walls(from, end, 6.0f);
+    return room_line_clear_walls(from, end, 6.0f) && !(enemy_is_boss(e) && boss_armor_line(from, end, 4.0f)); /* the wyrm's body */
 }
 
 /* Somewhere to shoot e from: free floor with a clear line of fire (and no barrel / oil drum close
@@ -386,6 +386,9 @@ void bot_input(void) {
         float a = G.time * 1.2f;
         goal = v2(ARENA_CX + cosf(a) * 450.0f, ARENA_CY + sinf(a) * 280.0f);
     }
+    /* LIGHTHOUSE: while its beams sweep the room, hide in the shadow of a wall. */
+    V2 cover;
+    if (!G.room.cleared && boss_cover_spot(pl->pos, &cover)) goal = cover;
     /* Its shots have hit nothing for a long while (an odd corner of the layout): roam somewhere else. */
     if (!G.room.cleared && G.nen > 0 && G.time - G.last_enemy_damage_t > 15.0f && !melee) {
         if (G.time - B.roam.t > 3.0f || G.time < B.roam.t) {
@@ -583,6 +586,20 @@ void bot_input(void) {
             avoid = v2_add(avoid, v2_scale(dd > 0.5f ? v2_scale(d, 1.0f / dd) : v2(0, -1), 2.0f * (1.0f - dd / keep) + 0.4f));
             threats++;
         }
+    }
+    /* Boss hazards (lightning arcs, the wyrm's body, a landing spot, beams about to sweep, a black
+     * hole's pull): keep off them, harder from those already live. */
+    BossHazard hz[16];
+    int nhz = boss_hazards(hz, ARRAY_LEN(hz));
+    for (int i = 0; i < nhz; i++) {
+        V2 ab = v2_sub(hz[i].b, hz[i].a);
+        float l2 = v2_len2(ab), k = l2 > 1e-6f ? clampf(v2_dot(v2_sub(pl->pos, hz[i].a), ab) / l2, 0.0f, 1.0f) : 0.0f;
+        V2 d = v2_sub(pl->pos, v2_add(hz[i].a, v2_scale(ab, k)));
+        float dd = v2_len(d), keep = hz[i].r + 45.0f;
+        if (dd >= keep) continue;
+        V2 away = dd > 0.5f ? v2_scale(d, 1.0f / dd) : l2 > 1e-6f ? v2_norm(v2_perp(ab)) : v2(0, -1);
+        avoid = v2_add(avoid, v2_scale(away, (hz[i].live ? 2.5f : 1.8f) * (1.0f - dd / keep) + 0.4f));
+        threats++;
     }
     for (int i = 0; i < G.nen; i++) {
         const Enemy *e = &G.en[i];

@@ -33,6 +33,7 @@ add_executable(neon_breach
     src/upgrade_menu.c
     src/bullets.c
     src/enemies.c
+    src/bosses.c
     src/pickups.c
     src/hud.c
     src/upgrades.c
@@ -98,7 +99,7 @@ if(SHMUP_BUILD_TESTS)
     # Every room hides a secret: the bot must spot the flash, bomb the corner, clear the
     # secret room and come back to the room it was found in.
     add_test(NAME sim_secret_rooms
-             COMMAND neon_breach --headless --god --secret --seed 70 --runs 8 --ticks 36000 --expect-rooms 3
+             COMMAND neon_breach --headless --god --secret --bombs 3 --seed 70 --runs 8 --ticks 36000 --expect-rooms 3
                      --fail-shot ${_out}/fail_sim_secret.bmp)
     # Every upgrade at its max stack: all the bullet effects / auras / triggers at once.
     add_test(NAME sim_all_upgrades
@@ -134,8 +135,34 @@ if(SHMUP_BUILD_TESTS)
     # Boss rooms (every 10 rooms): the boss must be beaten, by every character; the run
     # from room 8 must go through the single boss door of room 9.
     add_test(NAME sim_boss
-             COMMAND neon_breach --headless --god --boss --seed 50 --runs 4 --ticks 30000 --expect-rooms 2
+             COMMAND neon_breach --headless --god --boss --seed 50 --runs 4 --ticks 36000 --expect-rooms 2
                      --fail-shot ${_out}/fail_sim_boss.bmp)
+    # Each boss (room 10: one of four; 20, 30, 40: their own, the bot with a few upgrades as it would
+    # have by then; beyond: any of them, more minions).
+    foreach(_boss overseer lighthouse wyrm stormcaller)
+        add_test(NAME sim_boss_${_boss}
+                 COMMAND neon_breach --headless --god --boss --boss-kind ${_boss} --seed 100 --runs 2 --ticks 36000 --expect-rooms 2
+                         --fail-shot ${_out}/fail_sim_boss_${_boss}.bmp)
+        add_test(NAME render_boss_${_boss}
+                 COMMAND neon_breach --shot ${_out}/render_boss_${_boss}.bmp --boss --boss-kind ${_boss} --seed 5 --frames 1500)
+    endforeach()
+    set(_deep_upgrades --upgrade heavy-rounds --upgrade overclock --upgrade split-shot)
+    foreach(_boss_depth forge:20 carrier:30 singularity:40)
+        string(REPLACE ":" ";" _bd ${_boss_depth})
+        list(GET _bd 0 _boss)
+        list(GET _bd 1 _depth)
+        add_test(NAME sim_boss_${_boss}
+                 COMMAND neon_breach --headless --god --boss --boss-kind ${_boss} --depth ${_depth} ${_deep_upgrades} --seed 100
+                         --runs 2 --ticks 36000 --expect-rooms 2 --fail-shot ${_out}/fail_sim_boss_${_boss}.bmp)
+        add_test(NAME render_boss_${_boss}
+                 COMMAND neon_breach --shot ${_out}/render_boss_${_boss}.bmp --boss --boss-kind ${_boss} --depth ${_depth} --seed 5 --frames 1500)
+    endforeach()
+    add_test(NAME sim_boss_any
+             COMMAND neon_breach --headless --god --boss --depth 50 ${_deep_upgrades} --seed 200 --runs 4 --ticks 36000 --expect-rooms 2
+                     --fail-shot ${_out}/fail_sim_boss_any.bmp)
+    add_test(NAME sim_boss_mortal
+             COMMAND neon_breach --headless --boss --hp 40 --seed 300 --runs 4 --ticks 36000 --expect-rooms 1
+                     --fail-shot ${_out}/fail_sim_boss_mortal.bmp)
     add_test(NAME sim_boss_shotgunner
              COMMAND neon_breach --headless --god --boss --char shotgunner --seed 60 --runs 3 --ticks 30000 --expect-rooms 2
                      --fail-shot ${_out}/fail_sim_boss_shotgunner.bmp)

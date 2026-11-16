@@ -35,8 +35,6 @@ bool g_dense_blocks; /* --dense-blocks: as many blocks and gates as possible (te
 
 #define ARENA_W (ARENA_X1 - ARENA_X0)
 #define ARENA_H (ARENA_Y1 - ARENA_Y0)
-#define GW 30 /* ARENA_W / GRID */
-#define GH 15 /* ARENA_H / GRID */
 _Static_assert((int)((ARENA_X1 - ARENA_X0) / GRID) == GW && (int)((ARENA_Y1 - ARENA_Y0) / GRID) == GH &&
                    GW * GRID == ARENA_X1 - ARENA_X0 && GH * GRID == ARENA_Y1 - ARENA_Y0,
                "the arena is a whole number of grid cells");
@@ -661,6 +659,36 @@ void room_gen_layout(void) {
     room_nav_reset();
 }
 
+/* Boss rooms: each boss has its own layout, always the same and symmetric both ways (the
+ * pieces are given for the top left quarter, mirrored). Walls only: nothing to break, the
+ * doors and every entry spot clear. Open floor for the others. */
+typedef struct { int x, y, w, h; } Piece;
+static const Piece LIGHTHOUSE_PIECES[] = {{7, 3, 2, 2}, {11, 6, 2, 2}};  /* pillars, fins hugging the lamp */
+static const Piece STORM_PIECES[] = {{4, 2, 2, 2}};                      /* the four pylons */
+static const Piece FORGE_PIECES[] = {{9, 4, 2, 2}};                      /* four anvils around the floor */
+
+void room_boss_layout(EnemyType boss) {
+    const Piece *p = NULL;
+    int n = 0;
+    switch (boss) {
+    case EN_LIGHTHOUSE: p = LIGHTHOUSE_PIECES, n = ARRAY_LEN(LIGHTHOUSE_PIECES); break;
+    case EN_STORM: p = STORM_PIECES, n = ARRAY_LEN(STORM_PIECES); break;
+    case EN_FORGE: p = FORGE_PIECES, n = ARRAY_LEN(FORGE_PIECES); break;
+    default: break;
+    }
+    grid_reset();
+    memset(banned, 0, sizeof banned); /* designed around every door and entry spot */
+    for (int i = 0; i < n; i++) {
+        Shape s = {0};
+        sh_rect(&s, p[i].x, p[i].y, p[i].w, p[i].h);
+        Shape all = sh_sym(&s, 3);
+        if (!place(&all, C_WALL)) SDL_Log("boss layout: piece %d of %s does not fit", i, ENEMIES[boss].name);
+    }
+    grid_to_obstacles();
+    G.room.nfires = 0;
+    room_nav_reset();
+}
+
 /* ---- Damage -------------------------------------------------------------- */
 
 static SDL_FColor block_color(int kind) {
@@ -753,7 +781,7 @@ static float fire_strength(const FirePool *f) {
     return fmaxf(0.0f, fminf(in, out));
 }
 
-static void fire_add(V2 c) {
+void room_fire_add(V2 c, float radius, float life) {
     Room *r = &G.room;
     FirePool *f = NULL;
     if (r->nfires < MAX_FIRES) f = &r->fires[r->nfires++];
@@ -763,8 +791,8 @@ static void fire_add(V2 c) {
             if (r->fires[i].t < f->t) f = &r->fires[i];
     }
     f->pos = c;
-    f->r = FIRE_POOL_R;
-    f->t = f->life = FIRE_POOL_TIME;
+    f->r = radius;
+    f->t = f->life = life;
 }
 
 bool fire_pool_at(V2 p, float r) {
@@ -794,7 +822,7 @@ static void fires_update(void) {
         /* Enemies standing in it catch fire (not the ones in the air / faded out). */
         for (int k = 0; k < G.nen; k++) {
             Enemy *e = &G.en[k];
-            if (e->hp <= 0.0f || enemy_untouchable(e) || v2_dist(e->pos, f->pos) > f->r * 0.85f + e->radius * 0.5f) continue;
+            if (e->hp <= 0.0f || enemy_untouchable(e) || e->type == EN_FORGE || v2_dist(e->pos, f->pos) > f->r * 0.85f + e->radius * 0.5f) continue;
             e->burn_dps = fmaxf(e->burn_t > 0.0f ? e->burn_dps : 0.0f, 14.0f);
             e->burn_t = fmaxf(e->burn_t, 2.0f);
         }
@@ -845,7 +873,7 @@ static void block_goes_off(V2 c, int kind) {
         if (v2_dist(G.pl.pos, c) < BARREL_BLAST_R + PLAYER_BODY_R * 0.5f) player_hurt(1);
     } break;
     case OB_OIL:
-        fire_add(c);
+        room_fire_add(c, FIRE_POOL_R, FIRE_POOL_TIME);
         fx_burst(c, 24, 100.0f, 300.0f, 0.5f, 5.0f, col_hex(0xff7a20, 1));
         sfx_play_at(SFX_IGNITE, c);
         break;

@@ -9,7 +9,7 @@
  */
 
 typedef enum {
-    ROW_DEPTH, ROW_REWARD, ROW_SECRET_CONTENT,
+    ROW_DEPTH, ROW_REWARD, ROW_SECRET_CONTENT, ROW_BOSS_KIND,
     ROW_START, ROW_COMBAT, ROW_STATS, ROW_SHOP, ROW_WORKSHOP, ROW_BOSS, ROW_SECRET,
     ROW_GOD, ROW_FPS, ROW_ALWAYS_SECRET, ROW_REVEAL, ROW_COINS, ROW_BOMBS, ROW_UPGRADE, ROW_ACTIVE, ROW_CLOSE,
     ROW_COUNT
@@ -46,6 +46,7 @@ static struct {
     int sel, col; /* selected row, and button column on room rows (0 = with enemies) */
     int depth, reward;
     int secret_content; /* 0 random, 1 item, 2 shop */
+    int boss_kind;      /* boss room: 0 random (by depth), else BOSS_FIRST + boss_kind - 1 */
     int upgrade;        /* GIVE UPGRADE selection */
     int active;         /* GIVE ACTIVE selection (ActiveId) */
     bool up, down, left, right; /* previous held state, for edge detection */
@@ -56,7 +57,7 @@ static bool is_room_row(int row) { return row >= ROW_START && row <= ROW_SECRET;
 /* The launch bay never has enemies: only its NO ENEMIES button exists. (A secret room
  * WITH ENEMIES is its rare guarded variant.) */
 static bool peaceful_row(int row) { return row == ROW_START; }
-static bool is_value_row(int row) { return row == ROW_DEPTH || row == ROW_REWARD || row == ROW_SECRET_CONTENT || row == ROW_UPGRADE || row == ROW_ACTIVE; }
+static bool is_value_row(int row) { return row == ROW_DEPTH || row == ROW_REWARD || row == ROW_SECRET_CONTENT || row == ROW_BOSS_KIND || row == ROW_UPGRADE || row == ROW_ACTIVE; }
 static bool is_toggle_row(int row) { return row == ROW_GOD || row == ROW_FPS || row == ROW_ALWAYS_SECRET || row == ROW_REVEAL; }
 static float row_y(int row) { return ROWS_Y + (float)row * ROW_H + (row >= ROW_START ? 16.0f : 0.0f) + (row >= ROW_GOD ? 16.0f : 0.0f); }
 
@@ -114,8 +115,11 @@ static void teleport_from_menu(int row, bool with_enemies) {
     if (G.debug_prev != GS_PLAYING && G.debug_prev != GS_PAUSED && G.debug_prev != GS_UPGRADES) game_new_run();
     RewardType rw = M.reward == 0 ? RW_NONE : (RewardType)(RW_COINS + M.reward - 1);
     G.secret_shop_override = M.secret_content - 1; /* -1 random, 0 item, 1 shop */
+    int boss = g_boss_override;
+    if (M.boss_kind > 0) g_boss_override = BOSS_FIRST + M.boss_kind - 1;
     debug_teleport(ROOM_ROWS[row].type, rw, M.depth, with_enemies);
     G.secret_shop_override = -1;
+    g_boss_override = boss;
     G.state = GS_PLAYING;
     G.pl.invuln = fmaxf(G.pl.invuln, 0.8f);
     sfx_play(SFX_DOOR_ENTER);
@@ -126,6 +130,7 @@ static void change_value(int row, int dir) {
     if (row == ROW_DEPTH) M.depth = (M.depth - 1 + dir + MAX_DEPTH) % MAX_DEPTH + 1;
     else if (row == ROW_REWARD) M.reward = (M.reward + dir + MENU_REWARDS) % MENU_REWARDS;
     else if (row == ROW_SECRET_CONTENT) M.secret_content = (M.secret_content + dir + 3) % 3;
+    else if (row == ROW_BOSS_KIND) M.boss_kind = (M.boss_kind + dir + BOSS_COUNT + 1) % (BOSS_COUNT + 1);
     else if (row == ROW_UPGRADE) M.upgrade = (M.upgrade + dir + UPG_COUNT) % UPG_COUNT;
     else if (row == ROW_ACTIVE) M.active = (M.active - 1 + dir + ACT_COUNT - 1) % (ACT_COUNT - 1) + 1;
     else if (is_room_row(row)) M.col = dir > 0;
@@ -137,7 +142,8 @@ static void activate(int row, int dir) {
     switch (row) {
     case ROW_DEPTH:
     case ROW_REWARD:
-    case ROW_SECRET_CONTENT: change_value(row, dir); break;
+    case ROW_SECRET_CONTENT:
+    case ROW_BOSS_KIND: change_value(row, dir); break;
     case ROW_UPGRADE:
         if (dir != 0) {
             change_value(row, dir);
@@ -276,6 +282,10 @@ void debug_menu_draw(void) {
             label = "SECRET CONTENT";
             SDL_snprintf(value, sizeof value, "<  %s  >", contents[M.secret_content]);
         } break;
+        case ROW_BOSS_KIND:
+            label = "BOSS";
+            SDL_snprintf(value, sizeof value, "<  %s  >", M.boss_kind == 0 ? "BY DEPTH" : boss_title((EnemyType)(BOSS_FIRST + M.boss_kind - 1)));
+            break;
         case ROW_UPGRADE: {
             label = "GIVE UPGRADE";
             SDL_FColor uc = col_hex(UPGRADES[M.upgrade].color, 1);
