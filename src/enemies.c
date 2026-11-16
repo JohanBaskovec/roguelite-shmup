@@ -96,6 +96,22 @@ static void enemy_create(EnemyType type, V2 pos) {
     fx_particle(e->pos, v2(0, 0), 0.25f, e->radius * 3.0f, col_hex(d->color, 1), 0.0f, PT_RING);
 }
 
+/* What a nest (OB_NEST) lets out when it breaks: one small enemy of those met at this depth (with
+ * --enemy, one of those). Never scaled, like every enemy: the nest only adds one more. */
+EnemyType enemy_hatchling(int depth) {
+    static const EnemyType SMALL[] = {EN_CHASER, EN_SWARM, EN_KAMIKAZE, EN_DODGER, EN_ORBITER, EN_SERPENT};
+    EnemyType cand[EN_COUNT];
+    int n = 0;
+    if (g_only_enemies) {
+        for (int t = 0; t < EN_COUNT; t++)
+            if (((g_only_enemies >> t) & 1u) && t != EN_BOSS) cand[n++] = (EnemyType)t;
+    } else {
+        for (int i = 0; i < ARRAY_LEN(SMALL); i++)
+            if (ENEMIES[SMALL[i]].min_depth <= depth) cand[n++] = SMALL[i];
+    }
+    return n ? cand[irand(0, n - 1)] : EN_CHASER;
+}
+
 Enemy *enemy_nearest(V2 pos, float max_dist) {
     Enemy *best = NULL;
     float best_d2 = max_dist * max_dist;

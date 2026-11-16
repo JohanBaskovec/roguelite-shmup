@@ -9,7 +9,7 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   future treasure / boss room.** What makes a room special is only what appears once all its
   enemies are dead (reward drop, stat trades, ...). Never create a room that starts cleared or
   spawns its reward before the fight is over.
-  **Only two exceptions** (`room_type_peaceful()`): the launch bay (first room, doors open at once)
+  **Only two exceptions** (`room_type_peaceful()`): the launch bay (first room, doors open at once - `clear_t` starts at `DOORS_AT`, no locked door)
   and secret rooms (loot already there). They start without enemies; the only twist is the
   secret room's 10% ambush variant (`Room.peaceful` false: one wave, loot after it).
 - **Enemies never drop anything.** Resources (coins, keys, bombs, hearts) only come from room
@@ -38,7 +38,7 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   off = no effect at all (`Player.upg_off`, `has()` returns 0, stats left out); turning a heart
   container back on never heals; stat trades stay.
 - **Secret rooms**: some rooms (combat / stats / shop) hide one. During the fight a small see-through ghost
-  shows up anywhere in the room every 5-10 s, drifts for 0.5-2 s (`GHOST_MIN_TIME` / `GHOST_MAX_TIME`), fading
+  shows up near the secret's door (within `GHOST_DOOR_R` of `room_secret_spot`, headless checks it) every 5-10 s, drifts for 0.5-2 s (`GHOST_MIN_TIME` / `GHOST_MAX_TIME`), fading
   in and out (`room_ghost_alpha`), then vanishes; a bomb next to the entry door
   (`room_secret_spot`) opens it, leading to the secret room.
   The secret room has no enemies (exception above): 1 item (rarely 2) plus coins / bombs / keys
@@ -70,6 +70,7 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   (coins, keys, bombs, reward hearts) are picked up / vacuumed automatically. Headless fails if an item
   disappears on a tick without E; the bot presses E on the item it wants. A new kind of offer goes through
   `interact_target` too.
+- The run starts with 0 keys and 0 bombs (resources only come from rewards).
 - **The doors open `DOORS_OPEN_T` (1.8 s) after the last kill** (`DOORS_AT` in `clear_t` terms), after the
   reward has appeared (`ROOM_REVEAL_T`), so the player never rushes out without it.
 - **Active items** (`src/actives.c`, `Player.act[]` indexed by `ActiveId`): the ship starts with none
@@ -91,7 +92,11 @@ All graphics and sounds are generated in code. See README.md for controls and ar
 - **Room layouts** (`src/blocks.c`, `room_gen_layout`; every room with enemies except the boss room):
   indestructible walls (`OB_WALL`) plus breakable blocks: crate, barrel (explodes, `BARREL_BLAST_R`), oil drum
   (leaves a `FirePool` that sets the ship and enemies on fire; a dash jumps over), spark pod (ring of `EB_BALL`
-  that hurt enemies too). Blocks only break under player shots / the blade / explosions, never enemy bullets,
+  that hurt enemies too), nest (`OB_NEST`: hatches one small enemy, `enemy_hatchling`, through `enemy_queue_spawn`;
+  nothing hatches on the shatter). **Fire spreads**: crates, barrels and oil drums (`obstacle_flammable`) catch fire
+  (`room_block_ignite`, `Obstacle.burn_t`) from a fire pool, a flame shot (`PB_FLAME`, HELLFIRE) or a burning enemy
+  touching them; a burning block lights the flammable blocks it touches after `BLOCK_SPREAD_T` and breaks (goes
+  off) at `BLOCK_BURN_TIME` (`blocks_burn`). Blocks only break under player shots / the blade / explosions, never enemy bullets,
   and a bomb breaks them all (`room_blocks_break_all`). A broken block goes off in `blocks_update`, outside
   the entity loops (chains on the next tick); call `room_nav_reset()` whenever obstacles change (the path finder and the collision cell map, `occ` in `room.c`, are rebuilt from it; headless checks the map). Connectivity
   counts walls only (`room_walls_connected`: every free cell and door reachable from the entry spot), so
@@ -108,7 +113,7 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   arena edge must keep the crawler (stops at spurs, `crawler_blocked`) and `room_collide_obstacle` (never
   pushes out through an edge-flush side) working. The bot digs through blocks, never fires at a barrel /
   oil drum within its reach (it first goes to a safe spot it can shoot it from, `hazard_spot`, and sticks
-  to it), only fires at what it can hit (shots into a wall are only recoil), goes for a spot it can shoot a
+  to it), keeps away from burning barrels / drums, closes in on targets beyond its reach (`gun_reach`), only fires at what it can hit (shots into a wall are only recoil), goes for a spot it can shoot a
   hidden enemy from (`vantage_point`), sticks to a waypoint while two ways round are as short (narrow
   corridors), slips sideways when it does not move, aims for free floor near targets on the edge
   (`free_spot_near`) and roams when it hits nothing.

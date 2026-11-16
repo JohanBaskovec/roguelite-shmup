@@ -226,6 +226,9 @@ static const char *check_invariants(float room_time) {
         if (!(a >= 0.0f && a <= 1.0f) || r->ghost_pos.x < ARENA_X0 || r->ghost_pos.x > ARENA_X1 || r->ghost_pos.y < ARENA_Y0 ||
             r->ghost_pos.y > ARENA_Y1)
             return "secret ghost out of the room or with a bad fade";
+        /* born within GHOST_DOOR_R, drifts at most 75 px/s for 2 s */
+        if (v2_dist(r->ghost_pos, room_secret_spot()) > GHOST_DOOR_R * 1.2f + 75.0f * GHOST_MAX_TIME)
+            return "secret ghost far from the secret's door";
     }
     for (int i = 0; i < G.nen; i++) { /* crawlers live on the wall (separation may nudge them a little) */
         const Enemy *c = &G.en[i];
@@ -389,6 +392,15 @@ static void clear_edges(void) {
 /* Debug-menu teleports: every room type, with and without enemies, must land in a
  * coherent state, and the bot must be able to finish the room and leave it. */
 /* Scripted block checks: put one block (or wall) in the room. */
+/* The solid block whose centre is c (indices change as blocks go), -1 if gone. */
+static int block_at(V2 c) {
+    for (int i = 0; i < G.room.nobs; i++) {
+        const Obstacle *o = &G.room.obs[i];
+        if (obstacle_solid(o) && fabsf(o->r.x + o->r.w * 0.5f - c.x) < 1.0f && fabsf(o->r.y + o->r.h * 0.5f - c.y) < 1.0f) return i;
+    }
+    return -1;
+}
+
 static int test_block(float cx, float cy, int kind) {
     Obstacle *o = &G.room.obs[G.room.nobs];
     memset(o, 0, sizeof *o);
@@ -1879,6 +1891,60 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         for (int t = 0; t < 90; t++) BTICK();
         bool spark_ok = balls == SPARK_BALLS && G.en[0].hp < 5000.0f;
 
+        BFRESH(); /* nest: one small enemy crawls out */
+        int nest = test_block(ARENA_CX, ARENA_CY, OB_NEST);
+        room_block_damage(nest, 100.0f);
+        for (int t = 0; t < 90; t++) BTICK();
+        bool nest_ok = G.nen == 1 && G.nsp == 0 && G.en[0].type != EN_BOSS && ENEMIES[G.en[0].type].radius <= 18.0f && !G.room.cleared;
+
+        /* Fire: crate A on fire spreads to crate B next to it, then to the barrel next to B, each going
+         * off in turn; the spark pod next to A never catches, nor crate C two cells away. */
+#define CELL(x, y) v2(ARENA_X0 + GRID * ((float)(x) + 0.5f), ARENA_Y0 + GRID * ((float)(y) + 0.5f))
+        BFRESH();
+        V2 ca = CELL(10, 7), cb = CELL(11, 7), cbar = CELL(12, 7), cspark = CELL(9, 7), cc = CELL(10, 10), cd = CELL(12, 9);
+        test_block(ca.x, ca.y, OB_CRATE);
+        test_block(cb.x, cb.y, OB_CRATE);
+        test_block(cbar.x, cbar.y, OB_BARREL);
+        test_block(cspark.x, cspark.y, OB_SPARK);
+        test_block(cc.x, cc.y, OB_CRATE);
+        test_block(cd.x, cd.y, OB_CRATE); /* not next to any: only the barrel's blast breaks it */
+        BDUMMY(ARENA_X1 - 100.0f, ARENA_Y0 + 100.0f, 20.0f); /* keeps the fight going */
+        room_block_ignite(block_at(ca));
+        BTICK();
+        bool fire_ok = G.room.obs[block_at(ca)].burn_t > 0.0f && G.room.obs[block_at(cb)].burn_t <= 0.0f;
+        for (int t = 0; t < (int)((BLOCK_SPREAD_T + 0.1f) * TICK_RATE); t++) BTICK();
+        fire_ok = fire_ok && block_at(cb) >= 0 && G.room.obs[block_at(cb)].burn_t > 0.0f && G.room.obs[block_at(cbar)].burn_t <= 0.0f;
+        bool spread_ok = true;
+        for (int t = 0; t < 4 * TICK_RATE; t++) {
+            BTICK();
+            int s = block_at(cspark), c = block_at(cc);
+            int d = block_at(cd);
+            spread_ok = spread_ok && s >= 0 && G.room.obs[s].burn_t <= 0.0f && c >= 0 && G.room.obs[c].burn_t <= 0.0f &&
+                        (d < 0 || G.room.obs[d].burn_t <= 0.0f);
+        }
+        fire_ok = fire_ok && spread_ok && block_at(ca) < 0 && block_at(cb) < 0 && block_at(cbar) < 0 && block_at(cd) < 0;
+
+        BFRESH(); /* flame shots and burning enemies set crates alight */
+        upgrade_apply(UPG_W_FLAMER);
+        V2 cf = CELL(8, 7), ce = CELL(20, 7);
+        test_block(cf.x, cf.y, OB_CRATE);
+        test_block(ce.x, ce.y, OB_CRATE);
+        BDUMMY(ce.x + 52.0f, ce.y, 20.0f);
+        G.en[0].burn_t = 3.0f, G.en[0].burn_dps = 1.0f;
+        pl->pos = v2(cf.x - 200.0f, cf.y);
+        in->mouse = cf;
+        bool flame_lit = false, enemy_lit = false;
+        for (int t = 0; t < 120; t++) {
+            in->fire = true;
+            BTICK();
+            int f = block_at(cf), e = block_at(ce);
+            flame_lit |= f >= 0 && G.room.obs[f].burn_t > 0.0f;
+            enemy_lit |= e >= 0 && G.room.obs[e].burn_t > 0.0f;
+        }
+        in->fire = false;
+        bool ignite_ok = flame_lit && enemy_lit;
+#undef CELL
+
         BFRESH(); /* cleared: a wave of glass from the last kill, nothing goes off, then the reward */
         G.room.wave = G.room.nwaves;
         G.room.reward = RW_COINS;
@@ -1886,6 +1952,7 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         test_block(ARENA_X1 - 200.0f, ARENA_Y0 + 200.0f, OB_WALL);
         test_block(pl->pos.x + 70.0f, pl->pos.y, OB_BARREL);
         test_block(pl->pos.x, pl->pos.y - 70.0f, OB_OIL);
+        test_block(ARENA_CX + 300.0f, ARENA_CY, OB_NEST);
         BDUMMY(ARENA_CX - 360.0f, ARENA_CY, 30.0f);
         G.en[0].hp = 1.0f;
         hp0 = pl->hp;
@@ -1904,7 +1971,7 @@ static int debug_rooms_run(const HeadlessOptions *o) {
             }
         }
         bool shatter_ok = G.room.cleared && G.room.nobs == 0 && G.room.nfires == 0 && order_ok && !early_reward &&
-                          reward && shards > 0 && pl->hp == hp0;
+                          reward && shards > 0 && pl->hp == hp0 && G.nen == 0 && G.nsp == 0; /* the nest: glass, nothing hatches */
 
         /* Layouts: many rooms of every kind, from every side. */
         int rooms = 0, bad = 0, walls = 0, blocks = 0, kinds = 0;
@@ -1926,11 +1993,13 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         }
         bool layout_ok = bad == 0 && walls > rooms * 3 && blocks > rooms * 6 && kinds == (1 << OB_KIND_COUNT) - 1;
         printf("scripted blocks: enemy bullets -> %s, shots -> %s, blade -> %s, bomb -> %s, barrel -> %s, oil -> %s, "
-               "oil burns -> %s, spark pod -> %s, cleared room shatters -> %s, %d layouts (%.1f walls, %.1f blocks avg, %d bad) -> %s\n",
+               "oil burns -> %s, spark pod -> %s, nest -> %s, fire spreads -> %s, flames / burning enemies ignite -> %s, "
+               "cleared room shatters -> %s, %d layouts (%.1f walls, %.1f blocks avg, %d bad) -> %s\n",
                enemy_ok ? "OK" : "FAILED", shot_ok ? "OK" : "FAILED", sword_ok ? "OK" : "FAILED", bomb_ok ? "OK" : "FAILED",
                barrel_ok ? "OK" : "FAILED", oil_ok ? "OK" : "FAILED", oil_burns_ok ? "OK" : "FAILED", spark_ok ? "OK" : "FAILED",
+               nest_ok ? "OK" : "FAILED", fire_ok ? "OK" : "FAILED", ignite_ok ? "OK" : "FAILED",
                shatter_ok ? "OK" : "FAILED", rooms, (double)walls / rooms, (double)blocks / rooms, bad, layout_ok ? "OK" : "FAILED");
-        failures += !enemy_ok + !shot_ok + !sword_ok + !bomb_ok + !barrel_ok + !oil_ok + !oil_burns_ok + !spark_ok + !shatter_ok + !layout_ok;
+        failures += !enemy_ok + !shot_ok + !sword_ok + !bomb_ok + !barrel_ok + !oil_ok + !oil_burns_ok + !spark_ok + !nest_ok + !fire_ok + !ignite_ok + !shatter_ok + !layout_ok;
 
         /* End of a room: the ship stays where it is, the doors stay shut for DOORS_OPEN_T after the
          * last kill (the reward shows first), and an item is only taken with E. */

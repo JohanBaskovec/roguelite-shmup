@@ -48,6 +48,7 @@ static const float BLOCK_HP[OB_KIND_COUNT] = {
     [OB_BARREL] = 18.0f, /* 3 */
     [OB_OIL] = 20.0f,
     [OB_SPARK] = 20.0f,
+    [OB_NEST] = 24.0f,
 };
 
 static V2 rect_center(SDL_FRect r) { return v2(r.x + r.w * 0.5f, r.y + r.h * 0.5f); }
@@ -526,11 +527,11 @@ static int gen_walls(void) {
 
 /* ---- Blocks -------------------------------------------------------------- */
 
-typedef enum { TH_CRATES, TH_BARRELS, TH_OIL, TH_SPARK, TH_MIXED } Theme;
+typedef enum { TH_CRATES, TH_BARRELS, TH_OIL, TH_SPARK, TH_NESTS, TH_MIXED } Theme;
 
 static Theme roll_theme(void) {
     float r = frand(0, 1);
-    return r < 0.55f ? TH_CRATES : r < 0.68f ? TH_BARRELS : r < 0.80f ? TH_OIL : r < 0.88f ? TH_SPARK : TH_MIXED;
+    return r < 0.52f ? TH_CRATES : r < 0.64f ? TH_BARRELS : r < 0.75f ? TH_OIL : r < 0.83f ? TH_SPARK : r < 0.90f ? TH_NESTS : TH_MIXED;
 }
 
 static int theme_kind(Theme th) {
@@ -538,7 +539,8 @@ static int theme_kind(Theme th) {
     case TH_BARRELS: return chance(0.8f) ? OB_BARREL : OB_CRATE;
     case TH_OIL: return chance(0.8f) ? OB_OIL : OB_CRATE;
     case TH_SPARK: return chance(0.6f) ? OB_SPARK : OB_CRATE;
-    case TH_MIXED: return irand(OB_CRATE, OB_SPARK);
+    case TH_NESTS: return chance(0.35f) ? OB_NEST : OB_CRATE; /* each one more enemy: a few at most */
+    case TH_MIXED: return irand(OB_CRATE, OB_NEST);
     default: return chance(0.85f) ? OB_CRATE : irand(OB_BARREL, OB_SPARK);
     }
 }
@@ -666,8 +668,51 @@ static SDL_FColor block_color(int kind) {
     case OB_BARREL: return col_hex(0xff4a3a, 1);
     case OB_OIL: return col_hex(0xffa830, 1);
     case OB_SPARK: return col_hex(0xc27dff, 1);
+    case OB_NEST: return col_hex(0x8cff4a, 1);
     default: return col_hex(0xd89a4a, 1);
     }
+}
+
+void room_block_ignite(int i) {
+    if (i < 0 || i >= G.room.nobs || G.room.cleared) return;
+    Obstacle *o = &G.room.obs[i];
+    if (!obstacle_flammable(o) || o->hp <= 0.0f || o->burn_t > 0.0f) return;
+    o->burn_t = 1e-4f;
+    sfx_play_at(SFX_IGNITE, rect_center(o->r));
+}
+
+/* Edge to edge (blocks are grid cells: never touching by a corner only). */
+static bool blocks_touch(const Obstacle *a, const Obstacle *b) { return rect_dist(rect_center(a->r), b->r) <= a->r.w * 0.5f + 1.0f; }
+
+/* Blocks on fire burn on, set their flammable neighbours on fire, then go off; burning enemies
+ * light up the flammable blocks they brush against. */
+static void blocks_burn(void) {
+    Room *r = &G.room;
+    if (r->cleared) return;
+    int spread[MAX_OBSTACLES], n = 0;
+    for (int i = 0; i < r->nobs; i++) {
+        Obstacle *o = &r->obs[i];
+        if (o->burn_t <= 0.0f || o->hp <= 0.0f) continue;
+        float before = o->burn_t;
+        o->burn_t += DT;
+        if (before < BLOCK_SPREAD_T && o->burn_t >= BLOCK_SPREAD_T) spread[n++] = i;
+        if (o->burn_t >= BLOCK_BURN_TIME) o->hp = 0.0f; /* goes off with the others below */
+        if ((G.ticks + i) % 3 == 0) {
+            V2 p = v2(frand(o->r.x + 8.0f, o->r.x + o->r.w - 8.0f), frand(o->r.y + 8.0f, o->r.y + o->r.h - 8.0f));
+            fx_particle(p, v2(frand(-25, 25), frand(-150, -70)), frand(0.3f, 0.55f), frand(7, 13),
+                        col_hex(chance(0.5f) ? 0xffb030 : 0xff5a10, 0.85f), 0.0f, PT_GLOW);
+        }
+    }
+    for (int k = 0; k < n; k++)
+        for (int j = 0; j < r->nobs; j++)
+            if (j != spread[k] && obstacle_flammable(&r->obs[j]) && blocks_touch(&r->obs[spread[k]], &r->obs[j])) room_block_ignite(j);
+    if (G.ticks % 4 == 0)
+        for (int e = 0; e < G.nen; e++) {
+            const Enemy *en = &G.en[e];
+            if (en->burn_t <= 0.0f || en->hp <= 0.0f) continue;
+            for (int j = 0; j < r->nobs; j++)
+                if (obstacle_flammable(&r->obs[j]) && rect_dist(en->pos, r->obs[j].r) < en->radius + 4.0f) room_block_ignite(j);
+        }
 }
 
 void room_block_damage(int i, float dmg) {
@@ -753,10 +798,13 @@ static void fires_update(void) {
             e->burn_dps = fmaxf(e->burn_t > 0.0f ? e->burn_dps : 0.0f, 14.0f);
             e->burn_t = fmaxf(e->burn_t, 2.0f);
         }
-        /* Blocks in it slowly burn too: barrels and drums end up going off. */
+        /* Crates, barrels and drums in it catch fire; the other blocks slowly burn down. */
         for (int k = 0; k < r->nobs; k++) {
             Obstacle *o = &r->obs[k];
-            if (obstacle_breakable(o) && o->hp > 0.0f && rect_dist(f->pos, o->r) < f->r * 0.8f) {
+            if (!obstacle_breakable(o) || o->hp <= 0.0f || rect_dist(f->pos, o->r) >= f->r * 0.8f) continue;
+            if (obstacle_flammable(o)) {
+                room_block_ignite(k);
+            } else {
                 o->hp -= 10.0f * DT;
                 if (o->hp <= 0.0f) o->hp = 0.0f;
             }
@@ -812,6 +860,11 @@ static void block_goes_off(V2 c, int kind) {
         fx_particle(c, v2(0, 0), 0.3f, 120.0f, col_hex(0xc27dff, 0.9f), 0.0f, PT_RING);
         sfx_play_at(SFX_ENEMY_RING, c);
     } break;
+    case OB_NEST: /* something crawls out (a short warning first, like any spawn) */
+        enemy_queue_spawn(enemy_hatchling(G.room.depth), c, 0.35f);
+        fx_burst(c, 18, 60.0f, 260.0f, 0.5f, 4.0f, col_hex(0x8cff4a, 1));
+        sfx_play_at(SFX_SPLAT, c);
+        break;
     default:
         sfx_play_at(SFX_CRATE, c);
         break;
@@ -867,6 +920,7 @@ void blocks_update(void) {
         int kind;
     } gone[MAX_OBSTACLES];
     int ngone = 0, w = 0, burst = 0;
+    blocks_burn();
     for (int i = 0; i < r->nobs; i++) {
         Obstacle *o = &r->obs[i];
         if (o->flash > 0.0f) o->flash -= DT;
@@ -957,6 +1011,22 @@ static void draw_block(const Obstacle *o, int idx) {
         draw_circle(c, s * 0.26f, col_hex(0xffa020, 0.9f));
         draw_circle(v2(c.x - s * 0.07f, c.y - s * 0.07f), s * 0.08f, col_hex(0xffe08a, 0.9f)); /* shine */
         break;
+    case OB_NEST: { /* a pulsing egg sac, something moving inside */
+        float beat = 0.5f + 0.5f * sinf(G.time * 4.0f + (float)idx);
+        draw_rect(r.x, r.y, r.w, r.h, col_hex(0x0e1a08, 1));
+        draw_circle(c, s * (0.38f + 0.03f * beat), col_hex(0x2f5a14, 1));
+        draw_circle(c, s * 0.28f, col_hex(0x5a9a22, 1));
+        draw_blend_add();
+        draw_glow(c, s * (0.45f + 0.1f * beat), col_hex(0x8cff4a, 0.18f + 0.2f * beat + 0.3f * dmg));
+        draw_blend_alpha();
+        V2 eye = v2_add(c, v2_scale(v2_angle(G.time * 1.7f + (float)idx), s * 0.08f)); /* the thing inside */
+        draw_circle(eye, s * 0.09f, col_hex(0x0e1a08, 0.9f));
+        draw_circle(v2_add(eye, v2(s * 0.03f, -s * 0.03f)), s * 0.03f, col_hex(0xe8ffb0, 1));
+        for (int k = 0; k < 4; k++) { /* veins */
+            float a = (float)k * TAU_F / 4.0f + 0.4f;
+            draw_line(v2_add(c, v2_scale(v2_angle(a), s * 0.2f)), v2_add(c, v2_scale(v2_angle(a + 0.3f), s * 0.38f)), 2.0f, col_hex(0x1e3a0c, 1));
+        }
+    } break;
     default: { /* spark pod */
         draw_rect(r.x, r.y, r.w, r.h, col_hex(0x180a28, 1));
         draw_blend_add();
@@ -968,6 +1038,18 @@ static void draw_block(const Obstacle *o, int idx) {
     } break;
     }
     draw_cracks(o, idx + (int)r.x);
+    if (o->burn_t > 0.0f) { /* on fire: charring, flames licking up */
+        float k = clampf(o->burn_t / BLOCK_BURN_TIME, 0.0f, 1.0f);
+        draw_rect(r.x, r.y, r.w, r.h, rgba(0.05f, 0.02f, 0.0f, 0.55f * k));
+        draw_blend_add();
+        draw_glow(c, s * (0.75f + 0.15f * sinf(G.time * 13.0f + (float)idx)), col_hex(0xff5a10, 0.35f + 0.3f * k));
+        for (int f = 0; f < 5; f++) {
+            float flick = 0.5f + 0.5f * sinf(G.time * (9.0f + (float)f) + (float)(idx * 3 + f));
+            V2 p = v2(r.x + r.w * (0.15f + 0.175f * (float)f), r.y + r.h * (0.75f - 0.45f * flick));
+            draw_glow(p, s * (0.16f + 0.1f * flick), col_hex((f & 1) ? 0xffb030 : 0xff6a10, 0.5f + 0.4f * flick));
+        }
+        draw_blend_alpha();
+    }
     draw_rect_outline(r.x, r.y, r.w, r.h, 2.0f, edge);
     if (o->flash > 0.0f) draw_rect(r.x, r.y, r.w, r.h, col_a(COL_WHITE, 0.55f * o->flash / 0.08f));
 }

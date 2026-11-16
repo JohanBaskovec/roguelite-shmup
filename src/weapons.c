@@ -165,6 +165,13 @@ float gun_volley_shots(void) {
     return (float)volley_size(&g, &k);
 }
 
+/* How far a main gun shot flies (the bot closes in on what it cannot reach). */
+float gun_reach(void) {
+    Gun g;
+    gun_profile(&g);
+    return g.speed * G.pl.shot_speed_mult * g.life * G.pl.range_mult;
+}
+
 int gun_main_mod(void) {
     if (sword_on()) return UPG_W_SWORD;
     /* most striking first, as in gun_profile */

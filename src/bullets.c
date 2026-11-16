@@ -216,6 +216,7 @@ static void update_player_bullets(void) {
          * pressed against a wall still connect. */
         if (!dead && wall) {
             if (block >= 0) { /* the ship's shots break blocks (never the enemies') */
+                if ((b->flags & PB_FLAME) || upg_has(UPG_X_HELLFIRE)) room_block_ignite(block); /* fire sets crates, barrels and drums alight */
                 room_block_damage(block, b->damage);
                 fx_particle(b->pos, v2(0, 0), 0.1f, b->radius * 3.0f, col_a(b->col, 0.7f), 0.0f, PT_GLOW);
             }

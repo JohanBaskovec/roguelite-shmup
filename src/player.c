@@ -9,8 +9,7 @@
 void player_init(void) {
     Player *p = &G.pl;
     memset(p, 0, sizeof *p);
-    p->keys = 1;
-    p->bombs = 2;
+    /* no key, no bomb: they come from room rewards */
     /* no active item (p->act[] zeroed): they are found in active rooms */
     Stats *b = &p->base;
     b->max_hp = 6;

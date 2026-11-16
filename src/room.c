@@ -388,7 +388,8 @@ static void gen_doors(void) {
         d->reward = RW_UPGRADE;
         return;
     }
-    int locked = chance(0.5f) ? irand(0, MAX_DOORS - 1) : -1;
+    /* Never in the launch bay: the run starts without a key, and all its doors are open. */
+    int locked = r->type != ROOM_START && chance(0.5f) ? irand(0, MAX_DOORS - 1) : -1;
     /* Occasionally one door leads to a Stats room (never two in a row). */
     int stats_door = r->type == ROOM_COMBAT && chance(0.2f) ? irand(0, MAX_DOORS - 1) : -1;
     /* ...or to a Shop (from room 2 on, never two in a row), on another door. */
@@ -498,6 +499,7 @@ void room_enter(RoomType type, RewardType reward, int depth) {
     }
     if (r->peaceful) {
         r->cleared = true; /* no fight: doors (or loot) are there right away */
+        r->clear_t = DOORS_AT; /* open from the start, no wait */
         if (type == ROOM_SECRET) secret_loot();
     } else if (type == ROOM_SECRET) {
         r->nwaves = 1; /* ambush: a single wave guards the loot */
@@ -761,7 +763,7 @@ void room_update(void) {
     for (int i = 0; i < r->ndoors; i++)
         if (r->doors[i].anim > 0.0f) r->doors[i].anim -= DT;
 
-    /* A hidden secret sends a little ghost, somewhere in the room, every 5-10 s - only during
+    /* A hidden secret sends a little ghost near its door (the entry door) every 5-10 s - only during
      * combat. It drifts and wobbles for 0.5-2 s, fading in and out, then vanishes. */
     if (r->ghost_t > 0.0f) {
         r->ghost_t -= DT;
@@ -773,11 +775,13 @@ void room_update(void) {
     if (r->has_secret && !r->cleared && !r->secret_open && !r->secret_used) {
         r->ghost_cd -= DT;
         if (r->ghost_cd <= 0.0f) {
-            V2 p = v2(frand(ARENA_X0 + 80, ARENA_X1 - 80), frand(ARENA_Y0 + 80, ARENA_Y1 - 80));
+            V2 spot = room_secret_spot(), in = side_inward(r->entry), across = v2(-in.y, in.x), p = spot;
             for (int tries = 0; tries < 20; tries++) { /* not born inside an obstacle (it may drift through one) */
+                p = v2_add(spot, v2_add(v2_scale(in, frand(30.0f, GHOST_DOOR_R * 0.8f)), v2_scale(across, frand(-GHOST_DOOR_R, GHOST_DOOR_R) * 0.8f)));
+                p.x = clampf(p.x, ARENA_X0 + 50.0f, ARENA_X1 - 50.0f);
+                p.y = clampf(p.y, ARENA_Y0 + 50.0f, ARENA_Y1 - 50.0f);
                 V2 q = p;
                 if (!room_collide_circle(&q, 20.0f, NULL)) break;
-                p = v2(frand(ARENA_X0 + 80, ARENA_X1 - 80), frand(ARENA_Y0 + 80, ARENA_Y1 - 80));
             }
             float a = frand(0.0f, TAU_F);
             r->ghost_pos = p;

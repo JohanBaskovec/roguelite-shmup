@@ -109,6 +109,11 @@ static V2 vantage_point(const Enemy *e, V2 ship) {
         for (float x = ARENA_X0 + GRID * 0.5f; x < ARENA_X1; x += GRID) {
             V2 c = v2(x, y);
             float d = v2_dist(c, e->pos);
+            /* only where the goal can really be (it is pulled off the edges): on the first row of cells,
+             * the spot it would stand on is not the one checked, a barrel may be too close from there */
+            if (c.x < ARENA_X0 + NAV_MARGIN + 6.0f || c.x > ARENA_X1 - NAV_MARGIN - 6.0f || c.y < ARENA_Y0 + NAV_MARGIN + 6.0f ||
+                c.y > ARENA_Y1 - NAV_MARGIN - 6.0f)
+                continue;
             if (d < 140.0f || d > 750.0f || hits_obstacle(c, NAV_MARGIN + 4.0f) || !shot_clear(c, e) || hazard_in_aim(c, e->pos) >= 0)
                 continue;
             float cost = v2_dist(ship, c) + fabsf(d - 380.0f) * 0.4f + (room_line_clear(c, e->pos, 6.0f) ? 0.0f : 150.0f);
@@ -341,7 +346,7 @@ void bot_input(void) {
                       : d->reward == RW_UPGRADE ? 5
                       : d->reward == RW_HEART && pl->hp <= pl->max_hp / 2 ? 6
                       : d->reward == RW_COINS && pl->coins < 40 ? 4
-                      : d->reward == RW_KEY ? 3 : d->reward == RW_BOMBS ? 2 : 1;
+                      : d->reward == RW_KEY ? 3 : d->reward == RW_BOMBS ? (pl->bombs == 0 ? 5 : 2) : 1; /* the run starts without any */
             scores[i] = score * MAX_DOORS + (MAX_DOORS - 1 - i); /* ties: first door first */
         }
         /* The (give_ups)-th best door it can open. */
@@ -371,6 +376,10 @@ void bot_input(void) {
         goal = v2_add(t->pos, v2_scale(v2_angle(t->angle + side), 320.0f));
         goal.x = clampf(goal.x, ARENA_X0 + 60.0f, ARENA_X1 - 60.0f);
         goal.y = clampf(goal.y, ARENA_Y0 + 60.0f, ARENA_Y1 - 60.0f);
+    } else if (t && v2_dist(pl->pos, t->pos) > gun_reach() * 0.85f) {
+        /* in sight but out of reach (a crawler across the room): close in */
+        V2 to = v2_sub(t->pos, pl->pos);
+        goal = v2_sub(t->pos, v2_scale(v2_norm(to), gun_reach() * 0.6f));
     } else if (!t && hidden) {
         goal = vantage_point(hidden, pl->pos); /* nothing visible: go where it can be shot */
     } else {
@@ -416,8 +425,9 @@ void bot_input(void) {
         B.nav.next = room_navigate_ex(pl->pos, goal, NAV_MARGIN, false, &B.nav.reach);
         if (!B.nav.reach) B.nav.next = room_navigate_ex(pl->pos, goal, NAV_MARGIN, true, NULL);
         /* Two ways round of about the same length: the best one can flip as the ship moves (narrow
-         * corridors), leaving it dithering. Stick to the waypoint taken while it is still in sight. */
-        if (same && was_reach && B.nav.reach && v2_dist2(old, B.nav.next) > 60.0f * 60.0f && v2_dist2(pl->pos, old) > 10.0f * 10.0f &&
+         * corridors), leaving it dithering. Stick to the waypoint taken while it is still in sight
+         * (also on a way that digs through blocks). */
+        if (same && was_reach == B.nav.reach && v2_dist2(old, B.nav.next) > 60.0f * 60.0f && v2_dist2(pl->pos, old) > 10.0f * 10.0f &&
             G.time - B.nav.since < 3.0f && G.time >= B.nav.since && room_line_clear(pl->pos, old, PLAYER_BODY_R + 2.0f))
             B.nav.next = old;
         else if (v2_dist2(old, B.nav.next) > 1.0f)
@@ -552,6 +562,17 @@ void bot_input(void) {
     if (back < 0.0f) shy = v2_sub(shy, v2_scale(dir, back));
     if (v2_len2(shy) > 0.1f * 0.1f) shy = v2_scale(v2_norm(shy), 0.1f); /* a row of drums: still a nudge */
     avoid = v2_add(avoid, shy);
+    /* A barrel / oil drum on fire goes off any moment: get out of its reach. */
+    for (int i = 0; i < G.room.nobs && !G.room.cleared; i++) {
+        const Obstacle *o = &G.room.obs[i];
+        if ((o->kind != OB_BARREL && o->kind != OB_OIL) || !obstacle_solid(o) || o->burn_t <= 0.0f) continue;
+        V2 d = v2_sub(pl->pos, v2(o->r.x + o->r.w * 0.5f, o->r.y + o->r.h * 0.5f));
+        float dd = v2_len(d), keep = hazard_reach(o) + 20.0f;
+        if (dd < keep) {
+            avoid = v2_add(avoid, v2_scale(dd > 0.5f ? v2_scale(d, 1.0f / dd) : v2(0, -1), 2.0f * (1.0f - dd / keep) + 0.4f));
+            threats++;
+        }
+    }
     /* Burning oil: keep out of it. */
     for (int i = 0; i < G.room.nfires; i++) {
         const FirePool *f = &G.room.fires[i];

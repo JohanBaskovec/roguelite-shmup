@@ -310,6 +310,7 @@ typedef enum {
     OB_BARREL, /* explodes: hurts everything around (the ship too), breaks the blocks nearby */
     OB_OIL,    /* leaves a pool of burning oil that sets the ship and the enemies on fire */
     OB_SPARK,  /* throws a ring of balls that hurt the ship and the enemies */
+    OB_NEST,   /* lets out one small enemy (enemy_hatchling) */
     OB_KIND_COUNT
 } ObstacleKind;
 
@@ -320,9 +321,12 @@ typedef struct {
     float flash;       /* hit flash */
     int swing_id;      /* last sword swing that cut it */
     float shatter_t;   /* room cleared: > 0 = cracking, bursts into glass when it reaches 0 */
+    float burn_t;      /* crate / barrel / oil drum on fire: seconds burning (0 = not), goes off at BLOCK_BURN_TIME */
 } Obstacle;
 
 static inline bool obstacle_breakable(const Obstacle *o) { return o->kind != OB_WALL; }
+/* Catches fire when fire touches it (burning oil, flame shots, a burning enemy, a burning neighbour). */
+static inline bool obstacle_flammable(const Obstacle *o) { return o->kind == OB_CRATE || o->kind == OB_BARREL || o->kind == OB_OIL; }
 static inline bool obstacle_solid(const Obstacle *o) { return o->kind == OB_WALL || o->hp > 0.0f; }
 
 typedef struct {
@@ -332,6 +336,8 @@ typedef struct {
 
 #define FIRE_POOL_R 80.0f
 #define FIRE_POOL_TIME 7.0f
+#define BLOCK_BURN_TIME 1.6f /* a block on fire burns that long, then breaks / explodes / spills its oil */
+#define BLOCK_SPREAD_T 0.6f  /* ...and sets the flammable blocks next to it on fire after this long */
 #define BARREL_BLAST_R 135.0f
 #define SPARK_BALLS 12
 #define BLOCK_TILE GRID /* a block fills one grid cell */
@@ -388,6 +394,7 @@ typedef struct {
 #define SECRET_BOMB_RADIUS 170.0f /* around room_secret_spot(), just inside the entry door */
 #define GHOST_MIN_TIME 0.5f /* a secret's ghost stays 0.5-2 s on screen */
 #define GHOST_MAX_TIME 2.0f
+#define GHOST_DOOR_R 260.0f  /* ...and only shows up this close to the secret's door (room_secret_spot) */
 #define GHOST_FADE 0.35f    /* fade in / out (at most a third of its time each) */
 float room_ghost_alpha(void); /* 0..1, how visible the secret's ghost is right now */
 
@@ -770,6 +777,7 @@ int room_block_between(V2 a, V2 b, float margin); /* first breakable block on th
 /* Blocks: damage from the ship's shots / blade / blasts; broken ones go off at the end of the tick. */
 void room_block_damage(int i, float dmg);
 void room_blocks_blast(V2 pos, float radius, float dmg); /* every block touched by the blast */
+void room_block_ignite(int i); /* sets a crate / barrel / oil drum on fire (no effect on the others) */
 void room_blocks_break_all(void);                          /* a bomb: every breakable block */
 int room_count_obstacles(int kind);
 /* Every free spot of the room (and every door) can be reached by the ship from the entry when only
@@ -871,6 +879,7 @@ bool sword_on(void);
 V2 weapon_drone_pos(int i);                     /* the sword replaces the gun */
 float gun_volley_shots(void);            /* projectiles per volley right now (HUD, tests) */
 float sword_reach(void);
+float gun_reach(void); /* px a main gun shot flies */
 #define SWORD_INNER 18.0f /* the blade starts this far from the ship's centre */
 
 /* bullets.c */
@@ -898,6 +907,7 @@ float boss_phase_threshold(int phase);             /* hp fraction where phase `p
 const Enemy *boss_alive(void);
 bool is_boss_depth(int depth);
 Enemy *enemy_nearest(V2 pos, float max_dist);
+EnemyType enemy_hatchling(int depth); /* the small enemy a nest lets out (one of the --enemy ones if set) */
 
 /* pickups.c */
 void pickup_spawn(PickupType type, int sub, V2 pos, V2 vel);
