@@ -396,6 +396,8 @@ typedef struct {
     RoomType type;       /* room behind the door */
     RewardType reward;   /* reward granted when that room is cleared */
     uint16_t mods;       /* MOD_BIT set of RoomMods of the room behind it (none behind the boss door) */
+    uint8_t count;       /* coins / keys / bombs / hearts the room behind gives (shown on the door; machine rooms: what they give if the ship cannot use them) */
+    RewardType alt;      /* machine rooms: the resource (coins, keys, bombs or hearts) they give then (RW_NONE: other doors) */
     bool locked;
     V2 pos;
     float anim;
@@ -504,6 +506,8 @@ typedef struct {
     uint8_t grave_type[8];
     int ngraves;
     uint16_t mods;          /* MOD_BIT set of RoomMods (mods.c) */
+    RewardType alt_reward;  /* machine room: the resource it drops when the ship cannot use it (what its door said) */
+    int reward_count;       /* what the door said: coins / keys / bombs / hearts to drop (0: rolled when the room is cleared) */
     int elite;              /* MOD_ELITE: the only enemy type of the waves + 1 (0 = none) */
     int vault_coins;        /* VAULT: what the safe broke open pays, banked until the room is cleared */
     bool crush_slow;        /* MOD_COMPACTOR: the walls crawl until the last wave's timer runs out */
@@ -716,6 +720,8 @@ typedef struct {
     Input in;
     Side entry_side; /* entry door of the next room_enter (opposite the door taken) */
     uint16_t entry_mods; /* MOD_BIT set of the next room_enter (the door taken), used up by it */
+    int entry_count;     /* the door taken: its resource count, used up by room_enter */
+    RewardType entry_alt; /* ...and its machine room's fallback resource */
     /* Main menu (title.c): a demo run played by the bot behind it, on its own generator. */
     bool demo;
     Rng demo_rng;
@@ -1063,6 +1069,7 @@ unsigned mods_allowed(RoomType type, RewardType reward, unsigned mods); /* the p
 unsigned mod_roll(RoomType type, RewardType reward); /* a door's MOD_BIT set: usually none, one at most; every modifier the room can have has the same chance */
 float room_difficulty_enemies(void);      /* the size of every wave: x1 .. x2.5 */
 int room_difficulty(void);                 /* 0 = none, 1..4 = HARD .. IMPOSSIBLE (the highest set) */
+int difficulty_reward_count_mods(uint16_t mods, int n);
 int difficulty_reward_count(int n);        /* a drop of n coins / bombs / keys / hearts in this room: x1.5 .. x3, one more at least */
 void mods_on_room_enter(void); /* after the room is set up (banner, elite type, horde) */
 void mods_update(void);        /* the storm (room_update, while fighting) */
@@ -1281,6 +1288,10 @@ void pickups_draw(void);
 void interact_target(int *pk, int *mc); /* what E would act on (-1: none) */
 void interact_draw(void);
 void reward_drop(RewardType r, V2 pos);
+void reward_drop_n(RewardType r, V2 pos, int n); /* n coins / keys / bombs / hearts (0: rolled now) */
+int reward_roll_count(RewardType r, uint16_t mods); /* what a coin / key / bomb / heart room with these modifiers gives (0: another reward) */
+bool special_room_empty(RoomType t);  /* the machine room has nothing for this ship: it drops coins instead */
+void doors_roll_counts(void);         /* fills Door.count of the room's doors (luck and upgrades as they are now) */
 /* Secret room loot: 1 item (rarely 2) plus coins / bombs / keys. */
 void secret_reward_drop(V2 center, bool items);
 /* Spawn a pedestal that belongs to the room's one-of-N choice. */

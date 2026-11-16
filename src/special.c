@@ -21,7 +21,7 @@
  *  KEY ROOM   a locked gate (MC_GATE): one key opens it, an upgrade waits behind.
  *  INFIRMARY  a full heal (MC_HEAL), or a heart container for coins (MC_CONTAINER): one of the two.
  * Their doors are locked (door_needs_key) and as likely as any other room's (gen_doors); a room whose machines come out
- * empty (a trader for a ship with nothing to pay with...) drops coins instead.
+ * empty (a trader for a ship with nothing to pay with...) drops a resource instead (coins, keys, bombs or hearts, its door said which).
  */
 
 #define TRIGGER_R 62.0f
@@ -94,6 +94,21 @@ static void shuffle(int *a, int n) {
         int j = irand(0, i), t = a[i];
         a[i] = a[j];
         a[j] = t;
+    }
+}
+
+/* The machine room has nothing for this ship (a purifier when no upgrade has a malus to buy off...): it drops a random resource instead (coins, keys, bombs or hearts). */
+bool special_room_empty(RoomType t) {
+    int pool[UPG_COUNT];
+    switch (t) {
+    case ROOM_TRADER: return collect(upgrade_tradable, pool) < TRADE_COST;
+    case ROOM_PURIFIER: return collect(purifiable, pool) == 0;
+    case ROOM_FORGE: {
+        int n = collect(fusable, pool), nr = 0;
+        for (int i = 0; i < n; i++) nr += malus_removable(pool[i]);
+        return n < 2 || nr == 0;
+    }
+    default: return false;
     }
 }
 

@@ -120,6 +120,8 @@ void game_world_step(void) {
                 Door d = G.room.doors[G.trans_door];
                 G.entry_side = side_opposite(d.side); /* out on the right: in on the left */
                 G.entry_mods = d.mods;
+                G.entry_count = d.count;
+                G.entry_alt = d.alt;
                 room_enter(d.type, d.reward, G.room.depth + 1);
             }
             save_autosave(); /* a new screen, its enemies about to show up: the only time the game saves */

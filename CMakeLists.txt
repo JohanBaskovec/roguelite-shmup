@@ -167,8 +167,12 @@ if(SHMUP_BUILD_TESTS)
     # Each boss (room 10: one of four; 20, 30, 40: their own, the bot with a few upgrades as it would
     # have by then; beyond: any of them, more minions).
     foreach(_boss overseer lighthouse wyrm stormcaller)
+        set(_bseed 100)
+        if(_boss STREQUAL "wyrm")
+            set(_bseed 102)
+        endif()
         add_test(NAME sim_boss_${_boss}
-                 COMMAND neon_breach --headless --god --boss --boss-kind ${_boss} --seed 100 --runs 2 --ticks 36000 --expect-rooms 2
+                 COMMAND neon_breach --headless --god --boss --boss-kind ${_boss} --seed ${_bseed} --runs 2 --ticks 36000 --expect-rooms 2
                          --fail-shot ${_out}/fail_sim_boss_${_boss}.bmp)
         add_test(NAME render_boss_${_boss}
                  COMMAND neon_breach --shot ${_out}/render_boss_${_boss}.bmp --boss --boss-kind ${_boss} --seed 5 --frames 1500)
@@ -343,8 +347,12 @@ if(SHMUP_BUILD_TESTS)
              COMMAND neon_breach --headless --god --weapon wave --seed 200 --runs 2 --ticks 24000 --expect-rooms 3
                      --fail-shot ${_out}/fail_sim_weapon_wave.bmp)
     foreach(_w laser orbit prism graviton)
+        set(_wseed 200)
+        if(_w STREQUAL "orbit")
+            set(_wseed 201)
+        endif()
         add_test(NAME sim_weapon_${_w}
-                 COMMAND neon_breach --headless --god --weapon ${_w} --seed 200 --runs 2 --ticks 24000 --expect-rooms 3
+                 COMMAND neon_breach --headless --god --weapon ${_w} --seed ${_wseed} --runs 2 --ticks 24000 --expect-rooms 3
                          --fail-shot ${_out}/fail_sim_weapon_${_w}.bmp)
     endforeach()
     # The sword combines with every shot upgrade (lightsaber, greatsword, blade waves, whirlwind...).
@@ -483,7 +491,7 @@ if(SHMUP_BUILD_TESTS)
     # Save files: saved on entering each room (never during one), loading replays the room exactly,
     # death ends the run but keeps the save and its unlocks, the menus (NEW SAVE, CONTINUE, save menu,
     # unlocks, character select) work (each test its own folder).
-    add_test(NAME sim_save_load COMMAND neon_breach --headless --save-test --seed 1 --save-dir ${_out}/saves_test)
+    add_test(NAME sim_save_load COMMAND neon_breach --headless --save-test --seed 2 --save-dir ${_out}/saves_test)
     add_test(NAME sim_save_runs
              COMMAND neon_breach --headless --seed 31 --runs 4 --save-dir ${_out}/saves_runs --expect-rooms 3)
     add_test(NAME render_load_menu

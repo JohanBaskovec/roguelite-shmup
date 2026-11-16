@@ -70,7 +70,7 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   every room they start full of enemies; `room_reveal` then spawns their machines (`Machine`, `MC_TRADE .. MC_FORGE`, `G.mc`, used with E through
   `special_use`, ticked by `special_tick`, drawn by `special_draw`, all called from `workshop_update` / `workshop_draw`). Their doors are
   always locked and as likely as any other room's (below), whatever the ship has: a room whose machines come out empty (a trader for a ship with
-  nothing to pay with) drops coins. TRADER: up to `TRADER_OFFERS` upgrades for sale, each paid with `TRADE_COST` of the ship's own
+  nothing to pay with) drops a random resource (coins, keys, bombs or hearts). TRADER: up to `TRADER_OFFERS` upgrades for sale, each paid with `TRADE_COST` of the ship's own
   (`upgrade_tradable`: owned for real, not the starting weapon, not in a fusion; `upgrade_remove`). PURIFIER: `Player.malus_off[u]` (read by
   `malus()`, `malus_stat_effect()` and the descriptions; never a `MAL_CUSTOM` malus: `malus_removable`). VAULT: a safe (`MC_SAFE`, `SAFE_HP`,
   `SAFE_TIME`) that stands dead centre from the moment the enemies come (`vault_spawn` in `room_enter`, `blocks.c` bans the middle of the floor for
@@ -195,7 +195,7 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   `sim_rooms_mod_<name>` CTests (`--mod NAME` forces it on every room that can have it; `sim_rooms_mod_combo*` mix them),
   a check box on the F4 page comes with the enum.
 - After a room is cleared the player chooses between 3 doors; each door previews what the next
-  room gives. The 3 doors are always different (no reward or special room behind two doors).
+  room gives: **the exact count for coin / key / bomb / heart rooms** (`Door.count`, rolled by `doors_roll_counts` when the room is cleared, so luck and upgrades are current; carried by `G.entry_count` into `Room.reward_count`, which `reward_drop_n` drops as is: difficulty levels and a wager included, a wager shown doubled), never the upgrades / actives behind an upgrade or active door. A machine room the ship cannot use (`special_room_empty`: purifier with no upgrade to purify, trader with fewer than `TRADE_COST` tradable, forge with no pair) shows its icon struck out in red and what it will drop instead: a random resource, coins / keys / bombs / hearts, with a count rolled as for a room of that kind (`Door.alt` + `Door.count` -> `G.entry_alt` -> `Room.alt_reward`; the room drops exactly that). The 3 doors are always different (no reward or special room behind two doors).
   **Every kind of room has the same chance, whatever the depth, the ship's health or its resources**: `gen_doors` draws the 3 doors out of
   `KINDS`, 16 kinds (the 6 combat rewards: coins, key, bombs, hearts, upgrade, active; the 10 special rooms: shop, workshop, casino, Baphomet and the
   six machine rooms of `special.c`), one chance in 16 each. The only rules: none from the launch bay but the 4 free combat rewards, never the special

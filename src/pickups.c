@@ -184,31 +184,47 @@ void secret_reward_drop(V2 center, bool items) {
     fx_burst(center, 40, 100.0f, 500.0f, 0.5f, 3.0f, col_hex(COLOR_SECRET, 1));
 }
 
-void reward_drop(RewardType r, V2 pos) {
+int reward_roll_count(RewardType r, uint16_t mods) {
+    int n;
     switch (r) {
     case RW_COINS: {
         /* Coins only come from rewards, so a coin room pays roughly one shop item. */
         float base = (float)irand(13, 18) + (float)G.room.depth * 0.55f;
         if (upg_has(UPG_MAGNET)) base *= 1.5f; /* COIN MAGNET */
-        int n = difficulty_reward_count((int)roundf(base * luck_factor()));
-        for (int i = 0; i < n; i++) pickup_spawn(PK_COIN, 1, pos, random_vel(100.0f, 450.0f));
+        n = (int)roundf(base * luck_factor());
     } break;
-    case RW_KEY: {
-        /* Usually one key, rarely two, even more rarely three. */
+    case RW_KEY: { /* usually one key, rarely two, even more rarely three */
         float roll = frand(0.0f, 1.0f);
-        int n = difficulty_reward_count(luck_adjust(roll < KEY_REWARD_3_CHANCE ? 3 : roll < KEY_REWARD_3_CHANCE + KEY_REWARD_2_CHANCE ? 2 : 1));
-        for (int i = 0; i < n; i++) pickup_spawn(PK_KEY, 0, pos, random_vel(50.0f, 160.0f));
+        n = luck_adjust(roll < KEY_REWARD_3_CHANCE ? 3 : roll < KEY_REWARD_3_CHANCE + KEY_REWARD_2_CHANCE ? 2 : 1);
     } break;
-    case RW_BOMBS: {
-        int n = difficulty_reward_count(luck_adjust(2));
-        for (int i = 0; i < n; i++) pickup_spawn(PK_BOMB, 0, pos, random_vel(100.0f, 250.0f));
-    } break;
-    case RW_HEART: {
-        int n = luck_adjust(2) - malus(MAL_HEAL); /* HEAL malus: fewer hearts, at least one */
+    case RW_BOMBS: n = luck_adjust(2); break;
+    case RW_HEART:
+        n = luck_adjust(2) - malus(MAL_HEAL); /* HEAL malus: fewer hearts, at least one */
         if (n < 1) n = 1;
-        n = difficulty_reward_count(n);
+        break;
+    default: return 0;
+    }
+    n = difficulty_reward_count_mods(mods, n);
+    return n < 1 ? 1 : n > 255 ? 255 : n;
+}
+
+void reward_drop(RewardType r, V2 pos) { reward_drop_n(r, pos, 0); }
+
+void reward_drop_n(RewardType r, V2 pos, int n) {
+    if (n <= 0) n = reward_roll_count(r, G.room.mods);
+    switch (r) {
+    case RW_COINS:
+        for (int i = 0; i < n; i++) pickup_spawn(PK_COIN, 1, pos, random_vel(100.0f, 450.0f));
+        break;
+    case RW_KEY:
+        for (int i = 0; i < n; i++) pickup_spawn(PK_KEY, 0, pos, random_vel(50.0f, 160.0f));
+        break;
+    case RW_BOMBS:
+        for (int i = 0; i < n; i++) pickup_spawn(PK_BOMB, 0, pos, random_vel(100.0f, 250.0f));
+        break;
+    case RW_HEART:
         for (int i = 0; i < n; i++) pickup_spawn(PK_HEART, 0, pos, random_vel(100.0f, 250.0f));
-    } break;
+        break;
     case RW_UPGRADE: spawn_item_choices(pos); break;
     case RW_ACTIVE: active_spawn_choices(pos); break;
     default:

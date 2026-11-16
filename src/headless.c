@@ -432,10 +432,11 @@ static const char *check_special_room(void) {
         if (G.nmc != 0 || coins != G.npk || coins != G.room.vault_coins) return "vault cleared with a safe still there, or the wrong coins";
         return NULL;
     }
-    if (G.nmc < 1) { /* nothing the ship could use: coins instead */
+    if (G.nmc < 1) { /* nothing the ship could use: the resource its door named instead (coins, keys, bombs or hearts) */
         for (int i = 0; i < G.npk; i++)
-            if (G.pk[i].type != PK_COIN) return "special room without machines drops something else than coins";
-        return G.npk > 0 ? NULL : "special room cleared without a machine or coins";
+            if (G.room.alt_reward < RW_COINS || G.room.alt_reward > RW_HEART || G.pk[i].type != reward_icon(G.room.alt_reward))
+                return "special room without machines drops something else than the resource its door named";
+        return G.npk > 0 ? NULL : "special room cleared without a machine or its resource";
     }
     if (G.npk > 0) return "special room has pickups next to its machines before anything is used";
     for (int i = 0; i < G.nmc; i++) {
@@ -3152,7 +3153,7 @@ static int debug_rooms_run(const HeadlessOptions *o) {
             bool diff_ok = true;
             for (int lv = 1; lv <= 4; lv++) {
                 FIRST_WAVE(MOD_BIT(MOD_HARD + lv - 1));
-                diff_ok = diff_ok && room_difficulty() == lv && G.room.nwaves == normal_waves + lv && G.room.last_wave_size >= normal;
+                diff_ok = diff_ok && room_difficulty() == lv && G.room.nwaves == normal_waves + lv && (lv < 3 || G.room.last_wave_size >= normal); /* (the first levels: a few big enemies can make a smaller wave) */
                 if (lv == 4) diff_ok = diff_ok && G.room.last_wave_size * 10 >= normal * 16;
                 G.npk = 0;
                 reward_drop(RW_BOMBS, v2(ARENA_CX, ARENA_CY));
@@ -3185,6 +3186,34 @@ static int debug_rooms_run(const HeadlessOptions *o) {
             reward_drop(RW_BOMBS, v2(ARENA_CX, ARENA_CY));
             diff_ok = diff_ok && G.npk == 2; /* (no modifier: the plain 2 bombs) */
             G.npk = 0;
+
+            /* The doors say what the room gives: the count rolled with the door is the count dropped (coins / keys / bombs / hearts), and a machine
+             * room the ship cannot use (a purifier with no upgrade) drops the resource its door showed. */
+            bool counts_ok = special_room_empty(ROOM_PURIFIER) && special_room_empty(ROOM_TRADER) && special_room_empty(ROOM_FORGE) && !special_room_empty(ROOM_VAULT);
+            static const struct { RoomType type; RewardType reward; PickupType pk; } GIVES[] = {
+                {ROOM_COMBAT, RW_COINS, PK_COIN}, {ROOM_COMBAT, RW_KEY, PK_KEY}, {ROOM_COMBAT, RW_BOMBS, PK_BOMB}, {ROOM_COMBAT, RW_HEART, PK_HEART},
+                {ROOM_PURIFIER, RW_NONE, PK_COIN}, {ROOM_TRADER, RW_NONE, PK_KEY}, {ROOM_FORGE, RW_NONE, PK_BOMB}, {ROOM_PURIFIER, RW_NONE, PK_HEART},
+            };
+            for (int g = 0; g < (int)ARRAY_LEN(GIVES); g++) {
+                game_init(o->seed);
+                game_new_run();
+                G.entry_count = 7;
+                if (GIVES[g].type != ROOM_COMBAT) G.entry_alt = GIVES[g].pk == PK_COIN ? RW_COINS : GIVES[g].pk == PK_KEY ? RW_KEY : GIVES[g].pk == PK_BOMB ? RW_BOMBS : RW_HEART;
+                room_enter(GIVES[g].type, GIVES[g].reward, 5);
+                G.state = GS_PLAYING;
+                G.god = true;
+                room_skip();
+                for (int t = 0; t < (int)((ROOM_REVEAL_T + 0.5f) * TICK_RATE); t++) BTICK();
+                int got = 0;
+                for (int i = 0; i < G.npk; i++) got += G.pk[i].type == GIVES[g].pk;
+                counts_ok = counts_ok && got == 7;
+                for (int i = 0; i < G.room.ndoors; i++) { /* every door of the cleared room: a count where it has something to say */
+                    const Door *d = &G.room.doors[i];
+                    bool says = d->type == ROOM_COMBAT ? (d->reward >= RW_COINS && d->reward <= RW_HEART) : (d->type >= ROOM_TRADER && d->type <= ROOM_INFIRMARY && d->type != ROOM_VAULT);
+                    counts_ok = counts_ok && (says ? d->count > 0 : d->count == 0);
+                    if (d->type != ROOM_COMBAT) counts_ok = counts_ok && (says ? d->alt >= RW_COINS && d->alt <= RW_HEART : d->alt == RW_NONE);
+                }
+            }
 
             /* Powder keg: barrels and oil drums (a few crates), many of them. */
             game_init(o->seed);
@@ -3244,10 +3273,10 @@ static int debug_rooms_run(const HeadlessOptions *o) {
 #undef FIRST_WAVE
             G.god = false;
             printf("scripted room modifiers: on doors (all met, wager on combat rooms only, one at most, none on the boss's; mixes kept where allowed) -> %s, wager: a heart in, refused on the last one, "
-                   "two rows -> %s, horde -> %s, elite -> %s, powder keg -> %s, storm -> %s, compactor -> %s, difficulty levels: waves, size, loot -> %s, every room and modifier as likely at any depth / health -> %s\n",
+                   "two rows -> %s, horde -> %s, elite -> %s, powder keg -> %s, storm -> %s, compactor -> %s, difficulty levels: waves, size, loot -> %s, doors name what the room gives -> %s, every room and modifier as likely at any depth / health -> %s\n",
                    doors_mod_ok ? "OK" : "FAILED", wager_ok ? "OK" : "FAILED", horde_ok ? "OK" : "FAILED", elite_ok ? "OK" : "FAILED",
-                   powder_ok ? "OK" : "FAILED", storm_ok ? "OK" : "FAILED", comp_ok ? "OK" : "FAILED", diff_ok ? "OK" : "FAILED", uniform_ok ? "OK" : "FAILED");
-            failures += !doors_mod_ok + !wager_ok + !horde_ok + !elite_ok + !powder_ok + !storm_ok + !comp_ok + !diff_ok + !uniform_ok;
+                   powder_ok ? "OK" : "FAILED", storm_ok ? "OK" : "FAILED", comp_ok ? "OK" : "FAILED", diff_ok ? "OK" : "FAILED", counts_ok ? "OK" : "FAILED", uniform_ok ? "OK" : "FAILED");
+            failures += !doors_mod_ok + !wager_ok + !horde_ok + !elite_ok + !powder_ok + !storm_ok + !comp_ok + !diff_ok + !counts_ok + !uniform_ok;
         }
 
         /* The six newer rooms (special.c), used the way a player does it (standing on a machine, E). TRADER: two of the

@@ -454,6 +454,22 @@ static void gen_doors(void) {
         if (!r->doors[i].locked) r->doors[i].mods &= (uint16_t)~MOD_BIT(MOD_WAGER);
 }
 
+/* What the doors say they give: coins / keys / bombs / hearts, rolled once (the room then drops exactly that). A machine room gives
+ * coins when the ship cannot use it (special_room_empty), so its door carries a coin count too. */
+void doors_roll_counts(void) {
+    Room *r = &G.room;
+    for (int i = 0; i < r->ndoors; i++) {
+        Door *d = &r->doors[i];
+        d->count = 0;
+        d->alt = RW_NONE;
+        if (d->type == ROOM_COMBAT) d->count = (uint8_t)reward_roll_count(d->reward, d->mods);
+        else if (d->type >= ROOM_TRADER && d->type <= ROOM_INFIRMARY && d->type != ROOM_VAULT) {
+            d->alt = (RewardType)irand(RW_COINS, RW_HEART); /* coins, keys, bombs or hearts, as if it were a room of that kind */
+            d->count = (uint8_t)reward_roll_count(d->alt, 0);
+        }
+    }
+}
+
 static void spawn_shop_items(void);
 static void draw_boss_icon(V2 c, float s);
 
@@ -476,6 +492,10 @@ void room_enter(RoomType type, RewardType reward, int depth) {
     r->entry = G.entry_side;
     r->mods = (uint16_t)mods_allowed(type, reward, g_mod_override >= 0 ? (unsigned)g_mod_override : G.entry_mods);
     G.entry_mods = 0; /* used up */
+    r->reward_count = G.entry_count;
+    r->alt_reward = G.entry_alt;
+    G.entry_count = 0;
+    G.entry_alt = RW_NONE;
     unlocks_on_room(depth); /* ships unlocked by depth (not in the demo) */
     bool can_hide = type == ROOM_COMBAT || type == ROOM_SHOP;
     if (can_hide && (G.force_secret || chance(SECRET_CHANCE))) {
@@ -512,6 +532,7 @@ void room_enter(RoomType type, RewardType reward, int depth) {
     if (type == ROOM_BOSS) room_boss_layout(r->boss);
     else if (!room_type_peaceful(type)) room_gen_layout();
     if (type != ROOM_SECRET) gen_doors();          /* the secret room's only exit leads back */
+    if (type == ROOM_START) doors_roll_counts();   /* (the others are rolled when the room is cleared: luck and upgrades may have changed) */
     r->peaceful = type == ROOM_START;
     if (type == ROOM_SECRET) {
         int shop = G.secret_shop_override, ambush = G.secret_ambush_override;
@@ -686,6 +707,8 @@ V2 shop_supply_spot(int i) { return v2(ARENA_CX + 330.0f + 230.0f * (float)i, AR
 /* What the cleared room gives, once the obstacles are gone (clear_t reaching 0). */
 static void room_reveal(void) {
     Room *r = &G.room;
+    doors_roll_counts();
+    if (r->reward_count <= 0 && r->reward != RW_NONE) r->reward_count = reward_roll_count(r->reward, r->mods); /* (no door said: a debug room) */
     if (r->type == ROOM_SHOP) spawn_shop_items();
     else if (r->type == ROOM_WORKSHOP) workshop_spawn();
     else if (r->type == ROOM_CASINO) casino_spawn();
@@ -697,15 +720,19 @@ static void room_reveal(void) {
     else if (r->type == ROOM_KEYS) keys_room_spawn();
     else if (r->type == ROOM_INFIRMARY) infirmary_spawn();
     if (r->type >= ROOM_TRADER && r->type <= ROOM_INFIRMARY && r->type != ROOM_VAULT && G.nmc == 0) /* the ship cannot use it any more (its door was rolled for another state) */
-        reward_drop(RW_COINS, v2(ARENA_CX, ARENA_CY));
+    { /* (no door said: a debug room: any resource) */
+        if (r->alt_reward == RW_NONE) r->alt_reward = (RewardType)irand(RW_COINS, RW_HEART);
+        if (r->reward_count <= 0) r->reward_count = reward_roll_count(r->alt_reward, 0);
+        reward_drop_n(r->alt_reward, v2(ARENA_CX, ARENA_CY), r->reward_count);
+    }
     else if (r->type == ROOM_SECRET) secret_loot(); /* after an ambush */
     else if (room_has_mod(MOD_WAGER) && r->reward != RW_NONE) { /* the reward twice: two choices / twice the loot */
         bool offers = r->reward == RW_UPGRADE || r->reward == RW_ACTIVE;
-        reward_drop(r->reward, v2(ARENA_CX, ARENA_CY - (offers ? 150.0f : 0.0f)));
+        reward_drop_n(r->reward, v2(ARENA_CX, ARENA_CY - (offers ? 150.0f : 0.0f)), r->reward_count);
         pickups_set_choice_group(2);
-        reward_drop(r->reward, v2(ARENA_CX, ARENA_CY + (offers ? 150.0f : 0.0f)));
+        reward_drop_n(r->reward, v2(ARENA_CX, ARENA_CY + (offers ? 150.0f : 0.0f)), r->reward_count);
         pickups_set_choice_group(1);
-    } else if (r->reward != RW_NONE) reward_drop(r->reward, v2(ARENA_CX, ARENA_CY));
+    } else if (r->reward != RW_NONE) reward_drop_n(r->reward, v2(ARENA_CX, ARENA_CY), r->reward_count);
 }
 
 /* instant (debug clear): no shatter, the room is empty and its reward out at once. */
@@ -1134,6 +1161,16 @@ static void draw_workshop_icon(V2 p, float s) {
     draw_ring(p, s * 0.62f, s * 0.3f, c);
 }
 
+/* What a door giving n of a resource calls it: "1 KEY", "3 KEYS". */
+static const char *resource_name(RewardType r, int n) {
+    switch (r) {
+    case RW_KEY: return n == 1 ? "KEY" : "KEYS";
+    case RW_BOMBS: return n == 1 ? "BOMB" : "BOMBS";
+    case RW_HEART: return n == 1 ? "HEART" : "HEARTS";
+    default: return n == 1 ? "COIN" : "COINS";
+    }
+}
+
 static void draw_door(const Door *d, bool cleared, bool entry) {
     Side side = d->side;
     V2 p = d->pos;
@@ -1233,9 +1270,30 @@ static void draw_door(const Door *d, bool cleared, bool entry) {
     else if (d->type == ROOM_BOSS) draw_boss_icon(ip, 11.0f * sc);
     else if (d->type == ROOM_SECRET) draw_text_centered(ip.x + 1.0f, ip.y - 12.0f * sc, 3.0f * sc, col_hex(COLOR_SECRET, 1), "%s", G.room.type == ROOM_SECRET ? "v" : "?");
     else draw_pickup_icon(reward_icon(d->reward), -1, ip, 11.0f * sc, G.time);
-    if (pop >= 1.0f) draw_text_centered(ip.x, ip.y + 34.0f, 1.5f, col_a(rc, 0.9f), "%s", door_label(d));
+    /* A machine room the ship cannot use pays a resource instead (coins, keys, bombs or hearts): its icon struck out in red, the coins it gives under it. */
+    bool useless = d->type != ROOM_COMBAT && special_room_empty(d->type);
+    if (useless) {
+        float k = 15.0f * sc;
+        draw_line(v2_add(ip, v2(-k, -k)), v2_add(ip, v2(k, k)), 4.0f, col_hex(0xff2a3a, 0.95f));
+        draw_line(v2_add(ip, v2(-k, k)), v2_add(ip, v2(k, -k)), 4.0f, col_hex(0xff2a3a, 0.95f));
+    }
+    float y = ip.y + 50.0f;
+    if (pop >= 1.0f) {
+        const char *name = door_label(d);
+        bool amount = d->type == ROOM_COMBAT && d->count > 0;
+        if (amount) { /* coins / keys / bombs / hearts: how many (a wager drops them twice) */
+            int n = d->count * ((d->mods & MOD_BIT(MOD_WAGER)) ? 2 : 1);
+            draw_text_centered(ip.x, ip.y + 34.0f, 2.0f, col_hex(0xffffff, 0.95f), "%d %s", n, resource_name(d->reward, n));
+            y += 6.0f;
+        } else {
+            draw_text_centered(ip.x, ip.y + 34.0f, 1.5f, col_a(rc, 0.9f), "%s", name);
+        }
+        if (useless && d->count > 0) {
+            draw_text_centered(ip.x, y, 1.5f, reward_color(d->alt), "+ %d %s", d->count, resource_name(d->alt, d->count));
+            y += 16.0f;
+        }
+    }
     if (pop >= 1.0f) { /* the room's modifiers, under its reward */
-        float y = ip.y + 50.0f;
         for (int m = MOD_NONE + 1; m < MOD_COUNT; m++) {
             if (!(d->mods & MOD_BIT(m))) continue;
             draw_text_centered(ip.x, y, 1.5f, col_hex(mod_color(m), 0.75f + 0.25f * pulse), "+ %s", mod_name(m));

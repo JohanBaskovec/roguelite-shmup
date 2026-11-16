@@ -51,16 +51,20 @@ static const struct { float enemies; int waves; float loot; } DIFF[5] = {
     {1.0f, 0, 1.0f}, {1.3f, 1, 1.5f}, {1.6f, 2, 2.0f}, {2.0f, 3, 2.5f}, {2.5f, 4, 3.0f},
 };
 
-int room_difficulty(void) {
+static int difficulty_of(uint16_t mods) {
     for (int lv = 4; lv >= 1; lv--)
-        if (room_has_mod(MOD_HARD + lv - 1)) return lv;
+        if (mods & MOD_BIT(MOD_HARD + lv - 1)) return lv;
     return 0;
 }
 
+int room_difficulty(void) { return difficulty_of(G.room.mods); }
+
 float room_difficulty_enemies(void) { return DIFF[room_difficulty()].enemies; }
 
-int difficulty_reward_count(int n) {
-    int lv = room_difficulty();
+int difficulty_reward_count(int n) { return difficulty_reward_count_mods(G.room.mods, n); }
+
+int difficulty_reward_count_mods(uint16_t mods, int n) {
+    int lv = difficulty_of(mods);
     if (!lv) return n;
     int more = (int)roundf((float)n * DIFF[lv].loot);
     return more > n + 1 ? more : n + 1;
