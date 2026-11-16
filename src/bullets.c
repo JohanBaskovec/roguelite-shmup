@@ -166,8 +166,9 @@ static void update_player_bullets(void) {
                 b->pos = v2_add(b->pos, v2_scale(b->vel, DT));
             }
             /* PHASE ROUNDS fly through obstacles; only the arena walls stop them. */
-            wall = upg_has(UPG_PHASE) ? arena_collide(&b->pos, b->radius, &n) : room_collide_obstacle(&b->pos, b->radius, &n, &block);
-            if (upg_has(UPG_PHASE) && !wall) { /* through the walls, but a breakable block stops it (and takes the hit) */
+            bool phase = upg_has(UPG_PHASE) || upg_has(UPG_X_VOID_ROUNDS); /* VOID ROUNDS too */
+            wall = phase ? arena_collide(&b->pos, b->radius, &n) : room_collide_obstacle(&b->pos, b->radius, &n, &block);
+            if (phase && !wall) { /* through the walls, but a breakable block stops it (and takes the hit) */
                 V2 q = b->pos;
                 int k;
                 if (room_collide_obstacle(&q, b->radius, &n, &k) && k >= 0 && obstacle_breakable(&G.room.obs[k])) {
@@ -322,6 +323,10 @@ static void update_enemy_bullets(void) {
                     break;
                 }
                 break;
+            case EB_WEB: { /* brakes to a stop, then hangs there */
+                float spd = v2_len(b->vel);
+                if (spd > 0.5f) b->vel = v2_scale(b->vel, maxf(0.0f, spd - b->t1 * DT * tempo) / spd);
+            } break;
             case EB_WAVY:
                 if (v2_len2(b->vel) > 1.0f) {
                     float dy = 34.0f * (sinf(7.0f * b->age) - sinf(7.0f * (b->age - DT)));
@@ -350,6 +355,14 @@ static void update_enemy_bullets(void) {
                 if (b->kind == EB_BOUNCE && b->n > 0) {
                     b->n--;
                     reflect(&b->vel, n);
+                } else if (b->kind == EB_SHATTER) { /* bursts against the wall, back into the room */
+                    EBullet sh = *b;
+                    float base = v2_heading(n);
+                    for (int k = 0; k < sh.n; k++)
+                        ebullet_spawn(sh.pos, base + PI_F * (((float)k + 0.5f) / (float)sh.n - 0.5f), 240.0f, 6.0f, sh.col);
+                    b = &G.eb[i];
+                    fx_particle(sh.pos, v2(0, 0), 0.2f, 50.0f, sh.col, 0.0f, PT_RING);
+                    dead = true;
                 } else {
                     dead = true;
                 }
@@ -360,7 +373,7 @@ static void update_enemy_bullets(void) {
             float rr = b->radius * 0.75f + pl->hit_radius, gr = rr + 30.0f;
             float d2 = v2_dist2(b->pos, pl->pos);
             if (d2 < rr * rr) {
-                player_hurt(1);
+                if (player_hurt(1) && (b->kind == EB_FROST || b->kind == EB_WEB)) pl->chill_t = 2.0f; /* FROSTBITE, WEAVER */
                 dead = true;
             } else if (!b->grazed && d2 < gr * gr && upg_graze_on()) { /* GRAZE: a near miss */
                 b->grazed = true;

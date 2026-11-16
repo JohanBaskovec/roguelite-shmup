@@ -57,6 +57,69 @@ static const char *const DESC[EN_COUNT] = {
     [EN_CARRIER] = "Turning shield plates stop shots: aim for the|gaps. Drones, missiles, flak, then a beam.",
     [EN_SINGULARITY] = "A black hole: pulls the ship in and bends shots.|Rings collapse onto it, its gravity flips.",
     [EN_SPLITLING] = "Born from a dying splitter: hops after|the ship in short bursts.",
+    [EN_DRIFTER] = "Drifts in straight lines, bouncing off the walls,|and now and then lets go of a slow shot.",
+    [EN_PEON] = "Walks up to a fair distance and fires|one plain shot at a time. The basics.",
+    [EN_BUZZER] = "A tiny fly zigzagging at the ship. No gun:|it only hurts if it touches.",
+    [EN_PULSAR] = "Barely moves. Every few seconds it pulses|out a ring of six slow bullets.",
+    [EN_SNAIL] = "Crawls after the ship, leaving a trail of slime|that hangs there for a while. Do not cross it.",
+    [EN_SKITTER] = "Timid: keeps well away. Come close and it|panics, firing backwards as it runs.",
+    [EN_POPPER] = "Looks harmless and nearly is - until it dies:|it pops into a ring of bullets. Not point-blank.",
+    [EN_SPRINKLER] = "Sweeps a thin stream of bullets back and forth|across the ship, then rests a moment.",
+    [EN_BEETLE] = "Its shell turns to face the ship: shots on the|front barely scratch it. Go round its back.",
+    [EN_CRAB] = "Only scuttles sideways. Its pincer shots|curve in from both sides to meet the ship.",
+    [EN_WASP] = "Hovers, freezes, then darts in and stings|with a fast needle before backing off.",
+    [EN_DICE] = "Rolls itself every two seconds: the face up|says how many bullets fly. A six is bad news.",
+    [EN_PUFFER] = "Drifts close, swells up and bursts into spikes|all round, then deflates. Back off when it swells.",
+    [EN_PRISM] = "Fires red, green and blue: the side shots bend|in to meet the middle one on the ship.",
+    [EN_BAT] = "Swoops round the ship in figure eights,|pinging rings of small sonar bullets.",
+    [EN_CENTIPEDE] = "A head and five segments: each part is its own|target. Kill the head and the next one leads.",
+    [EN_BROODER] = "Lays eggs as it goes. Each egg hatches a|buzzer if it is not broken in time.",
+    [EN_MEDIC] = "Keeps behind the most hurt ally and heals it|with a beam. Take it out first.",
+    [EN_HEDGEHOG] = "Bristles with quills: rings of them now and|then, and one thrown back for every hit taken.",
+    [EN_SAPPER] = "Runs right next to the ship, plants a bomb|and runs off. The bomb bursts into a big ring.",
+    [EN_ROCKETEER] = "Keeps away and launches pairs of homing|missiles. They can be shot down.",
+    [EN_JESTER] = "A different trick every time: weaving, bouncing,|homing, splitting or boomerang shots.",
+    [EN_FROSTBITE] = "Its frost shots chill the ship they hit:|slower for a moment, so the next ones land.",
+    [EN_GLITCH] = "Jitters from spot to spot every third of a|second, spraying glitched bullets.",
+    [EN_PEEKER] = "Shy: freezes and hides its face while the ship|aims at it, creeps up and fires when it does not.",
+    [EN_ECHO] = "Mirrors the ship's moves: comes at it as the|ship steps in, backs off as the ship backs off.",
+    [EN_CLOCK] = "Its two hands fire on every tick,|and a full ring chimes every twelve.",
+    [EN_HALO] = "Six orbs circle it and sting on contact;|it flings them out and grows them back.",
+    [EN_STALKER] = "All but invisible while it closes in. It shows|up only to fire a fan, then slips away.",
+    [EN_OCTOPUS] = "Swims in pulses; every pulse lets out|a ring of weaving ink.",
+    [EN_BUZZSAW] = "A spinning blade bouncing round the room:|shots glance off until it stops to cool down.",
+    [EN_SENTRY] = "A turret that turns slowly and streams bullets|while the ship is in its sights. Outrun its turn.",
+    [EN_TORCH] = "Walks up close and pours out a cone of short|flames. Keep out of its reach.",
+    [EN_ZAPPER] = "Locks a point and charges an arc to it:|step off the line before it cracks.",
+    [EN_BEAMER] = "A deadly beam that sweeps across the room;|the line shows first. Blocks give cover.",
+    [EN_ENGINEER] = "Builds up to three turrets and keeps away|from the fight. Get it before it digs in.",
+    [EN_JELLY] = "Drifts in pulses of slow rings; its stinging|tentacles trail behind it.",
+    [EN_SCORPION] = "Lobs a sting over the walls with its tail,|and snaps its pincers up close.",
+    [EN_LINKER] = "Pairs up: a deadly tether hums between the two|as they circle the ship. Kill one to cut it.",
+    [EN_SWAPPER] = "Marks the ship with a line, then trades places|with it - in the middle of its own fire.",
+    [EN_SPOTTER] = "Paints the ship from afar. A moment later|a strike comes down where it stood.",
+    [EN_LODESTONE] = "Its field pushes shots aside: get close or|shoot fast. Fires rings that turn.",
+    [EN_SPONGE] = "Soaks up the shots on its front, then|squeezes them all back out at the ship.",
+    [EN_PARRY] = "Guard up (white ring): hits do nothing and|are answered at once. Wait for the guard to drop.",
+    [EN_BUBBLER] = "Wraps an ally in a bubble that stops three|whole hits. Pop the bubbles or the bubbler.",
+    [EN_DRUMMER] = "Every beat hurries every enemy around it:|faster moves, faster fire.",
+    [EN_TRICKSTER] = "Makes look-alikes and swaps places. The real|one fires; an illusion pops in one hit.",
+    [EN_HYDRA] = "Every head lost grows two smaller, faster|ones - twice over.",
+    [EN_MANTIS] = "Lurks half hidden and creeps up, then strikes|in a flash along a line. Exposed after.",
+    [EN_FLAIL] = "Swings a spiked ball on a chain, faster|up close, letting spikes fly at each turn.",
+    [EN_MOLE] = "Tunnels under the ship (out of reach), bursts|out in a ring, then stands exposed for a moment.",
+    [EN_CRYSTAL] = "Grows all the time: bigger, tougher, more|shards. Break it early.",
+    [EN_NECRO] = "Raises what died in the room (four at most)|and sends homing skulls.",
+    [EN_BERSERKER] = "The more it is hurt, the faster it runs and|the more it fires. Finish it quickly.",
+    [EN_FUNGUS] = "Puffs out spores that drift after the ship;|every hit shakes another one loose.",
+    [EN_WEAVER] = "Spins webs that hang in the air: one|touch chills the ship.",
+    [EN_JUGGERNAUT] = "Armoured front, stomps that ring out round it,|shells that shatter on walls. Flank it.",
+    [EN_IDOL] = "Still, spiralling, all but unbreakable while|anything else stands: clear the room first.",
+    [EN_BLACKSTAR] = "A small black hole: pulls the ship in and|bends its shots. Its rings turn as they fly.",
+    [EN_SENTINEL] = "A searchlight sweeps the room. Caught in it,|the alarm hurries everyone and it opens fire.",
+    [EN_EGG] = "Laid by a brooder: hatches a buzzer|unless it is broken in time.",
+    [EN_MISSILE] = "Launched by a rocketeer: homes in and|blows into a ring next to the ship.",
+    [EN_TURRET] = "Built by an engineer: turns to face the ship|and fires short bursts.",
 };
 
 const char *enemy_desc(EnemyType t) { return t >= 0 && t < EN_COUNT && DESC[t] ? DESC[t] : ""; }
@@ -83,9 +146,12 @@ static int boss_room(EnemyType t) {
 }
 
 /* Room where it is first met (a splitling: with the splitter, right after it). */
-static float first_room(EnemyType t) {
+static float first_room(EnemyType t) { /* recursive for the helpers */
     if (type_is_boss(t)) return 1000.0f + (float)boss_room(t) + (float)(t - BOSS_FIRST) * 0.01f;
-    if (t == EN_SPLITLING) return (float)ENEMIES[EN_SPLITTER].min_depth + 0.5f;
+    if (t == EN_SPLITLING) return first_room(EN_SPLITTER) + 0.0001f;
+    if (t == EN_EGG) return first_room(EN_BROODER) + 0.0001f;
+    if (t == EN_MISSILE) return first_room(EN_ROCKETEER) + 0.0001f;
+    if (t == EN_TURRET) return first_room(EN_ENGINEER) + 0.0001f;
     return (float)ENEMIES[t].min_depth + (float)t * 0.001f;
 }
 
@@ -102,15 +168,15 @@ static void build_order(void) {
         }
 }
 
-#define BES_COLS 2
+#define BES_COLS 4
 #define BES_ROWS ((EN_COUNT + BES_COLS - 1) / BES_COLS)
-#define BES_X0 70.0f
-#define BES_Y0 200.0f
-#define BES_CW 300.0f
-#define BES_RH 36.0f
-#define BES_PX 720.0f
-#define BES_PW 1130.0f
-#define BES_SCREEN_W 1050.0f /* the small screen: the whole arena, scaled down */
+#define BES_X0 40.0f
+#define BES_Y0 190.0f
+#define BES_CW 192.0f
+#define BES_RH 30.0f
+#define BES_PX 820.0f
+#define BES_PW 1060.0f
+#define BES_SCREEN_W 1000.0f /* the small screen: the whole arena, scaled down */
 #define BES_SCREEN_H (BES_SCREEN_W * (ARENA_Y1 - ARENA_Y0) / (ARENA_X1 - ARENA_X0))
 #define BES_RESTART_T 40.0f  /* a boss starts over (its phases go by in the meantime) */
 
@@ -143,7 +209,9 @@ static V2 cam; /* centre of the small screen's view, in arena pixels */
 
 /* Those that keep far away or cling to the edges are shown with the whole arena, like the bosses. */
 static bool wide_view(int t) {
-    return type_is_boss(t) || t == EN_SNIPER || t == EN_CRAWLER || t == EN_MORTAR || t == EN_GRENADIER || t == EN_LANCER || t == EN_HUNTER;
+    return type_is_boss(t) || t == EN_SNIPER || t == EN_CRAWLER || t == EN_MORTAR || t == EN_GRENADIER || t == EN_LANCER || t == EN_HUNTER ||
+           t == EN_SKITTER || t == EN_ROCKETEER || t == EN_ENGINEER || t == EN_SPOTTER || t == EN_NECRO || t == EN_BEAMER ||
+           t == EN_SENTINEL || t == EN_LINKER || t == EN_ECHO;
 }
 
 static float view_w(void) { return wide_view(world_type) ? ARENA_X1 - ARENA_X0 + 2.0f * BES_VIEW_MARGIN : BES_VIEW_W; }
@@ -166,8 +234,9 @@ static void spawn_group(EnemyType t) {
     V2 at = type_is_boss(t) ? boss_spawn_point(t) : v2(ARENA_CX, ARENA_Y0 + 220.0f);
     int n = t == EN_SWARM ? 5 : t == EN_SPLITLING ? 3 : 1;
     for (int k = 0; k < n; k++) enemy_queue_spawn(t, v2_add(at, v2((float)(k - n / 2) * 60.0f, 0)), 0.5f + 0.1f * (float)k);
-    if (t == EN_GUARDIAN) /* something to shield */
-        for (int k = -1; k <= 1; k += 2) enemy_queue_spawn(EN_SHOOTER, v2_add(at, v2((float)k * 180.0f, 60.0f)), 0.6f);
+    if (t == EN_GUARDIAN || t == EN_MEDIC || t == EN_BUBBLER || t == EN_DRUMMER || t == EN_IDOL) /* someone to shield / heal / hurry */
+        for (int k = -1; k <= 1; k += 2) enemy_queue_spawn(t == EN_DRUMMER ? EN_PEON : EN_SHOOTER, v2_add(at, v2((float)k * 180.0f, 60.0f)), 0.6f);
+    if (t == EN_LINKER) enemy_queue_spawn(EN_LINKER, v2_add(at, v2(300.0f, 0)), 0.6f); /* a pair, for the tether */
 }
 
 /* The small world for type t, in G (the menu's own fields - page, input, profile... - untouched). */
@@ -384,6 +453,8 @@ static void detail(void) {
     char info[96];
     if (type_is_boss(t)) SDL_snprintf(info, sizeof info, "BOSS - ROOM %d     HP %.0f", boss_room(t), (double)d->hp);
     else if (t == EN_SPLITLING) SDL_snprintf(info, sizeof info, "BORN FROM A SPLITTER     HP %.0f     SPEED %.0f", (double)d->hp, (double)d->speed);
+    else if (t == EN_EGG || t == EN_MISSILE || t == EN_TURRET)
+        SDL_snprintf(info, sizeof info, "MADE BY A %s     HP %.0f", t == EN_EGG ? "BROODER" : t == EN_MISSILE ? "ROCKETEER" : "ENGINEER", (double)d->hp);
     else SDL_snprintf(info, sizeof info, "FROM ROOM %d     HP %.0f     SPEED %.0f", d->min_depth, (double)d->hp, (double)d->speed);
     draw_text_centered(cx, y + 50.0f, 1.75f, col_a(COL_WHITE, 0.6f), "%s", info);
     draw_lines(cx, y + 95.0f, 2.25f, 32.0f, col_a(COL_WHITE, 0.95f), enemy_desc(t));
@@ -403,15 +474,15 @@ void bestiary_draw(void) {
             draw_rect(x - 4.0f, y, BES_CW - 12.0f, BES_RH - 4.0f, col_a(c, 0.25f));
             draw_rect_outline(x - 4.0f, y, BES_CW - 12.0f, BES_RH - 4.0f, 1.5f, c);
         }
-        V2 ic = v2(x + 12.0f, y + BES_RH * 0.5f - 2.0f);
+        V2 ic = v2(x + 10.0f, y + BES_RH * 0.5f - 2.0f);
         int sides = ENEMIES[t].sides;
         if (met) {
-            draw_ngon(ic, 9.0f, sides, -PI_F * 0.5f, col_a(col_mul(c, 0.3f), 1.0f));
-            draw_ngon_outline(ic, 9.0f, sides, -PI_F * 0.5f, 2.0f, c);
+            draw_ngon(ic, 8.0f, sides, -PI_F * 0.5f, col_a(col_mul(c, 0.3f), 1.0f));
+            draw_ngon_outline(ic, 8.0f, sides, -PI_F * 0.5f, 2.0f, c);
         } else {
-            draw_ngon_outline(ic, 9.0f, sides, -PI_F * 0.5f, 1.5f, col_a(COL_WHITE, 0.18f));
+            draw_ngon_outline(ic, 8.0f, sides, -PI_F * 0.5f, 1.5f, col_a(COL_WHITE, 0.18f));
         }
-        draw_text(x + 32.0f, y + 8.0f, 1.75f,
+        draw_text(x + 26.0f, y + 9.0f, 1.25f,
                   met ? col_a(type_is_boss(t) ? col_hex(COLOR_BOSS, 1) : COL_WHITE, sel ? 1.0f : 0.85f) : col_a(COL_WHITE, 0.2f), "%s",
                   met ? enemy_title(t) : "???");
     }

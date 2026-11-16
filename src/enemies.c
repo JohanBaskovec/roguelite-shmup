@@ -47,9 +47,79 @@ const EnemyDef ENEMIES[EN_COUNT] = {
     [EN_SINGULARITY] = {"singularity", 56.0f, 11000.0f, 60.0f, 999, 999, 0xb06dff, 12},
     /* Born from a dying splitter only. */
     [EN_SPLITLING] = {"splitling", 13.0f, 18.0f, 280.0f, 999, 999, 0x6dff6d, 5},
+    /* The 60 newer types (enemies2.c). Very easy: */
+    [EN_DRIFTER]    = {"drifter",    18.0f,  20.0f,  90.0f, 1,  1, 0x7ad7ff, 6},
+    [EN_PEON]       = {"peon",       16.0f,  16.0f, 120.0f, 1,  1, 0xffb37a, 4},
+    [EN_BUZZER]     = {"buzzer",     11.0f,   6.0f, 330.0f, 1,  1, 0xd8ff5a, 3},
+    [EN_PULSAR]     = {"pulsar",     20.0f,  28.0f,  40.0f, 2,  1, 0x5affc8, 8},
+    [EN_SNAIL]      = {"snail",      20.0f,  30.0f,  45.0f, 2,  1, 0x9cff7a, 5},
+    [EN_SKITTER]    = {"skitter",    14.0f,  12.0f, 280.0f, 1,  1, 0xffe07a, 3},
+    [EN_POPPER]     = {"popper",     18.0f,  18.0f, 110.0f, 1,  1, 0xff7ab8, 7},
+    /* Easy: */
+    [EN_SPRINKLER]  = {"sprinkler",  20.0f,  34.0f,  40.0f, 2,  2, 0x5ab4ff, 6},
+    [EN_BEETLE]     = {"beetle",     22.0f,  60.0f, 100.0f, 3,  2, 0x5aff8a, 6},
+    [EN_CRAB]       = {"crab",       22.0f,  45.0f, 200.0f, 2,  2, 0xff6a4d, 6},
+    [EN_WASP]       = {"wasp",       13.0f,  14.0f, 260.0f, 2,  2, 0xffd23d, 3},
+    [EN_DICE]       = {"dice",       20.0f,  36.0f, 120.0f, 2,  2, 0xf0f0f0, 4},
+    [EN_PUFFER]     = {"puffer",     18.0f,  40.0f,  90.0f, 2,  2, 0xffc27a, 9},
+    [EN_PRISM]      = {"prism",      20.0f,  40.0f, 120.0f, 3,  3, 0xff5af0, 3},
+    [EN_BAT]        = {"bat",        15.0f,  22.0f, 380.0f, 2,  3, 0xb47aff, 3},
+    [EN_CENTIPEDE]  = {"centipede",  16.0f,  26.0f, 150.0f, 4,  3, 0xc8ff3d, 6},
+    [EN_BROODER]    = {"brooder",    26.0f,  70.0f,  70.0f, 4,  3, 0xffa0d8, 8},
+    [EN_MEDIC]      = {"medic",      18.0f,  40.0f, 160.0f, 3,  3, 0x7aff9a, 4},
+    [EN_HEDGEHOG]   = {"hedgehog",   22.0f,  55.0f,  85.0f, 3,  3, 0xd8a05a, 12},
+    /* Medium: */
+    [EN_SAPPER]     = {"sapper",     17.0f,  30.0f, 250.0f, 3,  4, 0xffd04d, 4},
+    [EN_ROCKETEER]  = {"rocketeer",  22.0f,  50.0f, 110.0f, 4,  5, 0xff8a5a, 5},
+    [EN_JESTER]     = {"jester",     20.0f,  45.0f, 170.0f, 4,  5, 0xff5ad8, 5},
+    [EN_FROSTBITE]  = {"frostbite",  20.0f,  42.0f, 150.0f, 3,  4, 0xa8f0ff, 6},
+    [EN_GLITCH]     = {"glitch",     17.0f,  34.0f,   0.0f, 4,  6, 0x5affff, 4},
+    [EN_PEEKER]     = {"peeker",     20.0f,  38.0f, 230.0f, 3,  4, 0xe8e8ff, 9},
+    [EN_ECHO]       = {"echo",       20.0f,  44.0f, 440.0f, 4,  5, 0x7a9cff, 6},
+    [EN_CLOCK]      = {"clock",      26.0f,  80.0f,  40.0f, 5,  6, 0xffe6a0, 12},
+    [EN_HALO]       = {"halo",       20.0f,  50.0f, 140.0f, 4,  6, 0xfff07a, 6},
+    [EN_STALKER]    = {"stalker",    18.0f,  40.0f, 210.0f, 4,  7, 0x8a8aff, 3},
+    [EN_OCTOPUS]    = {"octopus",    26.0f,  70.0f,   0.0f, 4,  5, 0xff7ad8, 8},
+    [EN_BUZZSAW]    = {"buzzsaw",    20.0f,  60.0f, 460.0f, 5,  6, 0xd0d0d0, 12},
+    [EN_SENTRY]     = {"sentry",     22.0f,  60.0f,   0.0f, 4,  5, 0xff5a5a, 8},
+    [EN_TORCH]      = {"torch",      20.0f,  48.0f, 180.0f, 4,  6, 0xff8a2e, 5},
+    [EN_ZAPPER]     = {"zapper",     18.0f,  40.0f, 200.0f, 4,  7, 0x7affff, 4},
+    [EN_BEAMER]     = {"beamer",     24.0f,  70.0f,  50.0f, 5,  7, 0xff3d9a, 6},
+    [EN_ENGINEER]   = {"engineer",   20.0f,  44.0f, 150.0f, 5,  6, 0xffc23d, 4},
+    [EN_JELLY]      = {"jelly",      22.0f,  46.0f,   0.0f, 3,  4, 0xc8a0ff, 10},
+    [EN_SCORPION]   = {"scorpion",   22.0f,  55.0f, 170.0f, 4,  5, 0xffaa3d, 6},
+    /* Hard: */
+    [EN_LINKER]     = {"linker",     18.0f,  50.0f, 160.0f, 5,  8, 0x3dffb4, 4},
+    [EN_SWAPPER]    = {"swapper",    18.0f,  46.0f, 180.0f, 5,  9, 0xff3dff, 4},
+    [EN_SPOTTER]    = {"spotter",    18.0f,  36.0f, 170.0f, 5,  9, 0xff3d3d, 3},
+    [EN_LODESTONE]  = {"lodestone",  24.0f,  70.0f,  90.0f, 6, 10, 0xff6a8a, 8},
+    [EN_SPONGE]     = {"sponge",     24.0f,  80.0f,  90.0f, 6, 10, 0xffe85a, 10},
+    [EN_PARRY]      = {"parry",      20.0f,  55.0f, 200.0f, 6, 11, 0xd8d8ff, 5},
+    [EN_BUBBLER]    = {"bubbler",    22.0f,  50.0f, 130.0f, 6, 10, 0x7ae8ff, 9},
+    [EN_DRUMMER]    = {"drummer",    22.0f,  60.0f, 110.0f, 6,  9, 0xff9a3d, 8},
+    [EN_TRICKSTER]  = {"trickster",  20.0f,  50.0f, 200.0f, 6, 11, 0xb43dff, 5},
+    [EN_HYDRA]      = {"hydra",      30.0f, 100.0f, 100.0f, 7, 10, 0x3dff6a, 7},
+    [EN_MANTIS]     = {"mantis",     20.0f,  48.0f, 120.0f, 5,  8, 0x8aff3d, 3},
+    [EN_FLAIL]      = {"flail",      24.0f,  80.0f, 110.0f, 6,  9, 0xc0c0c0, 6},
+    [EN_MOLE]       = {"mole",       20.0f,  55.0f, 280.0f, 5,  8, 0xc08a5a, 7},
+    [EN_CRYSTAL]    = {"crystal",    18.0f,  60.0f,   0.0f, 6, 11, 0x9a7aff, 6},
+    [EN_NECRO]      = {"necro",      22.0f,  60.0f, 140.0f, 7, 12, 0x6aff6a, 6},
+    [EN_BERSERKER]  = {"berserker",  22.0f,  90.0f, 150.0f, 7, 12, 0xff2a2a, 4},
+    [EN_FUNGUS]     = {"fungus",     24.0f,  65.0f,   0.0f, 5,  8, 0xb4ff5a, 9},
+    [EN_WEAVER]     = {"weaver",     22.0f,  55.0f, 170.0f, 5,  9, 0xe0e0e0, 8},
+    /* Very hard: */
+    [EN_JUGGERNAUT] = {"juggernaut", 44.0f, 520.0f,  60.0f, 10, 13, 0xb0b0ff, 8},
+    [EN_IDOL]       = {"idol",       30.0f, 260.0f,   0.0f, 9, 14, 0xffd700, 4},
+    [EN_BLACKSTAR]  = {"blackstar",  24.0f, 140.0f,  60.0f, 9, 15, 0x8a5aff, 12},
+    [EN_SENTINEL]   = {"sentinel",   26.0f, 160.0f,  90.0f, 10, 16, 0x3d9aff, 6},
+    /* Made by others only. */
+    [EN_EGG]        = {"egg",        13.0f,  12.0f,   0.0f, 999, 999, 0xfff0d0, 9},
+    [EN_MISSILE]    = {"missile",    10.0f,   6.0f, 330.0f, 999, 999, 0xffd0a0, 3},
+    [EN_TURRET]     = {"turret",     16.0f,  28.0f,   0.0f, 999, 999, 0xffd27a, 4},
 };
 
-uint64_t g_only_enemies;
+bool g_only_enemies[EN_COUNT];
+int g_only_count;
 
 int enemy_by_name(const char *name) {
     for (int t = 0; t < EN_COUNT; t++)
@@ -83,8 +153,8 @@ void enemy_queue_spawn(EnemyType type, V2 pos, float delay) {
     s->t = s->max_t = delay;
 }
 
-static void enemy_create(EnemyType type, V2 pos) {
-    if (G.nen >= MAX_ENEMIES) return;
+static Enemy *enemy_create(EnemyType type, V2 pos) {
+    if (G.nen >= MAX_ENEMIES) return NULL;
     const EnemyDef *d = &ENEMIES[type];
     Enemy *e = &G.en[G.nen++];
     memset(e, 0, sizeof *e);
@@ -102,7 +172,10 @@ static void enemy_create(EnemyType type, V2 pos) {
     bestiary_saw(type);
     sfx_play_at(SFX_ENEMY_APPEAR, e->pos);
     fx_particle(e->pos, v2(0, 0), 0.25f, e->radius * 3.0f, col_hex(d->color, 1), 0.0f, PT_RING);
+    return e;
 }
+
+Enemy *enemy_spawn_now(EnemyType type, V2 pos) { return enemy_create(type, pos); }
 
 /* What a nest (OB_NEST) lets out when it breaks: one small enemy of those met at this depth (with
  * --enemy, one of those). Never scaled, like every enemy: the nest only adds one more. */
@@ -110,9 +183,9 @@ EnemyType enemy_hatchling(int depth) {
     static const EnemyType SMALL[] = {EN_CHASER, EN_SWARM, EN_KAMIKAZE, EN_DODGER, EN_ORBITER, EN_SERPENT};
     EnemyType cand[EN_COUNT];
     int n = 0;
-    if (g_only_enemies) {
+    if (g_only_count) {
         for (int t = 0; t < EN_COUNT; t++)
-            if (((g_only_enemies >> t) & 1u) && !type_is_boss(t)) cand[n++] = (EnemyType)t;
+            if (g_only_enemies[t] && !type_is_boss(t)) cand[n++] = (EnemyType)t;
     } else {
         for (int i = 0; i < ARRAY_LEN(SMALL); i++)
             if (ENEMIES[SMALL[i]].min_depth <= depth) cand[n++] = SMALL[i];
@@ -161,11 +234,12 @@ bool enemy_untouchable(const Enemy *e) {
     if (e->type == EN_WRAITH) return e->state == 0;  /* faded out */
     if (e->alt > 20.0f) return true;                 /* in the air (LEAPER, FORGE) */
     if (e->type == EN_WYRM) return e->state == 1 || e->state == 2; /* burrowed (WS_BURROW / WS_RISE) */
+    if (type_is_new(e->type)) return enemy2_untouchable(e);
     return false;
 }
 
 bool enemy_blocks_shot(const Enemy *e, V2 from) {
-    if (e->type != EN_MIRROR || e->dodge_cd > 0.0f) return false; /* plate open while it fires */
+    if (e->type != EN_MIRROR || e->dodge_cd > 0.0f || upg_armor_piercing()) return false; /* plate open while it fires */
     V2 d = v2_sub(from, e->pos);
     if (v2_len2(d) < 1.0f) return false;
     return v2_dot(v2_norm(d), v2_angle(e->angle)) > cosf(MIRROR_ARC);
@@ -183,6 +257,13 @@ static const Enemy *guarded_by(const Enemy *e) {
 
 void enemy_damage(Enemy *e, float dmg, V2 knock) {
     if (e->hp <= 0.0f || enemy_untouchable(e)) return;
+    if (e->bubble > 0 && !upg_armor_piercing()) { /* BUBBLER: the bubble takes the whole hit (ARMOR PIERCER: not) */
+        e->bubble--;
+        fx_particle(e->pos, v2(0, 0), 0.2f, e->radius * 2.4f, col_hex(0x7ae8ff, 0.8f), 0.0f, PT_RING);
+        if (e->bubble == 0) sfx_play_at(SFX_SPLAT, e->pos);
+        return;
+    }
+    if (type_is_new(e->type) && (dmg = enemy2_damage(e, dmg, knock)) <= 0.0f) return; /* armour, spin, guard... */
     if (guarded_by(e)) dmg *= GUARDIAN_SHIELD;
     dmg = enemy_damage_cap(e, dmg);
     e->hp -= dmg;
@@ -192,6 +273,7 @@ void enemy_damage(Enemy *e, float dmg, V2 knock) {
     if (e->type == EN_TANK || e->type == EN_MORTAR) mass *= 2.5f;
     if (e->type == EN_RAMMER && e->state == 2) mass *= 6.0f; /* a charging ram does not stop */
     if (enemy_is_boss(e)) mass *= e->type == EN_LIGHTHOUSE ? 1e6f : 12.0f; /* barely budges (the lighthouse: not at all) */
+    if (type_is_new(e->type)) mass *= enemy2_mass(e);
     e->vel = v2_add(e->vel, v2_scale(knock, 1.0f / mass));
 }
 
@@ -225,6 +307,9 @@ static V2 nav_dir(Enemy *e, V2 goal) {
     return v2_norm(v2_sub(e->nav_pt, e->pos));
 }
 
+V2 enemy_nav_dir(Enemy *e, V2 goal) { return nav_dir(e, goal); }
+V2 enemy_random_point(V2 center, float dmin, float dmax) { return random_point_around(center, dmin, dmax); }
+
 static void wander(Enemy *e, float dmin, float dmax, float speed) {
     if (e->state_t <= 0.0f || v2_dist2(e->pos, e->target) < 30.0f * 30.0f) {
         e->target = random_point_around(G.pl.pos, dmin, dmax);
@@ -243,6 +328,8 @@ static void fire_fan(V2 pos, float angle, int n, float spread, float speed, floa
         ebullet_spawn(pos, angle + t * spread, speed, radius, col);
     }
 }
+
+void enemy_wander(Enemy *e, float dmin, float dmax, float speed) { wander(e, dmin, dmax, speed); }
 
 /* Shared with the bosses (bosses.c). */
 void enemy_steer(Enemy *e, V2 desired_vel, float responsiveness) { move_towards(e, desired_vel, responsiveness); }
@@ -299,6 +386,8 @@ static bool blocked_ahead(const Enemy *e, V2 dir, float speed, V2 *n) {
     if (n) *n = v2_len2(nn) > 0.0f ? v2_norm(nn) : v2_scale(dir, -1.0f);
     return true;
 }
+
+bool enemy_blocked_ahead(const Enemy *e, V2 dir, float speed, V2 *n) { return blocked_ahead(e, dir, speed, n); }
 
 static V2 reflect_dir(V2 d, V2 n) { return v2_sub(d, v2_scale(n, 2.0f * v2_dot(d, n))); }
 
@@ -912,8 +1001,17 @@ static void update_enemy(Enemy *e) {
     e->t += DT;
     e->flash -= DT;
     /* CRYO ROUNDS: chilled enemies move and shoot slower. */
-    float tempo = e->slow_t > 0.0f ? 0.6f : 1.0f;
+    float tempo = (e->slow_t > 0.0f ? 0.6f : 1.0f) * upg_enemy_tempo(); /* CHRONOSPHERE */
+    if (e->haste_t > 0.0f) tempo *= 1.5f; /* DRUMMER / SENTINEL: hurried on */
+    /* CONCUSSION, COLD SNAP, CRYO BOMB: stunned, it does nothing at all for a moment. */
+    bool stunned = e->stun_t > 0.0f;
+    if (stunned) {
+        e->stun_t -= DT;
+        tempo = 0.0f;
+        e->vel = v2(0, 0);
+    }
     e->slow_t -= DT;
+    e->haste_t -= DT;
     e->fire_t -= DT * tempo;
     e->state_t -= DT * tempo;
     /* VENOM TIPS / THERMITE: damage over time. */
@@ -938,7 +1036,7 @@ static void update_enemy(Enemy *e) {
         sfx_play_at(SFX_EXPLODE_SMALL, e->pos);
     }
 
-    switch (e->type) {
+    if (!stunned) switch (e->type) {
     case EN_CHASER: {
         V2 chase = nav_dir(e, pl->pos);
         V2 side = v2_perp(chase);
@@ -1174,9 +1272,10 @@ static void update_enemy(Enemy *e) {
     case EN_WRAITH: update_wraith(e, aim); break;
 
     default:
+        if (type_is_new(e->type)) enemy2_update(e, aim, dist, dir);
         break;
     }
-    if (e->hp <= 0.0f) return; /* self-destructed (kamikaze) */
+    if (e->hp <= 0.0f) return; /* self-destructed (kamikaze, missile...) */
 
     if (e->type != EN_CRAWLER) { /* the crawler is glued to the wall (placed by update_crawler) */
         /* A leaper in the air flies over obstacles; it lands back outside them. */
@@ -1189,7 +1288,7 @@ static void update_enemy(Enemy *e) {
     }
 
     float cr = e->radius + pl->hit_radius + 4.0f;
-    if (!enemy_untouchable(e) && v2_dist2(e->pos, pl->pos) < cr * cr && player_hurt(1)) {
+    if (!enemy_untouchable(e) && !e->fake && !upg_ghost_hull() && v2_dist2(e->pos, pl->pos) < cr * cr && player_hurt(1)) {
         /* Rammed: the hit hurts the enemy too, enough to kill the small rushers outright. */
         V2 away = v2_norm(v2_sub(e->pos, pl->pos));
         enemy_damage(e, CONTACT_DAMAGE * fmaxf(pl->dmg_mult, 1.0f), v2_scale(away, 700.0f));
@@ -1254,12 +1353,22 @@ static void on_death(Enemy *e) {
         }
         sfx_play_at(SFX_SPLAT, e->pos);
     }
+    if (type_is_new(e->type)) enemy2_on_death(e); /* hydra heads, popper's burst... */
+    /* NECRO: it can raise what died here (not the illusions, eggs, missiles, nor another necro). */
+    if (!enemy_is_boss(e) && !e->fake && !e->vanish && e->type != EN_NECRO && e->type != EN_EGG && e->type != EN_MISSILE &&
+        e->type != EN_CENTIPEDE && e->type != EN_HYDRA &&
+        !(e->type == EN_KAMIKAZE && e->burst == -1)) {
+        Room *r = &G.room;
+        int slot = r->ngraves < 8 ? r->ngraves++ : irand(0, 7);
+        r->graves[slot] = e->pos;
+        r->grave_type[slot] = (uint8_t)e->type;
+    }
     /* REVENGE malus: a last bullet for the ship (never point-blank). */
     if (!enemy_is_boss(e) && !G.room.cleared && v2_dist2(e->pos, G.pl.pos) > 160.0f * 160.0f && chance(malus_pct(MAL_REVENGE)))
         ebullet_spawn(e->pos, v2_heading(v2_sub(G.pl.pos, e->pos)), 300.0f, 8.0f, col_hex(0xff5a6e, 1));
     /* No drops: resources only ever come from room rewards. A kamikaze that blew itself up
      * was not killed: no kill effects. */
-    if (e->type == EN_KAMIKAZE && e->burst == -1) {
+    if ((e->type == EN_KAMIKAZE && e->burst == -1) || e->vanish || e->fake) {
         G.kills--;
         return;
     }
@@ -1280,6 +1389,7 @@ void enemies_update(void) {
     }
     for (int i = 0; i < G.nen && !frozen; i++)
         if (G.en[i].hp > 0.0f) update_enemy(&G.en[i]);
+    if (!frozen) enemies2_hazards_hurt(); /* beams, tethers, orbs... */
     if (frozen) /* knockback and pulls still slide them a little */
         for (int i = 0; i < G.nen; i++) {
             Enemy *en = &G.en[i];
@@ -1321,6 +1431,7 @@ void enemies_draw(void) {
         if (e->hp <= 0.0f) continue;
         V2 gp = v2(e->pos.x, e->pos.y - e->alt);
         float ga = e->type == EN_WRAITH && e->state == 0 ? 0.04f : 0.22f;
+        if (type_is_new(e->type)) ga *= enemy2_alpha(e);
         draw_glow(gp, e->radius * 2.3f, col_hex(ENEMIES[e->type].color, ga));
         if (e->type == EN_SNIPER && e->state == 1) {
             float k = 1.0f - e->state_t / 0.7f;
@@ -1330,6 +1441,7 @@ void enemies_draw(void) {
             draw_line(e->pos, v2_add(e->pos, v2_scale(dir, 2400.0f)), 1.0f + 3.0f * k, c);
         }
         if (enemy_is_boss(e)) boss_draw_under(e); /* telegraphs, hazards, bodies */
+        if (type_is_new(e->type)) enemy2_draw_glow(e);
         if (e->type == EN_HUNTER && e->state == 1) {
             float k = 1.0f - e->state_t / 0.45f;
             V2 dir = v2_angle(e->angle);
@@ -1450,7 +1562,12 @@ void enemies_draw(void) {
             break;
         }
 
-        if (e->type == EN_SPLITTER || e->type == EN_SPLITLING) { /* blobs wobble */
+        if (type_is_new(e->type)) {
+            float a = enemy2_alpha(e);
+            c.a *= a;
+            fill.a *= a;
+            enemy2_draw(e, at, rad, c, fill);
+        } else if (e->type == EN_SPLITTER || e->type == EN_SPLITLING) { /* blobs wobble */
             float w = 1.0f + 0.08f * sinf(e->t * 7.0f + (float)e->uid);
             draw_circle(at, rad * w, fill);
             draw_ring(at, rad * w, 3.0f, c);
@@ -1580,11 +1697,22 @@ void enemies_draw(void) {
             break;
         }
 
+        if (e->bubble > 0) { /* BUBBLER: a bubble round it (one ring per hit it still stops) */
+            draw_circle(at, rad + 10.0f, col_hex(0x7ae8ff, 0.12f));
+            for (int k = 0; k < e->bubble; k++) draw_ring(at, rad + 8.0f + 4.0f * (float)k, 1.5f, col_hex(0xbff4ff, 0.6f));
+        }
+        if (e->haste_t > 0.0f) /* DRUMMER / SENTINEL: hurried (speed marks behind it) */
+            for (int k = -1; k <= 1; k++) {
+                V2 back = v2_len2(e->vel) > 100.0f ? v2_scale(v2_norm(e->vel), -1.0f) : v2(0, 1);
+                V2 p0 = v2_add(at, v2_add(v2_scale(back, rad + 4.0f), v2_scale(v2_perp(back), (float)k * rad * 0.6f)));
+                draw_line(p0, v2_add(p0, v2_scale(back, 10.0f + 6.0f * sinf(G.time * 20.0f + (float)k))), 2.5f, col_hex(0xff9a3d, 0.8f));
+            }
         if (e->sticky_t > 0.0f) { /* STICKY CHARGES: a blinking charge about to blow */
             float blink = fmodf(e->sticky_t, 0.16f) < 0.08f ? 1.0f : 0.35f;
             draw_ngon(v2_add(e->pos, v2(e->radius * 0.5f, -e->radius * 0.5f)), 6.0f, 4, G.time * 6.0f, col_hex(0xffc23d, blink));
         }
-        if (e->hp < e->max_hp && e->radius >= 18.0f && !enemy_is_boss(e) && !(e->type == EN_WRAITH && e->state == 0)) {
+        if (e->hp < e->max_hp && e->radius >= 18.0f && !enemy_is_boss(e) && !(e->type == EN_WRAITH && e->state == 0) &&
+            !(type_is_new(e->type) && enemy2_alpha(e) < 0.6f)) {
             float w = e->radius * 2.0f, k = clampf(e->hp / e->max_hp, 0.0f, 1.0f);
             float x = at.x - w * 0.5f, y = at.y - e->radius - 12.0f;
             draw_rect(x, y, w, 4.0f, rgba(0, 0, 0, 0.6f));

@@ -581,7 +581,7 @@ static void spawn_wave(void) {
         EnemyType cand[EN_COUNT];
         int nc = 0;
         for (int t = 0; t < EN_COUNT; t++) {
-            bool ok = g_only_enemies ? (g_only_enemies >> t) & 1u : ENEMIES[t].min_depth <= depth;
+            bool ok = g_only_count ? g_only_enemies[t] : ENEMIES[t].min_depth <= depth;
             if (ok && (float)ENEMIES[t].cost <= budget) cand[nc++] = (EnemyType)t;
         }
         if (nc == 0) break;

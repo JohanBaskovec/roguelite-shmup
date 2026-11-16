@@ -194,6 +194,7 @@ void weapon_on_hit(PBullet *b, Enemy *e, float dmg) {
 
 /* Called once when a shot dies, whatever killed it (enemy, wall, end of range). */
 void weapon_bullet_death(PBullet *b) {
+    upg2_bullet_death(b); /* COMBO METER: a miss */
     /* PLASMA CUTTER: where the beam ends, the ground burns. EVENT HORIZON: a rail-graviton shot
      * collapses into a vortex. (The main gun's shots only: by-products and extra shots do not.) */
     if (b->style == BS_LASER && !(b->flags & PB_BYPRODUCT) && (G.ticks % 3) == 0 && syn(SYN_PLASMA))

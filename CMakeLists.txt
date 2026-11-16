@@ -33,11 +33,13 @@ add_executable(neon_breach
     src/upgrade_menu.c
     src/bullets.c
     src/enemies.c
+    src/enemies2.c
     src/bestiary.c
     src/bosses.c
     src/pickups.c
     src/hud.c
     src/upgrades.c
+    src/upgrades2.c
     src/debug_menu.c
     src/characters.c
     src/workshop.c
@@ -183,6 +185,30 @@ if(SHMUP_BUILD_TESTS)
                  COMMAND neon_breach --headless --god --enemy ${_e} --depth 6 --seed 31 --runs 2 --ticks 24000 --expect-rooms 3
                          --fail-shot ${_out}/fail_sim_enemy_${_e}.bmp)
     endforeach()
+    # The 60 newest (enemies2.c), from very easy to hard: the same, one type per run.
+    foreach(_e drifter peon buzzer pulsar snail skitter popper sprinkler beetle crab wasp dice puffer prism bat
+               centipede brooder medic hedgehog sapper rocketeer jester frostbite glitch peeker echo clock halo stalker
+               octopus buzzsaw sentry torch zapper beamer engineer jelly scorpion linker swapper spotter lodestone sponge
+               parry bubbler drummer trickster hydra mantis flail mole crystal necro berserker fungus weaver juggernaut
+               idol blackstar sentinel)
+        add_test(NAME sim_enemy_${_e}
+                 COMMAND neon_breach --headless --god --enemy ${_e} --depth 6 --seed 31 --runs 2 --ticks 24000 --expect-rooms 3
+                         --fail-shot ${_out}/fail_sim_enemy_${_e}.bmp)
+    endforeach()
+    # Mixed rooms of the newest ones, mortal: supports with the ones they help, the hard ones together.
+    add_test(NAME sim_enemies_support
+             COMMAND neon_breach --headless --god --depth 10 --seed 33 --runs 2 --ticks 36000 --expect-rooms 3
+                     --enemy medic --enemy bubbler --enemy drummer --enemy idol --enemy necro --enemy sentinel --enemy shooter
+                     --enemy trickster --enemy linker --fail-shot ${_out}/fail_sim_enemies_support.bmp)
+    add_test(NAME sim_enemies_new_knight
+             COMMAND neon_breach --headless --god --char knight --depth 8 --seed 34 --runs 2 --ticks 36000 --expect-rooms 3
+                     --enemy beetle --enemy buzzsaw --enemy parry --enemy sponge --enemy mole --enemy mantis --enemy flail
+                     --enemy juggernaut --enemy hedgehog --enemy centipede --enemy hydra
+                     --fail-shot ${_out}/fail_sim_enemies_new_knight.bmp)
+    add_test(NAME render_enemies_new
+             COMMAND neon_breach --shot ${_out}/render_enemies_new.bmp --depth 12 --god --seed 11 --frames 520
+                     --enemy beamer --enemy linker --enemy halo --enemy flail --enemy jelly --enemy sentinel --enemy zapper
+                     --enemy spotter --enemy juggernaut --enemy dice --enemy clock)
     add_test(NAME sim_enemies_knight
              COMMAND neon_breach --headless --god --char knight --depth 8 --seed 32 --runs 2 --ticks 36000 --expect-rooms 3
                      --enemy rammer --enemy crawler --enemy top --enemy dodger --enemy rook --enemy leaper --enemy mirror
@@ -304,6 +330,37 @@ if(SHMUP_BUILD_TESTS)
     add_test(NAME sim_toggle_all_upgrades
              COMMAND neon_breach --headless --god --all-upgrades --toggle-upgrades --seed 510 --runs 2 --ticks 24000 --expect-rooms 2
                      --fail-shot ${_out}/fail_sim_toggle_all.bmp)
+    # The newer upgrades and workshop exclusives (upgrades2.c), in builds of a theme each, the bot playing.
+    set(_nu_volleys --upgrade twin-barrel --upgrade helix --upgrade burst-fire --upgrade scatterbrain --upgrade rear-guard
+                    --upgrade strafe-master --upgrade escalation --upgrade opening-salvo --upgrade time-bomb --upgrade buckshot
+                    --upgrade slugger --upgrade nimble --upgrade full-power --upgrade desperado)
+    set(_nu_hits --upgrade acid-rounds --upgrade static-charge --upgrade concussion --upgrade hunter's-mark --upgrade chroma-rounds
+                 --upgrade vampire-fangs --upgrade combo-meter --upgrade field-notes --upgrade armor-piercer --upgrade splash-damage
+                 --upgrade thunderhead --upgrade smite)
+    set(_nu_kills --upgrade bowling-ball --upgrade killstreak --upgrade soul-wisps --upgrade frenzy --upgrade quick-hands
+                  --upgrade supernova --upgrade bullet-lull --upgrade bounty-board --active dash --active nova)
+    set(_nu_defence --upgrade nanites --upgrade repulsor-field --upgrade shockwave --upgrade last-resort --upgrade shield-battery
+                    --upgrade fireproof --upgrade phase-cloak --upgrade spare-parts --upgrade afterimage --upgrade sentry-gun
+                    --upgrade cold-snap --upgrade demolisher --upgrade interest --upgrade locksmith --upgrade cluster-bombs
+                    --upgrade cryo-bomb --bombs 6)
+    set(_nu_exclusives --upgrade arsenal --upgrade phoenix-feather --upgrade ghost-hull --upgrade supercharger --upgrade void-rounds
+                       --upgrade overshield --upgrade hive-queen --upgrade chronosphere --upgrade headsman --upgrade orbital-array
+                       --upgrade prism-heart --upgrade tempest --upgrade railstorm --upgrade annihilator --upgrade event-engine
+                       --upgrade doomsday-clock --active blink)
+    foreach(_g volleys hits kills defence exclusives)
+        add_test(NAME sim_new_upgrades_${_g}
+                 COMMAND neon_breach --headless --god ${_nu_${_g}} --seed 600 --runs 2 --ticks 24000 --expect-rooms 3
+                         --fail-shot ${_out}/fail_sim_new_upgrades_${_g}.bmp)
+    endforeach()
+    add_test(NAME sim_new_upgrades_defence_mortal
+             COMMAND neon_breach --headless ${_nu_defence} --seed 610 --runs 4 --ticks 36000
+                     --fail-shot ${_out}/fail_sim_new_upgrades_defence_mortal.bmp)
+    add_test(NAME sim_new_upgrades_exclusives_mortal
+             COMMAND neon_breach --headless ${_nu_exclusives} --seed 620 --runs 4 --ticks 36000
+                     --fail-shot ${_out}/fail_sim_new_upgrades_exclusives_mortal.bmp)
+    add_test(NAME render_new_upgrades
+             COMMAND neon_breach --shot ${_out}/render_new_upgrades.bmp --upgrade sentry-gun --upgrade orbital-array --upgrade tempest
+                     --upgrade hunter's-mark --upgrade bounty-board --depth 6 --seed 5 --frames 400)
     add_test(NAME render_upgrades_menu
              COMMAND neon_breach --shot ${_out}/render_upgrades_menu.bmp --all-upgrades --upgrades-menu --seed 13 --frames 30)
     add_test(NAME render_pause

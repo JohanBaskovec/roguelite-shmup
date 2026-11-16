@@ -147,12 +147,14 @@ static void parse_args(int argc, char **argv, Options *o) {
         else if (!strcmp(a, "--enemy") && more) {
             int t = enemy_by_name(argv[++i]);
             if (t < 0 || type_is_boss(t)) {
-                fprintf(stderr, "unknown enemy '%s' (chaser, swarm, shooter, ... rammer, grenadier, crawler, top, kamikaze,\n"
-                                "dodger, rook, splitter, leaper, minelayer, boomerang, ricochet, orbiter, blinker, serpent,\n"
-                                "mirror, lancer, mortar, guardian, wraith)\n", argv[i]);
+                fprintf(stderr, "unknown enemy '%s', one of:", argv[i]);
+                for (int k = 0; k < EN_COUNT; k++)
+                    if (!type_is_boss(k)) fprintf(stderr, " %s", ENEMIES[k].name);
+                fprintf(stderr, "\n");
                 exit(2);
             }
-            g_only_enemies |= (uint64_t)1 << t;
+            if (!g_only_enemies[t]) g_only_count++;
+            g_only_enemies[t] = true;
         }
         else if (!strcmp(a, "--boss-kind") && more) {
             int t = enemy_by_name(argv[++i]);

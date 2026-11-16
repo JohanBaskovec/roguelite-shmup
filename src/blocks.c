@@ -833,7 +833,7 @@ static void fires_update(void) {
         }
     }
     /* The ship catches fire walking in (a dash jumps over), and burns on for a moment. */
-    if (G.state == GS_PLAYING && !r->cleared && pl->dash_t <= 0.0f && fire_pool_at(pl->pos, PLAYER_BODY_R * 0.4f)) {
+    if (G.state == GS_PLAYING && !r->cleared && pl->dash_t <= 0.0f && !upg_fireproof() && fire_pool_at(pl->pos, PLAYER_BODY_R * 0.4f)) {
         if (pl->burn_t <= 0.0f) {
             pl->burn_tick = 0.0f;
             sfx_play_at(SFX_IGNITE, pl->pos);
@@ -856,6 +856,7 @@ static void fires_update(void) {
 
 static void block_goes_off(V2 c, int kind) {
     SDL_FColor col = block_color(kind);
+    upg2_on_block_break(c); /* DEMOLISHER */
     fx_burst(c, 16, 80.0f, 420.0f, 0.45f, 3.5f, col);
     fx_particle(c, v2(0, 0), 0.2f, 60.0f, col_a(col, 0.6f), 0.0f, PT_GLOW);
     switch (kind) {
@@ -864,7 +865,7 @@ static void block_goes_off(V2 c, int kind) {
         fx_explosion(c, BARREL_BLAST_R, col_hex(0xff6a2a, 1));
         fx_shake(0.45f);
         sfx_play_at(SFX_EXPLODE_BIG, c);
-        if (v2_dist(G.pl.pos, c) < BARREL_BLAST_R + PLAYER_BODY_R * 0.5f) player_hurt(1);
+        if (v2_dist(G.pl.pos, c) < BARREL_BLAST_R + PLAYER_BODY_R * 0.5f && !upg_fireproof()) player_hurt(1);
     } break;
     case OB_OIL:
         room_fire_add(c, FIRE_POOL_R, FIRE_POOL_TIME);

@@ -226,7 +226,7 @@ static const char *check_invariants(float room_time) {
                      (double)e->hp, (double)e->vel.x, (double)e->vel.y);
             return emsg;
         }
-        if (e->max_hp != ENEMIES[e->type].hp) return "enemy hp differs from its type's (enemies never scale with depth)";
+        if (fabsf(e->max_hp - enemy_base_hp(e)) > 0.01f) return "enemy hp differs from its type's (enemies never scale with depth)";
         if (!in_arena(e->pos, e->radius)) {
             snprintf(msg, sizeof msg, "enemy type %d outside the arena at (%.1f, %.1f)", e->type, (double)e->pos.x, (double)e->pos.y);
             return msg;
@@ -285,7 +285,7 @@ static const char *check_invariants(float room_time) {
         }
     }
     for (int i = 0; i < G.neb; i++)
-        if (G.eb[i].kind > EB_BALL) return "enemy bullet of an unknown kind";
+        if (G.eb[i].kind > EB_SHATTER) return "enemy bullet of an unknown kind";
     if (G.room.type == ROOM_SECRET && G.room.ndoors != 0) return "secret room has regular doors (its only exit leads back)";
     for (int i = 0; i < G.npk; i++)
         if (G.pk[i].price < 0 || (G.pk[i].price > 0 && G.room.type != ROOM_SHOP && !G.room.secret_shop))
@@ -371,7 +371,7 @@ static const char *check_room_reward(void) {
             gamble += G.mc[i].type == MC_GAMBLE && !G.mc[i].broken;
         }
         for (int i = 0; i < G.npk; i++) pads += G.pk[i].type == PK_AUGMENT;
-        for (int u = 0; u < UPG_COUNT; u++) tier1_left += UPGRADES[u].tier == 1 && G.pl.upg_count[u] == 0 && upgrade_unlocked(u);
+        for (int u = 0; u < UPG_COUNT; u++) tier1_left += UPGRADES[u].tier == 1 && !upgrade_capped(u) && upgrade_unlocked(u);
         if (supply != 1 || gamble != 1) return "workshop cleared without its supply press and slot machine";
         if (pads > 3) return "workshop offers more than 3 augments";
         if (pads == 0 && G.pl.max_hp >= 4 && tier1_left > 0) return "workshop offers no augment although the player can pay one";
@@ -1844,8 +1844,323 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         }
         walls_ok = walls_ok && moved > 150.0f;
         G.nen = G.neb = 0;
-#undef SPAWN
         names[nres] = "crawler on the wall, rook on rows and columns", oks[nres++] = walls_ok;
+
+        /* The newest types' mechanics (enemies2.c). */
+        FRESH();
+        V2 knock_in = v2(700.0f, 0.0f); /* a shot from the ship (on its left) */
+        SPAWN(EN_BEETLE, pl->pos.x + 300.0f, pl->pos.y);
+        G.en[0].angle = PI_F; /* facing the ship */
+        enemy_damage(&G.en[0], 10.0f, knock_in);
+        bool shell_ok = fabsf(G.en[0].hp - (G.en[0].max_hp - 2.5f)) < 0.01f;
+        float h0 = G.en[0].hp;
+        enemy_damage(&G.en[0], 10.0f, v2(-700.0f, 0.0f)); /* from behind */
+        shell_ok = shell_ok && fabsf(G.en[0].hp - (h0 - 10.0f)) < 0.01f;
+
+        SPAWN(EN_PEON, pl->pos.x + 300.0f, pl->pos.y);
+        G.en[0].bubble = 3;
+        for (int k = 0; k < 3; k++) enemy_damage(&G.en[0], 5.0f, knock_in);
+        bool bubble_ok = G.en[0].hp == G.en[0].max_hp && G.en[0].bubble == 0;
+        enemy_damage(&G.en[0], 5.0f, knock_in);
+        bubble_ok = bubble_ok && G.en[0].hp < G.en[0].max_hp;
+
+        SPAWN(EN_PARRY, pl->pos.x + 300.0f, pl->pos.y);
+        G.en[0].state = 1;
+        G.en[0].state_t = 5.0f;
+        G.en[0].k0 = 0.0f;
+        int neb0 = G.neb;
+        enemy_damage(&G.en[0], 10.0f, knock_in);
+        bool parry_ok = G.en[0].hp == G.en[0].max_hp && G.neb == neb0 + 1;
+        G.en[0].state = 0;
+        enemy_damage(&G.en[0], 10.0f, knock_in);
+        parry_ok = parry_ok && G.en[0].hp < G.en[0].max_hp;
+
+        SPAWN(EN_IDOL, ARENA_CX + 300.0f, ARENA_CY);
+        DUMMY(ARENA_CX + 600.0f, ARENA_CY + 200.0f);
+        enemy_damage(&G.en[0], 100.0f, v2(0, 0));
+        bool idol_ok = fabsf(G.en[0].hp - (G.en[0].max_hp - 10.0f)) < 0.01f && enemy_resistant(&G.en[0]);
+        G.nen = 1;
+        h0 = G.en[0].hp;
+        enemy_damage(&G.en[0], 100.0f, v2(0, 0));
+        idol_ok = idol_ok && fabsf(G.en[0].hp - (h0 - 100.0f)) < 0.01f && !enemy_resistant(&G.en[0]);
+
+        SPAWN(EN_MOLE, ARENA_CX + 300.0f, ARENA_CY);
+        G.en[0].state = 0;
+        enemy_damage(&G.en[0], 10.0f, v2(0, 0));
+        bool mole_ok = G.en[0].hp == G.en[0].max_hp && enemy_untouchable(&G.en[0]);
+        G.en[0].state = 3;
+        enemy_damage(&G.en[0], 10.0f, v2(0, 0));
+        mole_ok = mole_ok && G.en[0].hp < G.en[0].max_hp;
+
+        /* HYDRA: one head, two, four, then nothing - seven kills. */
+        int kills1 = G.kills;
+        SPAWN(EN_HYDRA, ARENA_CX + 300.0f, ARENA_CY);
+        bool hydra_ok = true;
+        for (int gen = 0; gen < 3; gen++) {
+            int want = 1 << gen, n = 0;
+            for (int i = 0; i < G.nen; i++) n += G.en[i].type == EN_HYDRA && (int)G.en[i].k0 == gen && G.en[i].max_hp == enemy_base_hp(&G.en[i]);
+            hydra_ok = hydra_ok && n == want && G.nen == want;
+            for (int i = 0; i < G.nen; i++) G.en[i].hp = 0.0f;
+            TICK();
+        }
+        hydra_ok = hydra_ok && G.nen == 0 && G.kills == kills1 + 7;
+
+        /* An egg hatches a buzzer (not a kill); a centipede is a head and five segments, the next one leads. */
+        SPAWN(EN_EGG, ARENA_CX + 300.0f, ARENA_CY);
+        kills1 = G.kills;
+        for (int t = 0; t < 500; t++) TICK();
+        bool brood_ok = G.kills == kills1 && G.nen == 1 && G.en[0].type == EN_BUZZER;
+        SPAWN(EN_CENTIPEDE, ARENA_CX + 300.0f, ARENA_CY);
+        TICK();
+        brood_ok = brood_ok && G.nen == 6;
+        for (int i = 0; i < G.nen; i++)
+            if (G.en[i].state == 0) G.en[i].hp = 0.0f;
+        TICK();
+        TICK();
+        int heads = 0;
+        for (int i = 0; i < G.nen; i++) heads += G.en[i].state == 0;
+        brood_ok = brood_ok && G.nen == 5 && heads == 1;
+
+        /* SWAPPER trades places with the ship; TRICKSTER's illusions pop in one hit (no kill). */
+        SPAWN(EN_SWAPPER, pl->pos.x + 450.0f, pl->pos.y);
+        V2 swap_at = G.en[0].pos, ship_at = pl->pos;
+        G.en[0].state = 1;
+        G.en[0].state_t = 0.001f;
+        TICK();
+        bool trick_ok = v2_dist(pl->pos, swap_at) < 20.0f && v2_dist(G.en[0].pos, ship_at) < 20.0f;
+        SPAWN(EN_TRICKSTER, ARENA_CX + 300.0f, ARENA_CY);
+        G.en[0].state_t = 0.0f;
+        TICK();
+        int fakes = 0;
+        Enemy *fake = NULL;
+        for (int i = 0; i < G.nen; i++)
+            if (G.en[i].fake) fakes++, fake = &G.en[i];
+        kills1 = G.kills;
+        if (fake) enemy_damage(fake, 1.0f, v2(0, 0));
+        TICK();
+        trick_ok = trick_ok && fakes == 2 && G.nen == 2 && G.kills == kills1;
+
+        /* NECRO raises what died; DRUMMER hurries its neighbours. */
+        G.room.ngraves = 0;
+        SPAWN(EN_PEON, ARENA_CX + 300.0f, ARENA_CY);
+        G.en[0].hp = 0.0f;
+        TICK();
+        bool raise_ok = G.room.ngraves == 1;
+        SPAWN(EN_NECRO, ARENA_CX + 300.0f, ARENA_CY - 200.0f);
+        G.en[0].fire_t = 0.0f;
+        TICK();
+        raise_ok = raise_ok && G.room.ngraves == 0 && G.nsp == 1 && G.sp[0].type == EN_PEON;
+        SPAWN(EN_DRUMMER, ARENA_CX + 300.0f, ARENA_CY);
+        DUMMY(ARENA_CX + 450.0f, ARENA_CY);
+        G.en[0].fire_t = 0.0f;
+        TICK();
+        raise_ok = raise_ok && G.en[1].haste_t > 0.0f;
+
+        /* Frost chills the ship; a live beam (BEAMER) hurts it. */
+        G.god = false;
+        G.nen = G.nsp = G.neb = 0;
+        pl->invuln = 0.0f;
+        int hpf = pl->hp;
+        EBullet *fb = ebullet_spawn(pl->pos, 0.0f, 0.0f, 8.0f, col_hex(0xffffff, 1));
+        if (fb) fb->kind = EB_FROST;
+        TICK();
+        bool hazard_ok = pl->chill_t > 0.0f && pl->hp < hpf;
+        G.neb = 0;
+        G.hitstop = 0.0f;
+        pl->invuln = 0.0f;
+        hpf = pl->hp;
+        SPAWN(EN_BEAMER, pl->pos.x + 400.0f, pl->pos.y);
+        G.en[0].state = 2;
+        G.en[0].state_t = 2.0f;
+        G.en[0].k0 = PI_F; /* the beam lies on the ship */
+        G.en[0].spin_dir = 1;
+        pl->invuln = 0.0f;
+        for (int t = 0; t < 3; t++) {
+            G.hitstop = 0.0f;
+            TICK();
+        }
+        BossHazard ehz[8];
+        hazard_ok = hazard_ok && pl->hp < hpf && enemy_hazards(ehz, 8) == 1 && ehz[0].live;
+        G.god = true;
+        G.nen = G.neb = G.nsp = 0;
+        bool new_ok = shell_ok && bubble_ok && parry_ok && idol_ok && mole_ok && hydra_ok && brood_ok && trick_ok && raise_ok && hazard_ok;
+        if (!new_ok)
+            printf("  [shell %d bubble %d parry %d idol %d mole %d hydra %d brood %d swap/trick %d necro/drum %d frost/beam %d] ", shell_ok,
+                   bubble_ok, parry_ok, idol_ok, mole_ok, hydra_ok, brood_ok, trick_ok, raise_ok, hazard_ok);
+        names[nres] = "newest enemies: shells, bubbles, guards, idol, mole, hydra, eggs, centipede, swaps, illusions, necro, drums, frost, beams";
+        oks[nres++] = new_ok;
+
+        /* The newest upgrades, on hits: ACID ROUNDS pile up to +40%, HUNTER'S MARK doubles the hits on
+         * the toughest, HEADSMAN executes under 30%, STATIC CHARGE discharges on the 5th hit, SPLASH
+         * DAMAGE hits the neighbours for 25%, COMBO METER resets on a miss, PRISM HEART splits a shot
+         * in three on its first hit, ARMOR PIERCER goes through a bubble. */
+        FRESH();
+        upgrade_apply(UPG_ACID);
+        DUMMY(ARENA_CX, ARENA_CY);
+        PBullet pr = {.damage = 10.0f, .last_hit = -1};
+        float hacid = upg_hit_damage(&pr, &G.en[0]);
+        for (int k = 0; k < 10; k++) upg_after_hit(&pr, &G.en[0], 1.0f);
+        bool uh_ok = fabsf(G.en[0].acid - 0.4f) < 1e-4f && fabsf(upg_hit_damage(&pr, &G.en[0]) - hacid * 1.4f) < 1e-3f;
+        bool acid_ok = uh_ok;
+        FRESH();
+        upgrade_apply(UPG_HUNTERS_MARK);
+        DUMMY(ARENA_CX, ARENA_CY);
+        DUMMY(ARENA_CX + 200.0f, ARENA_CY);
+        G.en[1].hp = G.en[1].max_hp = 8000.0f;
+        G.room.cleared = false; /* a fight */
+        TICK();
+        bool mark_ok = pl->mark_uid == G.en[1].uid && fabsf(upg_hit_damage(&pr, &G.en[1]) - 2.0f * upg_hit_damage(&pr, &G.en[0])) < 1e-3f;
+        FRESH();
+        upgrade_apply(UPG_X_EXECUTIONER);
+        DUMMY(ARENA_CX, ARENA_CY);
+        G.en[0].hp = 5000.0f * 0.31f;
+        PBullet bigshot = {.damage = 100.0f, .last_hit = -1};
+        bool exec_ok = upg_hit_damage(&pr, &G.en[0]) < 20.0f && upg_hit_damage(&bigshot, &G.en[0]) > G.en[0].hp;
+        FRESH();
+        upgrade_apply(UPG_STATIC);
+        upgrade_apply(UPG_SPLASH);
+        DUMMY(ARENA_CX, ARENA_CY);
+        DUMMY(ARENA_CX + 60.0f, ARENA_CY);
+        DUMMY(ARENA_CX + 900.0f, ARENA_CY);
+        for (int k = 0; k < 4; k++) upg_after_hit(&pr, &G.en[0], 100.0f);
+        bool splash_ok = fabsf(G.en[1].hp - (5000.0f - 4.0f * 25.0f)) < 1e-2f && G.en[2].hp == 5000.0f && G.en[0].static_n == 4;
+        float hs = G.en[0].hp;
+        upg_after_hit(&pr, &G.en[0], 100.0f); /* the 5th: lightning */
+        bool static_ok = G.en[0].static_n == 0 && G.en[0].hp < hs;
+        FRESH();
+        upgrade_apply(UPG_COMBO);
+        DUMMY(ARENA_CX, ARENA_CY);
+        for (int k = 0; k < 12; k++) upg_after_hit(&pr, &G.en[0], 1.0f);
+        bool combo_ok = pl->combo == 12 && fabsf(upg_hit_damage(&pr, &G.en[0]) - 10.0f * 1.24f) < 1e-3f;
+        PBullet miss = {.damage = 10.0f, .last_hit = -1, .armed = true};
+        weapon_bullet_death(&miss);
+        combo_ok = combo_ok && pl->combo == 0;
+        FRESH();
+        upgrade_apply(UPG_X_PRISM_HEART);
+        DUMMY(ARENA_CX + 200.0f, ARENA_CY);
+        G.en[0].fire_t = 99.0f;
+        G.npb = 0;
+        pl->fire_cd = 0.0f;
+        in->fire = true;
+        TICK();
+        in->fire = false;
+        int prism_max = 0;
+        for (int t = 0; t < 80; t++) {
+            G.hitstop = 0.0f;
+            TICK();
+            int c = 0;
+            for (int i = 0; i < G.npb; i++) c += (G.pb[i].flags & PB_PRISMED) && G.pb[i].armed;
+            if (c > prism_max) prism_max = c;
+        }
+        bool prismh_ok = prism_max >= 2 && G.en[0].hp < 5000.0f;
+        FRESH();
+        upgrade_apply(UPG_ARMOR_PIERCER);
+        DUMMY(ARENA_CX, ARENA_CY);
+        G.en[0].bubble = 2;
+        enemy_damage(&G.en[0], 10.0f, v2(0, 0));
+        bool ap_ok = G.en[0].bubble == 2 && G.en[0].hp < 5000.0f;
+        G.nen = G.npb = 0;
+        uh_ok = acid_ok && mark_ok && exec_ok && splash_ok && static_ok && combo_ok && prismh_ok && ap_ok;
+        if (!uh_ok)
+            printf("  [acid %d mark %d headsman %d splash %d static %d combo %d prism %d piercer %d] ", acid_ok, mark_ok, exec_ok, splash_ok,
+                   static_ok, combo_ok, prismh_ok, ap_ok);
+        names[nres] = "newest upgrades: acid, mark, headsman, static, splash, combo, prism, armor piercer", oks[nres++] = uh_ok;
+
+        /* ...and the others: COLD SNAP stuns (a stunned enemy stays put), LAST RESORT sets off a free
+         * bomb, PHOENIX FEATHER saves a lethal hit, DOOMSDAY CLOCK takes a quarter, GHOST HULL makes
+         * contact harmless, FIREPROOF walks through fire, BOWLING BALL throws the wreck, OVERSHIELD,
+         * CHRONOSPHERE, INTEREST, SPARE PARTS. */
+        FRESH();
+        upgrade_apply(UPG_COLD_SNAP);
+        DUMMY(ARENA_CX - 150.0f, ARENA_CY);
+        G.en[0].fire_t = 99.0f;
+        G.god = false;
+        pl->invuln = 0.0f;
+        player_hurt(1);
+        V2 at0 = G.en[0].pos;
+        G.hitstop = 0.0f;
+        for (int t = 0; t < 30; t++) TICK();
+        bool snap_ok = G.en[0].stun_t > 0.0f && v2_dist(G.en[0].pos, at0) < 0.5f;
+        G.god = true;
+        FRESH();
+        upgrade_apply(UPG_LAST_RESORT);
+        DUMMY(ARENA_CX, ARENA_CY);
+        G.en[0].fire_t = 99.0f;
+        G.god = false;
+        pl->hp = 3;
+        pl->invuln = 0.0f;
+        pl->bombs = 0;
+        player_hurt(1);
+        G.hitstop = 0.0f;
+        TICK();
+        bool resort_ok = pl->hp == 2 && pl->resort_used && !pl->resort_pending && G.en[0].hp <= 5000.0f - 90.0f && pl->bombs == 0;
+        G.god = true;
+        FRESH();
+        upgrade_apply(UPG_X_PHOENIX);
+        G.god = false;
+        pl->hp = 1;
+        pl->invuln = 0.0f;
+        player_hurt(1);
+        bool phoenix_ok = pl->hp == pl->max_hp && pl->phoenix_used && G.state == GS_PLAYING;
+        pl->hp = 1;
+        pl->invuln = 0.0f;
+        player_hurt(1); /* only once per run */
+        phoenix_ok = phoenix_ok && G.state == GS_GAMEOVER;
+        G.god = true;
+        FRESH();
+        upgrade_apply(UPG_X_DOOMSDAY);
+        DUMMY(ARENA_CX, ARENA_CY);
+        G.en[0].fire_t = 99.0f;
+        pl->doom_cd = 12.0f - DT * 0.5f;
+        G.room.cleared = false;
+        TICK();
+        bool doom_ok = fabsf(G.en[0].hp - 5000.0f * 0.75f) < 1.0f;
+        FRESH();
+        upgrade_apply(UPG_X_GHOST_HULL);
+        DUMMY(pl->pos.x, pl->pos.y);
+        G.en[0].type = EN_CHASER; /* it never fires */
+        G.god = false;
+        pl->invuln = 0.0f;
+        int hp_gh = pl->hp;
+        for (int t = 0; t < 10; t++) TICK();
+        bool ghosth_ok = pl->hp == hp_gh;
+        FRESH();
+        upgrade_apply(UPG_FIREPROOF);
+        G.god = false;
+        pl->invuln = 0.0f;
+        int hp_fp = pl->hp;
+        room_fire_add(pl->pos, FIRE_POOL_R, 5.0f);
+        for (int t = 0; t < 200; t++) TICK();
+        bool fire_ok = pl->hp == hp_fp && pl->burn_t <= 0.0f;
+        G.god = true;
+        FRESH();
+        upgrade_apply(UPG_BOWLING);
+        DUMMY(ARENA_CX, ARENA_CY);
+        G.en[0].fire_t = 99.0f;
+        G.npb = 0;
+        enemy_damage(&G.en[0], 6000.0f, v2(0, 0));
+        TICK();
+        bool bowl_ok = G.npb >= 1 && (G.pb[0].flags & PB_FRAGMENT) && G.pb[0].damage == 150.0f;
+        FRESH();
+        upgrade_apply(UPG_X_OVERSHIELD);
+        upgrade_apply(UPG_X_CHRONOSPHERE);
+        upgrade_apply(UPG_INTEREST);
+        int maxhp0 = pl->max_hp, bombs0 = pl->bombs;
+        upgrade_apply(UPG_SPARE_PARTS);
+        pl->shield = 0;
+        G.room.cleared = false;
+        upg_on_room_enter();
+        pl->coins = 50;
+        upg_on_room_clear();
+        bool misc2_ok = pl->shield >= 4 && upg_enemy_tempo() == 0.8f && pl->coins == 55 && pl->max_hp == maxhp0 + 2 && pl->bombs == bombs0 + 1;
+        G.nen = G.npb = 0;
+        bool ud_ok = snap_ok && resort_ok && phoenix_ok && doom_ok && ghosth_ok && fire_ok && bowl_ok && misc2_ok;
+        if (!ud_ok)
+            printf("  [cold snap %d last resort %d phoenix %d doomsday %d ghost %d fireproof %d bowling %d misc %d] ", snap_ok, resort_ok,
+                   phoenix_ok, doom_ok, ghosth_ok, fire_ok, bowl_ok, misc2_ok);
+        names[nres] = "newest upgrades: cold snap, last resort, phoenix, doomsday, ghost hull, fireproof, bowling, overshield, interest",
+        oks[nres++] = ud_ok;
+#undef SPAWN
 #undef DUMMY
 #undef FRESH
 #undef TICK
@@ -2384,7 +2699,9 @@ static int debug_rooms_run(const HeadlessOptions *o) {
                 clear_edges();
                 bool here = false;
                 for (int i = 0; i < G.nen; i++) /* a splitter's show goes on with its splitlings */
-                    here = here || (((int)G.en[i].type == ty || (ty == EN_SPLITTER && G.en[i].type == EN_SPLITLING)) && G.en[i].hp > 0.0f);
+                    here = here || (((int)G.en[i].type == ty || (ty == EN_SPLITTER && G.en[i].type == EN_SPLITLING) ||
+                                     (ty == EN_ROCKETEER && G.en[i].type == EN_MISSILE) || (ty == EN_EGG && G.en[i].type == EN_BUZZER)) &&
+                                    G.en[i].hp > 0.0f);
                 live += here;
                 deaths += was && !here;
                 was = here;
@@ -2392,8 +2709,9 @@ static int debug_rooms_run(const HeadlessOptions *o) {
                 menu_ok = menu_ok && G.state == GS_TITLE && title_world_hidden() && bestiary_world_type() == ty;
             }
             float frac = (float)live / (float)ticks;
-            /* the chaser, swarm and splitling only rush; the hunter, rammer and leaper hit with their body */
-            bool fires = ty == EN_CHASER || ty == EN_SWARM || ty == EN_SPLITLING || ty == EN_HUNTER || ty == EN_RAMMER || shots > 0;
+            /* the chaser, swarm, splitling and buzzer only rush; the hunter and rammer hit with their body; an egg hatches */
+            bool fires = ty == EN_CHASER || ty == EN_SWARM || ty == EN_SPLITLING || ty == EN_HUNTER || ty == EN_RAMMER || ty == EN_BUZZER ||
+                         ty == EN_EGG || shots > 0;
             bool ok = menu_ok && frac > 0.6f && fires;
             all_ok = all_ok && ok;
             if (!ok || getenv("NEON_BESTIARY_LOG"))
@@ -2687,7 +3005,7 @@ static int save_test_run(const HeadlessOptions *o) {
     STICK();
     G.in.right = false;
     STICK();
-    unl = unl && G.unl_sel == 1 + (UPG_COUNT + 3) / 4;
+    unl = unl && G.unl_sel == 1 + (UPG_COUNT + 4) / 5; /* 5 columns */
     G.in.pause_pressed = true;
     STICK();
     CHECK(unl && G.title_page == 2 && G.title_sel == 2, "UNLOCKS: every upgrade listed, arrows move, ESC back");

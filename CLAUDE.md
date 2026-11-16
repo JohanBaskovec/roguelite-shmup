@@ -64,6 +64,15 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   offers them.
 - **Enemies never scale with depth**: each type always has the same HP / speed / fire pattern
   (`ENEMIES` table). Difficulty only comes from more enemies, more waves and new, harder types.
+  The 60 newest types (`EN_DRIFTER .. EN_SENTINEL`, plus the helpers `EN_EGG` / `EN_MISSILE` / `EN_TURRET` made by
+  another enemy, `type_is_new()`) live in `src/enemies2.c`: `enemy2_update` (from `update_enemy`'s default case),
+  `enemy2_damage` (shells, guards, spin: damage changed or refused), `enemy2_untouchable`, `enemy2_on_death`,
+  `enemy2_draw*`, `enemy2_alpha`, `enemy2_mass`; `enemy_resistant()` tells the bot what not to waste shots on. Their
+  beams, tethers, orbs and arcs are `BossHazard`s from `enemy_hazards()` (the bot keeps off them, the live ones hurt
+  through `enemies2_hazards_hurt()`). A type whose HP is not its table's (centipede segments, hydra heads, crystal
+  growth, illusions) says so in `enemy_base_hp()` (headless checks it). An enemy gone without being killed (egg
+  hatching, missile blowing) sets `vanish`, an illusion `fake`: neither counts as a kill nor leaves a grave
+  (`Room.graves`, NECRO). `--enemy NAME` fills `g_only_enemies[]` (`g_only_count`).
   A new enemy: enum + `ENEMIES` entry (cost, min_depth), an `update_<name>` function, its drawing, its bestiary line,
   bot support if it needs a special answer (`bot.c`: hazards, charge lines, MIRROR flanking), a
   `sim_enemy_<name>` CTest (`--enemy NAME`, repeatable: waves of only those types) and, for a new
@@ -257,7 +266,13 @@ invariants / a CTest entry in `CMakeLists.txt`.
   entry, ship drawing, bot support if it plays differently, its unlock condition (`unlocks.c`,
   `character_unlock_hint`), and a `sim_<name>` CTest (`--char NAME`).
 - Upgrade effects live in `upgrades.c` as `upg_*` hooks called from bullets / enemies / player /
-  room code; add new upgrades there (table entry + hook). **Stats are derived**: the Player stat fields
+  room code; the 66 newest (`UPG_TWIN_BARREL .. UPG_SPLASH`, `UPG_X_ARSENAL .. UPG_X_DOOMSDAY`) live in
+  `upgrades2.c` as `upg2_*` functions those hooks call (stat effect, cap, description, grant, volley, hit,
+  kill, hurt, lethal hit, bomb, bullet death, block break, update, room enter / clear, draw); add new ones
+  there (table entries in `UPGRADES` / `MALUSES` + the `upg2_*` hook). Their state lives in the Player
+  (reset by `player_init`) and the Enemy (`acid`, `static_n`, `stun_t`: a stunned enemy skips its whole
+  behaviour, never a boss - `stun()`); CHRONOSPHERE slows enemies through `upg_enemy_tempo()`, ARMOR PIERCER
+  (`upg_armor_piercing()`) skips the armour of `enemy2_damage`, bubbles and the MIRROR plate (never boss armour). **Stats are derived**: the Player stat fields
   (`dmg_mult`, `max_hp`, `extra_proj`...) are always `Player.base` + the stat effects of every upgrade
   turned on (`stat_effect`), rebuilt by `player_recompute()`. Never write them directly: change
   `Player.base` (character, stat trades, augment costs) and call `player_recompute()`; stat upgrades go

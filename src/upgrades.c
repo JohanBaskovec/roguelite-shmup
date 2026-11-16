@@ -129,6 +129,58 @@ const UpgradeDef UPGRADES[UPG_COUNT] = {
     [UPG_FLAWLESS] = {"FLAWLESS", "+8% damage per room cleared without|a hit (max +80%), lost when hit", 0xf0f8ff},
     [UPG_VENGEANCE] = {"VENGEANCE", "Getting hit: double damage|for 6 s", 0xff2040},
 
+    /* The newer ones (effects in upgrades2.c). */
+    [UPG_TWIN_BARREL] = {"TWIN BARREL", "Every volley: two parallel|shots (60% damage)", 0x9ad7ff},
+    [UPG_HELIX] = {"HELIX", "Every volley: two shots that|weave around each other (50%)", 0x5dffd8},
+    [UPG_BURST_FIRE] = {"BURST FIRE", "Fires in bursts: x1.7 fire rate|for 0.6 s out of every second", 0xff9a5a},
+    [UPG_SCATTERBRAIN] = {"SCATTERBRAIN", "Volleys may throw 3 shots|in random directions", 0xff8ad0},
+    [UPG_REAR_GUARD] = {"REAR GUARD", "Auto-fires at enemies behind|you every 0.4 s", 0x7dd3ff},
+    [UPG_STRAFE] = {"STRAFE MASTER", "+35% fire rate while moving|sideways to your aim", 0x8affd8},
+    [UPG_ESCALATION] = {"ESCALATION", "Non-stop fire: +12% damage per|second (max +60%)", 0xffb070},
+    [UPG_OPENING_SALVO] = {"OPENING SALVO", "Your first volley in a room|blasts the cursor area (x4)", 0xffd36b},
+    [UPG_ACID] = {"ACID ROUNDS", "Every hit corrodes: the enemy|takes +5% damage (max +40%)", 0xb8ff3a},
+    [UPG_STATIC] = {"STATIC CHARGE", "Every 5th hit on an enemy|discharges lightning (x2)", 0xc0d0ff},
+    [UPG_CONCUSSION] = {"CONCUSSION", "Hits may stun enemies|for 0.7 s", 0xfff0b0},
+    [UPG_HUNTERS_MARK] = {"HUNTER'S MARK", "The toughest enemy is marked:|it takes double damage", 0xff5050},
+    [UPG_CHROMA] = {"CHROMA ROUNDS", "Every hit chills, poisons or|burns, at random", 0xff7ae0},
+    [UPG_VAMPIRE] = {"VAMPIRE FANGS", "Every 900 damage dealt heals|1/2 heart (max 2 per room)", 0xd01040},
+    [UPG_BOWLING] = {"BOWLING BALL", "Enemies killed fly off and|smash into the others", 0xffa64d},
+    [UPG_COMBO] = {"COMBO METER", "+2% damage per hit in a row|(max +60%); a miss resets it", 0xffe14d},
+    [UPG_FIELD_NOTES] = {"FIELD NOTES", "+2% damage against a type per|kill of that type (max +40%)", 0xd8f6ff},
+    [UPG_KILLSTREAK] = {"KILLSTREAK", "+1% damage per kill since|you were last hit (max +50%)", 0xff4a6a},
+    [UPG_WISPS] = {"SOUL WISPS", "Every kill releases a wisp|that hunts the next enemy", 0xb0ffea},
+    [UPG_FRENZY] = {"FRENZY", "Every kill: +50% fire rate|for 1.5 s", 0xff5a3a},
+    [UPG_QUICK_HANDS] = {"QUICK HANDS", "Every kill: active items|recharge 0.4 s faster", 0x7dfcff},
+    [UPG_SUPERNOVA] = {"SUPERNOVA", "Every 20th kill: a ring of|24 shots bursts from you", 0xfff5c0},
+    [UPG_SLOW_MOTION] = {"BULLET LULL", "Every kill: enemy bullets fly|35% slower for 1 s (max 3 s)", 0xa8a0ff},
+    [UPG_NANITES] = {"NANITES", "In a fight while hurt: heal|1/2 heart every 40 s", 0x66ffb0},
+    [UPG_REPULSOR] = {"REPULSOR FIELD", "Enemy bullets close to you|are bent away", 0x80c8ff},
+    [UPG_SHOCKWAVE] = {"SHOCKWAVE", "Enemies coming close set off|a knockback pulse (2.5 s)", 0xd0e8ff},
+    [UPG_LAST_RESORT] = {"LAST RESORT", "Once per room, dropping to|1 heart sets off a free bomb", 0xff8a3d},
+    [UPG_SHIELD_BATTERY] = {"SHIELD BATTERY", "A room cleared without a hit:|+1/2 shield (up to 2)", 0x66d9ff},
+    [UPG_FIREPROOF] = {"FIREPROOF", "Fire and blasts never hurt you;|+20% damage to burning enemies", 0xff7a2e},
+    [UPG_PHASE_CLOAK] = {"PHASE CLOAK", "+1 s of invulnerability|after a hit", 0xb08cff},
+    [UPG_SPARE_PARTS] = {"SPARE PARTS", "+1 heart container, +1 bomb", 0xff5577},
+    [UPG_AFTERIMAGE] = {"AFTERIMAGE", "While moving: a homing shot|every 1.2 s", 0x9aa8ff},
+    [UPG_SENTRY] = {"SENTRY GUN", "A turret set up where you enter|a room fires at enemies", 0x8ab8ff},
+    [UPG_SMITE] = {"SMITE", "Every 5 s, the toughest enemy|loses 10% of its health", 0xfff07a},
+    [UPG_DEMOLISHER] = {"DEMOLISHER", "Blocks you break blow up|and hurt the enemies around", 0xffa64d},
+    [UPG_INTEREST] = {"INTEREST", "Each room cleared: +10% of|your coins (max 8)", 0xffd23f},
+    [UPG_LOCKSMITH] = {"LOCKSMITH", "+1 key, and +1 key every|5 rooms cleared", 0xd9e3f0},
+    [UPG_CLUSTER_BOMBS] = {"CLUSTER BOMBS", "Bombs scatter 8 more blasts|around you", 0xff8a3d},
+    [UPG_CRYO_BOMB] = {"CRYO BOMB", "Bombs freeze every enemy|for 2.5 s", 0x8fe9ff},
+    [UPG_FULL_POWER] = {"FULL POWER", "At full health: +40% damage,|shots pierce one more enemy", 0xf0f8ff},
+    [UPG_DESPERADO] = {"DESPERADO", "At half health or less: +20%|fire rate, shots pierce 3 more", 0xff3355},
+    [UPG_BUCKSHOT] = {"BUCKSHOT", "+2 projectiles per volley", 0xffa94d},
+    [UPG_SLUGGER] = {"SLUGGER", "+60% damage, +50% knockback", 0xc08a5a},
+    [UPG_NIMBLE] = {"NIMBLE", "+20% speed, +15% shot speed", 0xe6f0ff},
+    [UPG_BOUNTY] = {"BOUNTY BOARD", "One enemy per room is wanted:|kill it for +5 coins on clear", 0xffd23f},
+    [UPG_TIME_BOMB] = {"TIME BOMB", "Every 6th volley: a slow shell|that explodes (x3 damage)", 0xff6a2a},
+    [UPG_ARMOR_PIERCER] = {"ARMOR PIERCER", "Shells, plates, spinning blades|and bubbles stop nothing", 0xd0d0e0},
+    [UPG_THUNDERHEAD] = {"THUNDERHEAD", "While firing: a bolt strikes|near the cursor every 3 s", 0x9db8ff},
+    [UPG_COLD_SNAP] = {"COLD SNAP", "Getting hit freezes the|enemies around you", 0xb8f0ff},
+    [UPG_SPLASH] = {"SPLASH DAMAGE", "Hits deal 25% of their damage|to the enemies around", 0x66e0ff},
+
     /* Weapon mods: they change the gun itself and stack with each other (weapons.c, gun_profile). */
     [UPG_W_SCATTER] = {"SCATTER", "x8 pellets in a wide fan,|big knockback", 0xffa94d},
     [UPG_W_NEEDLER] = {"NEEDLER", "Double fire rate, shots|pierce 2 more enemies", 0xf28cff},
@@ -155,6 +207,22 @@ const UpgradeDef UPGRADES[UPG_COUNT] = {
     [UPG_X_STORM] = {"STORM CORE", "+30% fire rate; hits may chain|lightning through 3 enemies", 0x9db8ff, 2},
     [UPG_X_DEMON] = {"DEMON HEART", "Damage x1.8, +2 projectiles,|every kill explodes", 0xb0103a, 3},
     [UPG_X_GOD_CANNON] = {"GOD CANNON", "+50% dmg, +25% rate, +1 shot,|+2 pierce, shots home", 0xfff5c0, 3},
+    [UPG_X_ARSENAL] = {"ARSENAL", "+1 shot, +20% fire rate,|+20% damage", 0xffa94d, 1},
+    [UPG_X_PHOENIX] = {"PHOENIX FEATHER", "Once per run, a lethal hit fully|heals you in a burst of fire", 0xff8a3d, 1},
+    [UPG_X_GHOST_HULL] = {"GHOST HULL", "Touching enemies never hurts;|+25% speed", 0xc8d8ff, 1},
+    [UPG_X_SUPERCHARGER] = {"SUPERCHARGER", "Active items recharge twice as|fast; each use fires 16 shots", 0x7dfcff, 1},
+    [UPG_X_VOID_ROUNDS] = {"VOID ROUNDS", "+25% damage, +2 pierce, shots|pass through obstacles", 0x8a5aff, 1},
+    [UPG_X_OVERSHIELD] = {"OVERSHIELD", "Every room starts with|2 shields", 0x66d9ff, 1},
+    [UPG_X_HIVE_QUEEN] = {"HIVE QUEEN", "+2 drones, +10% damage", 0xb6ffb0, 2},
+    [UPG_X_CHRONOSPHERE] = {"CHRONOSPHERE", "Enemies and their bullets|move 20% slower", 0xa8a0ff, 2},
+    [UPG_X_EXECUTIONER] = {"HEADSMAN", "Hits execute enemies below 30%;|every 20 kills: +1/2 heart", 0xff4466, 2},
+    [UPG_X_ORBITAL_ARRAY] = {"ORBITAL ARRAY", "4 wide orbs circle you, block|bullets and grind enemies", 0xffe3a0, 2},
+    [UPG_X_PRISM_HEART] = {"PRISM HEART", "A shot's first hit splits it|into two more shots", 0xd8a0ff, 2},
+    [UPG_X_TEMPEST] = {"TEMPEST", "A storm around you shreds|every enemy inside it", 0x9db8ff, 2},
+    [UPG_X_RAILSTORM] = {"RAILSTORM", "A rail shot that pierces every-|thing fires itself every 1.6 s", 0xe0f4ff, 3},
+    [UPG_X_ANNIHILATOR] = {"ANNIHILATOR", "Every 10th volley calls a strike|near the cursor (x10 damage)", 0xff2050, 3},
+    [UPG_X_SINGULARITY] = {"EVENT ENGINE", "Every 7 s, a black hole opens|in the thickest crowd", 0x8a5aff, 3},
+    [UPG_X_DOOMSDAY] = {"DOOMSDAY CLOCK", "Every 12 s, every enemy loses|25% of its health", 0xb0103a, 3},
 };
 
 /* Stacks owned (0 while turned off), +1 while CHAOS lends it (only lent when not owned). */
@@ -222,7 +290,10 @@ const char *upgrade_desc_at(int u, int n) {
     case UPG_MISSILE_POD: SDL_snprintf(b, 96, "Fires a homing missile|every %.2g s", (double)(1.5f / (float)n)); break;
     case UPG_ORBITAL: SDL_snprintf(b, 96, "A strike from orbit hits|an enemy every %.2g s", (double)(3.0f / (float)n)); break;
     case UPG_CAPACITOR: SDL_snprintf(b, 96, "Every %dth volley: a mega shot", n >= 2 ? 6 : 10); break;
-    default: return UPGRADES[u].desc;
+    default: {
+        const char *d = upg2_desc_at(u, b, 96);
+        return d ? d : UPGRADES[u].desc;
+    }
     }
     return b;
 }
@@ -268,7 +339,7 @@ bool upgrade_capped(int u) {
         return actives_owned(owned) == 0;
     }
     case UPG_RAM: return p->act[ACT_DASH].level == 0 && p->act[ACT_SHIELD].level == 0;
-    default: return false;
+    default: return upg2_capped(u, &all);
     }
 }
 
@@ -352,7 +423,7 @@ static void stat_effect(Stats *p, int u) {
         p->pierce += 2;
         p->homing += 3.0f;
         break;
-    default: break; /* effect read through has() by the hooks below */
+    default: upg2_stat_effect(p, u); break; /* the newer ones; the rest: read through has() by the hooks below */
     }
     malus_stat_effect(p, u); /* every upgrade's malus (only the stat ones do something here) */
 }
@@ -421,7 +492,7 @@ void upgrade_grant(int u) {
     case UPG_SKELETON_KEY: p->keys += 3; break;
     case UPG_SECOND_WIND: p->revives++; break;
     case UPG_BARRIER: player_add_shield(2); break;
-    default: break;
+    default: upg2_grant(u); break;
     }
 }
 
@@ -459,7 +530,7 @@ float upg_volley_damage_mult(void) {
     if (wild_is(0)) m *= 1.4f;
     if (has(UPG_FLAWLESS)) m *= 1.0f + fminf(0.08f * (float)G.pl.flawless, 0.8f);
     if (has(UPG_VENGEANCE) && G.pl.vengeance_t > 0.0f) m *= 2.0f;
-    return m;
+    return m * upg2_volley_damage_mult();
 }
 
 static bool adrenaline_on(void) { return has(UPG_ADRENALINE) && G.pl.hp <= 2; }
@@ -472,7 +543,7 @@ float upg_fire_rate_mult(void) {
     if (wild_is(1)) m *= 1.4f;
     if (has(UPG_AFTERBURNER) && G.pl.afterburn_t > 0.0f) m *= 1.8f;
     if (v2_len2(G.pl.vel) > 80.0f * 80.0f) m *= fmaxf(0.3f, 1.0f - malus_pct(MAL_MOVING_RATE));
-    return m;
+    return m * upg2_fire_rate_mult();
 }
 float upg_move_speed_mult(void) {
     float m = adrenaline_on() ? 1.15f : 1.0f;
@@ -505,6 +576,7 @@ void upg_on_bullet_spawn(PBullet *b) {
         if (has(UPG_CRIT_MASS)) b->flags |= PB_EXPLOSIVE;
         b->col = col_hex(0xfff07a, 1);
     }
+    upg2_on_bullet_spawn(b);
 }
 
 static PBullet *extra_shot(V2 pos, float angle, float speed, float radius, float dmg, float life, SDL_FColor col) {
@@ -556,6 +628,7 @@ void upg_on_volley(V2 muzzle, float aim, float dmg, SDL_FColor col) {
         for (int k = 0; k < 4; k++) extra_shot(p->pos, aim + PI_F * (0.25f + 0.5f * (float)k), 1100.0f, 4.0f, dmg * 0.6f, 0.6f, col);
     n = has(UPG_CAPACITOR);
     if (n && p->volleys % (n >= 2 ? 6 : 10) == 0) upg_mega_shot(muzzle, aim, dmg * 6.0f);
+    upg2_on_volley(muzzle, aim, dmg, col);
 }
 
 V2 upg_clone_pos(void) { return G.pl.trail[G.pl.trail_i]; } /* the oldest entry of the ring */
@@ -615,6 +688,7 @@ float upg_hit_damage(const PBullet *b, const Enemy *e) {
     if (has(UPG_SNOWBALL) && !(b->flags & PB_BYPRODUCT)) dmg *= 1.0f + 0.8f * fminf(b->age / 0.8f, 1.0f);
     if (has(UPG_ALCHEMIST)) dmg *= 1.0f + 0.3f * (float)((e->slow_t > 0.0f) + (e->poison_t > 0.0f) + (e->burn_t > 0.0f));
     if (has(UPG_FIRST_BLOOD) && e->hp >= e->max_hp) dmg *= 3.0f;
+    dmg = upg2_hit_damage(b, e, dmg); /* the newer ones (HEADSMAN may execute) */
     /* GUILLOTINE: a hit that leaves an enemy under 15% finishes it (never the boss). */
     if (has(UPG_GUILLOTINE) && !enemy_is_boss(e) && e->hp - dmg < e->max_hp * (syn(SYN_EXECUTIONER) ? 0.25f : 0.15f)) {
         fx_particle(e->pos, v2(0, 0), 0.3f, e->radius * 3.0f, col_hex(0xff4466, 1), 0.0f, PT_RING);
@@ -748,6 +822,7 @@ void upg_enemy_reactions(Enemy *e) {
 void upg_after_hit(PBullet *b, Enemy *e, float dmg) {
     Player *p = &G.pl;
     int n;
+    upg2_after_hit(b, e, dmg); /* the newer ones, before the early return of fragments */
     if (has(UPG_MOMENTUM)) {
         p->momentum = fminf(p->momentum + 0.015f, syn(SYN_UNSTOPPABLE) ? 0.8f : 0.6f);
         p->momentum_t = 0.0f;
@@ -899,6 +974,7 @@ void upg_on_kill(const Enemy *e) {
     }
     if ((n = has(UPG_BLACK_HOLE)) > 0 && chance(black_hole_chance(n)))
         upg_vortex(e->pos, syn(SYN_SINGULARITY) ? 2.4f : 1.6f, 60.0f * aura_scale());
+    upg2_on_kill(e);
 }
 
 /* An enemy bullet sent back the way it came, as one of ours (DEFLECTOR SHELLS, PARRY, MIRROR
@@ -936,7 +1012,7 @@ void upg_reflect(PBullet *b) {
 
 bool upg_on_lethal_hit(void) {
     Player *p = &G.pl;
-    if (p->revives <= 0 || !has(UPG_SECOND_WIND)) return false; /* turned off: the charge waits */
+    if (p->revives <= 0 || !has(UPG_SECOND_WIND)) return upg2_lethal_hit(); /* turned off: the charge waits; PHOENIX FEATHER */
     p->revives--;
     p->hp = 2;
     p->invuln = 2.0f;
@@ -977,12 +1053,14 @@ void upg_on_hurt(void) {
     }
     int n = has(UPG_REACTIVE);
     if (n) ring_of_shots(16 + 8 * (n - 1), 8.0f * aura_scale(), 900.0f, 0.6f, 0xff6a4d);
+    upg2_on_hurt();
 }
 
 void upg_on_active(void) {
     if (has(UPG_AFTERBURNER)) G.pl.afterburn_t = 4.0f;
     int n = has(UPG_DASH_NOVA);
     if (n) ring_of_shots(10 * n, 6.0f * aura_scale(), 1000.0f, 0.5f, 0x7dfcff);
+    upg2_on_active();
 }
 
 static V2 orb_pos(int i, int n) {
@@ -1046,7 +1124,9 @@ void upg_on_graze(V2 at) {
 /* CHRONO BUBBLE: how fast an enemy bullet at pos flies (1 = normal). */
 #define BUBBLE_RADIUS 150.0f
 float upg_enemy_bullet_tempo(V2 pos) {
-    return has(UPG_BULLET_TIME) && v2_dist2(pos, G.pl.pos) < BUBBLE_RADIUS * BUBBLE_RADIUS ? 0.55f : 1.0f;
+    float t = has(UPG_BULLET_TIME) && v2_dist2(pos, G.pl.pos) < BUBBLE_RADIUS * BUBBLE_RADIUS ? 0.55f : 1.0f;
+    if (has(UPG_SLOW_MOTION) && G.pl.slowmo_t > 0.0f) t *= 0.65f; /* BULLET LULL */
+    return t * upg_enemy_tempo();                                  /* CHRONOSPHERE */
 }
 
 /* MISSILE POD's homing missile (RAIN OF FIRE drops some from orbit too). */
@@ -1088,6 +1168,7 @@ void upg_on_bomb(void) {
                 upg_fire_patch(v2_add(p->pos, v2_scale(v2_angle(TAU_F * (float)k / (float)count + (float)ring), 90.0f * (float)(ring + 1))),
                                10.0f * aura_scale(), 3.5f);
         }
+    upg2_on_bomb();
 }
 
 #define AEGIS_HALF 0.62f /* half-width of the shield's arc, rad */
@@ -1297,6 +1378,7 @@ void upg_update(void) {
             }
         }
     }
+    upg2_update();
 }
 
 bool upg_block_hit(void) {
@@ -1339,6 +1421,7 @@ void upg_on_room_enter(void) {
     malus_on_room_enter();
     int n = has(UPG_BARRIER);
     if (n && !G.room.cleared && p->shield < 2 * n) player_add_shield(2 * n - p->shield);
+    upg2_on_room_enter();
 }
 
 void upg_on_room_clear(void) {
@@ -1358,6 +1441,7 @@ void upg_on_room_clear(void) {
         G.pl.coins += pay;
         fx_popup(v2_add(G.pl.pos, v2(0, -36)), col_hex(0xffd23f, 1), "+%d COINS", pay);
     }
+    upg2_on_room_clear();
 }
 
 float upg_enemy_bullet_speed(void) {
@@ -1417,6 +1501,8 @@ void upg_draw(void) {
     if (p->shield > 0) draw_ring(p->pos, 24.0f + 1.5f * sinf(G.time * 5.0f), 2.0f, col_hex(0x66d9ff, 0.55f));
     if (has(UPG_EMERGENCY) && !p->emergency_used) /* the spare block, ready */
         draw_ngon_outline(p->pos, 28.0f, 6, G.time, 1.5f, col_hex(0x66d9ff, 0.35f));
+    upg2_draw();
+    draw_blend_add();
     if (has(UPG_SPIKED_HULL))
         for (int k = 0; k < 8; k++) {
             V2 d = v2_angle(G.time * 2.0f + TAU_F * (float)k / 8.0f);

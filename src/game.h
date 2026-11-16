@@ -56,12 +56,24 @@ typedef enum {
     UPG_DEAD_TRIGGER, UPG_CHARGE, UPG_GRAZE, UPG_BULLET_TIME, UPG_CLONE, UPG_BLOOD_MONEY, UPG_WILD_CARD,
     UPG_POINT_DEFENSE, UPG_TRAIL, UPG_AEGIS, UPG_AFTERBURNER, UPG_BERSERKER, UPG_BOMB_FACTORY, UPG_FLAWLESS,
     UPG_VENGEANCE,
+    /* the 50 newer ones (upgrades2.c): volleys, hits, kills, defence, utility, conditions */
+    UPG_TWIN_BARREL, UPG_HELIX, UPG_BURST_FIRE, UPG_SCATTERBRAIN, UPG_REAR_GUARD, UPG_STRAFE, UPG_ESCALATION,
+    UPG_OPENING_SALVO, UPG_ACID, UPG_STATIC, UPG_CONCUSSION, UPG_HUNTERS_MARK, UPG_CHROMA, UPG_VAMPIRE, UPG_BOWLING,
+    UPG_COMBO, UPG_FIELD_NOTES, UPG_KILLSTREAK, UPG_WISPS, UPG_FRENZY, UPG_QUICK_HANDS, UPG_SUPERNOVA, UPG_SLOW_MOTION,
+    UPG_NANITES, UPG_REPULSOR, UPG_SHOCKWAVE, UPG_LAST_RESORT, UPG_SHIELD_BATTERY, UPG_FIREPROOF, UPG_PHASE_CLOAK,
+    UPG_SPARE_PARTS, UPG_AFTERIMAGE, UPG_SENTRY, UPG_SMITE, UPG_DEMOLISHER, UPG_INTEREST, UPG_LOCKSMITH,
+    UPG_CLUSTER_BOMBS, UPG_CRYO_BOMB, UPG_FULL_POWER, UPG_DESPERADO, UPG_BUCKSHOT, UPG_SLUGGER, UPG_NIMBLE, UPG_BOUNTY,
+    UPG_TIME_BOMB, UPG_ARMOR_PIERCER, UPG_THUNDERHEAD, UPG_COLD_SNAP, UPG_SPLASH,
     /* weapon mods (offered by weapon rooms); UPG_W_SWORD replaces the gun with a sword */
     UPG_W_SCATTER, UPG_W_NEEDLER, UPG_W_SEEKER, UPG_W_BOUNCER, UPG_W_RAILGUN, UPG_W_FLAMER, UPG_W_ROCKETS,
     UPG_W_CHAKRAM, UPG_W_CLUSTER, UPG_W_ARC, UPG_W_VULCAN, UPG_W_WAVE,
     UPG_W_LASER, UPG_W_SPIRAL, UPG_W_PRISM, UPG_W_GRAVITON, UPG_W_SWORD,
     /* workshop exclusives (UpgradeDef.tier = max hearts paid), never offered anywhere else */
     UPG_X_BLOOD_ROUNDS, UPG_X_OVERDRIVE, UPG_X_HELLFIRE, UPG_X_STORM, UPG_X_DEMON, UPG_X_GOD_CANNON,
+    /* the 16 newer exclusives (upgrades2.c): six of tier 1, six of tier 2, four of tier 3 */
+    UPG_X_ARSENAL, UPG_X_PHOENIX, UPG_X_GHOST_HULL, UPG_X_SUPERCHARGER, UPG_X_VOID_ROUNDS, UPG_X_OVERSHIELD,
+    UPG_X_HIVE_QUEEN, UPG_X_CHRONOSPHERE, UPG_X_EXECUTIONER, UPG_X_ORBITAL_ARRAY, UPG_X_PRISM_HEART, UPG_X_TEMPEST,
+    UPG_X_RAILSTORM, UPG_X_ANNIHILATOR, UPG_X_SINGULARITY, UPG_X_DOOMSDAY,
     UPG_COUNT
 } UpgradeId;
 
@@ -119,6 +131,7 @@ typedef struct {
     int ricochets;  /* RICOCHET: jumps to another enemy already made */
     float grown;    /* SNOWBALL: size multiplier applied so far (0 = none yet) */
     bool armed;     /* went through pbullet_arm (or is the main gun's): carries every upgrade */
+    bool hit_any;   /* hit an enemy at least once (COMBO: a shot that dies without a hit is a miss) */
 } PBullet;
 
 enum {
@@ -135,6 +148,7 @@ enum {
     PB_ORBIT = 1 << 15, /* orbit: circles around the ship in a widening spiral */
     PB_SPLIT = 1 << 16, /* prism: splits in three mid-flight (once) */
     PB_PULL = 1 << 17,  /* graviton: drags enemies along */
+    PB_PRISMED = 1 << 18, /* PRISM HEART: already split on a hit (and its copies) */
 };
 
 /* Look of a player shot: the most striking weapon mod owned decides (gun_profile). */
@@ -152,6 +166,9 @@ typedef enum {
     EB_HOMING,    /* turns towards the ship for t1 seconds */
     EB_WAVY,      /* weaves around its line */
     EB_BALL,      /* thrown by a SPARK POD block: hurts the ship AND the enemies it touches */
+    EB_FROST,     /* FROSTBITE: chills the ship it hits (slower for a moment) */
+    EB_WEB,       /* WEAVER: brakes to a stop (t1 = braking) and stays, chills the ship it hits */
+    EB_SHATTER,   /* JUGGERNAUT: bursts into a ring of n where it hits a wall */
 } EBulletKind;
 
 typedef struct {
@@ -185,6 +202,18 @@ typedef enum {
     EN_CARRIER,     /* room 30: rotating shield plates, drones, missiles */
     EN_SINGULARITY, /* room 40: a black hole that pulls the ship in */
     EN_SPLITLING, /* only born from a dying splitter (min_depth keeps it out of waves) */
+    /* The 60 newer types (enemies2.c), from very easy to hard, then the 3 helpers they make. */
+    EN_DRIFTER, EN_PEON, EN_BUZZER, EN_PULSAR, EN_SNAIL, EN_SKITTER, EN_POPPER,
+    EN_SPRINKLER, EN_BEETLE, EN_CRAB, EN_WASP, EN_DICE, EN_PUFFER, EN_PRISM, EN_BAT, EN_CENTIPEDE, EN_BROODER,
+    EN_MEDIC, EN_HEDGEHOG,
+    EN_SAPPER, EN_ROCKETEER, EN_JESTER, EN_FROSTBITE, EN_GLITCH, EN_PEEKER, EN_ECHO, EN_CLOCK, EN_HALO,
+    EN_STALKER, EN_OCTOPUS, EN_BUZZSAW, EN_SENTRY, EN_TORCH, EN_ZAPPER, EN_BEAMER, EN_ENGINEER, EN_JELLY, EN_SCORPION,
+    EN_LINKER, EN_SWAPPER, EN_SPOTTER, EN_LODESTONE, EN_SPONGE, EN_PARRY, EN_BUBBLER, EN_DRUMMER, EN_TRICKSTER,
+    EN_HYDRA, EN_MANTIS, EN_FLAIL, EN_MOLE, EN_CRYSTAL, EN_NECRO, EN_BERSERKER, EN_FUNGUS, EN_WEAVER,
+    EN_JUGGERNAUT, EN_IDOL, EN_BLACKSTAR, EN_SENTINEL,
+    EN_EGG,     /* laid by a brooder, hatches into a buzzer */
+    EN_MISSILE, /* launched by a rocketeer */
+    EN_TURRET,  /* built by an engineer */
     EN_COUNT
 } EnemyType;
 
@@ -219,13 +248,28 @@ typedef struct {
     V2 aux;                       /* per type: charge / slide direction, blink target, wall normal... */
     float alt;                    /* EN_LEAPER: height of the jump (> 0: in the air, untouchable) */
     float dodge_cd;               /* EN_DODGER: time before it can sidestep again */
+    /* The newer types (enemies2.c): */
+    int link;                     /* uid of the one it follows / is tied to (CENTIPEDE, LINKER) */
+    float k0, k1;                 /* per type: generation, growth, charge, counters... */
+    float haste_t;                /* DRUMMER / SENTINEL: moves and fires faster meanwhile */
+    int bubble;                   /* BUBBLER: hits its bubble still stops (whole hits) */
+    bool fake;                    /* TRICKSTER: an illusion (one hit, no shots of its own, no kill) */
+    bool vanish;                  /* gone without being killed (an egg hatching, a missile blowing): no kill */
+    /* Upgrades' marks on it (upgrades2.c): */
+    float acid;                   /* ACID ROUNDS: extra damage it takes (0 .. 0.4) */
+    int static_n;                 /* STATIC CHARGE: hits so far towards the next discharge */
+    float stun_t;                 /* CONCUSSION, COLD SNAP, CRYO BOMB: frozen in place meanwhile (never a boss) */
 } Enemy;
+
+#define EN_NEW_FIRST EN_DRIFTER
+static inline bool type_is_new(int t) { return t >= EN_NEW_FIRST && t < EN_COUNT; }
 
 #define GUARDIAN_RANGE 260.0f
 #define GUARDIAN_SHIELD 0.4f /* allies near a guardian take 40% damage */
 
-/* --enemy NAME (repeatable): waves only use these types (bit per EnemyType; 0 = normal waves). */
-extern uint64_t g_only_enemies;
+/* --enemy NAME (repeatable): waves only use these types (g_only_count 0 = normal waves). */
+extern bool g_only_enemies[EN_COUNT];
+extern int g_only_count;
 
 /* Boss rooms: every BOSS_EVERY rooms (depth 10, 20...); the room before has a single door. */
 #define BOSS_EVERY 10
@@ -406,6 +450,9 @@ typedef struct {
     V2 wells[2];            /* SINGULARITY: small black holes orbiting it (phase 3) */
     float wells_t;          /* time they have left */
     float gravity;          /* SINGULARITY: pull on the ship (px/s at 300 px; < 0 pushes) */
+    V2 graves[8];           /* NECRO: where the last enemies died (and what they were), to raise them */
+    uint8_t grave_type[8];
+    int ngraves;
 } Room;
 
 /* Something a boss is about to do / doing that the ship must stay out of (the bot reads them,
@@ -479,6 +526,19 @@ typedef struct {
     float aim_angle;
     int hp, max_hp;             /* in half-hearts */
     float invuln;
+    float chill_t;              /* hit by frost / a web (FROSTBITE, WEAVER): moves slower meanwhile */
+    /* The newer upgrades' state (upgrades2.c), reset with the Player at every run. */
+    int mark_uid, bounty_uid;   /* HUNTER'S MARK: the enemy marked; BOUNTY BOARD: this room's bounty */
+    bool bounty_done, salvo_ready, resort_used, resort_pending, phoenix_used, sentry_on;
+    float vamp;                 /* VAMPIRE FANGS: damage dealt towards the next half-heart */
+    int combo, streak, nova_kills, exec_kills, lock_rooms;
+    uint8_t notes[EN_COUNT];    /* FIELD NOTES: kills per enemy type this run */
+    float hold_t, frenzy_t, slowmo_t, regen_t, shock_cd, rear_cd, afterimage_cd, sentry_cd, smite_cd, thunder_cd;
+    V2 sentry_pos;              /* SENTRY GUN: where it stands this room */
+    float rail_cd, sing_cd, doom_cd, nuke_t; /* RAILSTORM, SINGULARITY, DOOMSDAY, ANNIHILATOR */
+    V2 nuke_pos;
+    int nuke_volleys, vamp_room;  /* ANNIHILATOR volleys counted; VAMPIRE FANGS heals this room */
+    float nuke_dmg;
     float fire_cd;
     float dash_t, dash_cooldown; /* dash_cooldown: the RECHARGE stat (dash recharge, scales every active) */
     V2 dash_dir;
@@ -742,6 +802,33 @@ float upg_volley_damage_mult(void);   /* BLOODLUST, WOUNDED FURY, LAST STAND */
 float upg_fire_rate_mult(void);       /* ADRENALINE, SCAR TISSUE, DEFLECTOR */
 float upg_move_speed_mult(void);      /* ADRENALINE, LAST STAND */
 float upg_shot_speed_mult(void);      /* DEFLECTOR */
+/* upgrades2.c: the 50 newer upgrades and 16 newer exclusives, called from the hooks of upgrades.c. */
+void upg2_stat_effect(Stats *p, int u);
+const char *upg2_desc_at(int u, char *b, int size); /* NULL: the table's text */
+bool upg2_capped(int u, const Stats *all);
+void upg2_grant(int u);
+float upg2_volley_damage_mult(void);
+float upg2_fire_rate_mult(void);
+void upg2_on_bullet_spawn(PBullet *b);
+void upg2_on_volley(V2 muzzle, float aim, float dmg, SDL_FColor col);
+float upg2_hit_damage(const PBullet *b, const Enemy *e, float dmg);
+void upg2_after_hit(PBullet *b, Enemy *e, float dmg);
+void upg2_on_kill(const Enemy *e);
+void upg2_on_hurt(void);
+bool upg2_lethal_hit(void);           /* PHOENIX FEATHER */
+void upg2_on_active(void);
+void upg2_on_bomb(void);
+void upg2_bullet_death(const PBullet *b); /* COMBO: a shot that missed */
+void upg2_on_block_break(V2 at);      /* DEMOLISHER */
+void upg2_update(void);
+void upg2_on_room_enter(void);
+void upg2_on_room_clear(void);
+void upg2_draw(void);
+float upg_enemy_tempo(void);          /* CHRONOSPHERE: enemies move and fire slower */
+bool upg_armor_piercing(void);        /* ARMOR PIERCER: armour, plates and bubbles do not count */
+bool upg_fireproof(void);             /* FIREPROOF: fire and the blocks' blasts never hurt the ship */
+bool upg_ghost_hull(void);            /* GHOST HULL: touching enemies does not hurt */
+void player_bomb_blast(void);         /* a bomb's blast (without spending one: LAST RESORT) */
 /* Description with the exact numbers (chances...) once the upgrade has n stacks. */
 const char *upgrade_desc_at(int u, int n);
 /* What taking it now would give (current stacks + 1). */
@@ -1001,6 +1088,27 @@ bool is_boss_depth(int depth);
 void enemy_steer(Enemy *e, V2 desired_vel, float responsiveness);
 void enemy_fire_ring(V2 pos, int n, float speed, float radius, float offset, SDL_FColor col);
 void enemy_fire_fan(V2 pos, float angle, int n, float spread, float speed, float radius, SDL_FColor col);
+V2 enemy_nav_dir(Enemy *e, V2 goal);
+void enemy_wander(Enemy *e, float dmin, float dmax, float speed);
+V2 enemy_random_point(V2 center, float dmin, float dmax);
+bool enemy_blocked_ahead(const Enemy *e, V2 dir, float speed, V2 *n);
+Enemy *enemy_spawn_now(EnemyType type, V2 pos); /* at once, no telegraph (NULL when full) */
+/* enemies2.c: the 60 newer types (EN_DRIFTER .. EN_TURRET). */
+void enemy2_update(Enemy *e, float aim, float dist, V2 dir);
+bool enemy2_untouchable(const Enemy *e);
+float enemy2_damage(Enemy *e, float dmg, V2 knock); /* front armour, bubbles, parries...: what gets through */
+void enemy2_on_death(Enemy *e);
+void enemy2_draw_glow(const Enemy *e);              /* additive pass: telegraphs, beams, auras */
+void enemy2_draw(const Enemy *e, V2 at, float rad, SDL_FColor c, SDL_FColor fill); /* body and details */
+float enemy2_alpha(const Enemy *e);                 /* see-through (stalker, mole underground...) */
+float enemy2_mass(const Enemy *e);                  /* knockback divider on top of the size */
+bool enemy_resistant(const Enemy *e);
+float enemy_base_hp(const Enemy *e); /* max hp: its type's, or the fixed one of its form (body segment, hydra head, crystal's growth, illusion) */               /* shots barely hurt it right now (the bot aims elsewhere) */
+/* Beams, tethers, orbs, strikes about to land...: the same as the bosses' (the bot keeps off them,
+ * the live ones hurt the ship, enemies2_hazards_hurt). */
+int enemy_hazards(BossHazard *out, int max);
+void enemies2_hazards_hurt(void);
+void enemies2_tick(void);                           /* once per tick before the enemies: shared state */
 /* bosses.c */
 EnemyType boss_for_depth(int depth);      /* 10: one of four, 20 / 30 / 40: their own, beyond: any */
 const char *boss_title(EnemyType t);      /* "THE OVERSEER"... */

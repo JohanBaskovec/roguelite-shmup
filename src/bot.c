@@ -225,6 +225,7 @@ void bot_input(void) {
             continue;
         }
         if (enemy_untouchable(e)) d2 += 600.0f * 600.0f; /* rather shoot at something it can hit */
+        else if (enemy_resistant(e)) d2 += 350.0f * 350.0f; /* or something its shots do not glance off */
         /* Bullets are up to ~8 px wide. Breakable blocks in the way get shot down on the way to it
          * (but not a barrel about to blow up in its face). */
         bool open = shot_clear(pl->pos, e);
@@ -374,6 +375,12 @@ void bot_input(void) {
         /* Its front plate stops the shots: go around it. */
         float side = (t->uid & 1) ? 2.3f : -2.3f;
         goal = v2_add(t->pos, v2_scale(v2_angle(t->angle + side), 320.0f));
+        goal.x = clampf(goal.x, ARENA_X0 + 60.0f, ARENA_X1 - 60.0f);
+        goal.y = clampf(goal.y, ARENA_Y0 + 60.0f, ARENA_Y1 - 60.0f);
+    } else if (t && (t->type == EN_JUGGERNAUT || t->type == EN_SPONGE || t->type == EN_BEETLE) && enemy_resistant(t)) {
+        /* Armoured front (shell, sponge, plates): go round to its back, like the MIRROR. */
+        float side = (t->uid & 1) ? 2.4f : -2.4f;
+        goal = v2_add(t->pos, v2_scale(v2_angle(t->angle + side), t->radius + 260.0f));
         goal.x = clampf(goal.x, ARENA_X0 + 60.0f, ARENA_X1 - 60.0f);
         goal.y = clampf(goal.y, ARENA_Y0 + 60.0f, ARENA_Y1 - 60.0f);
     } else if (t && v2_dist(pl->pos, t->pos) > gun_reach() * 0.85f) {
@@ -589,8 +596,9 @@ void bot_input(void) {
     }
     /* Boss hazards (lightning arcs, the wyrm's body, a landing spot, beams about to sweep, a black
      * hole's pull): keep off them, harder from those already live. */
-    BossHazard hz[16];
-    int nhz = boss_hazards(hz, ARRAY_LEN(hz));
+    BossHazard hz[64];
+    int nhz = boss_hazards(hz, 16);
+    nhz += enemy_hazards(hz + nhz, ARRAY_LEN(hz) - nhz); /* beams, tethers, orbs, strikes... */
     for (int i = 0; i < nhz; i++) {
         V2 ab = v2_sub(hz[i].b, hz[i].a);
         float l2 = v2_len2(ab), k = l2 > 1e-6f ? clampf(v2_dot(v2_sub(pl->pos, hz[i].a), ab) / l2, 0.0f, 1.0f) : 0.0f;
@@ -644,7 +652,7 @@ void bot_input(void) {
             case ACT_DASH: in->active_pressed = imminent || overlapped; break;
             case ACT_SHIELD: in->active_pressed = imminent || overlapped || threats >= 4; break;
             case ACT_BOOM: /* plenty of shots out near enemies, or (sword) enemies right around */
-                in->active_pressed = alive > 0 && (melee ? nearest && best_any < 220.0f * 220.0f : G.npb >= 10);
+                in->active_pressed = alive > 0 && (melee ? nearest && best_any < 220.0f * 220.0f : G.npb >= 10 || (G.npb >= 4 && alive >= 4));
                 break;
             case ACT_STRENGTH: in->active_pressed = alive >= 3 && (t || melee); break;
             case ACT_CHAOS: in->active_pressed = alive >= 5; break;

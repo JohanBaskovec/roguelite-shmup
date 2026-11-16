@@ -64,14 +64,14 @@ static bool save_enabled_item(int i) { return save_item_shown(i); }
 #define DEMO_MAX_ROOM_TIME 75.0f /* a demo stuck in a room starts over */
 #define DEMO_DEATH_T 2.0f        /* the explosion plays out before the next demo run */
 /* Unlocks screen: every upgrade in columns, the selected one in full on the right. */
-#define UNL_COLS 4
+#define UNL_COLS 5
 #define UNL_ROWS ((UPG_COUNT + UNL_COLS - 1) / UNL_COLS)
-#define UNL_X0 70.0f
+#define UNL_X0 60.0f
 #define UNL_Y0 200.0f
-#define UNL_CW 268.0f
-#define UNL_RH 23.0f
-#define UNL_PX 1190.0f
-#define UNL_PW 660.0f
+#define UNL_CW 236.0f
+#define UNL_RH 20.0f
+#define UNL_PX 1260.0f
+#define UNL_PW 620.0f
 
 /* ---- Button menus (main menu, save menu) ---------------------------------- */
 
@@ -783,9 +783,9 @@ static void unlocks_draw(void) {
         SDL_FColor c = col_hex(UPGRADES[u].color, 1);
         if (sel) draw_rect(x - 4.0f, y, UNL_CW - 8.0f, UNL_RH - 2.0f, open ? col_a(c, 0.25f) : col_a(COL_WHITE, 0.1f));
         if (sel) draw_rect_outline(x - 4.0f, y, UNL_CW - 8.0f, UNL_RH - 2.0f, 1.5f, open ? c : col_a(COL_WHITE, 0.4f));
-        if (open) draw_ngon(v2(x + 8.0f, y + UNL_RH * 0.5f - 1.0f), 6.0f, 3 + u % 4, 0.0f, c);
-        else draw_ngon_outline(v2(x + 8.0f, y + UNL_RH * 0.5f - 1.0f), 6.0f, 3 + u % 4, 0.0f, 1.5f, col_a(COL_WHITE, 0.2f));
-        draw_text(x + 22.0f, y + 5.0f, 1.5f, open ? col_a(COL_WHITE, sel ? 1.0f : 0.85f) : col_a(COL_WHITE, sel ? 0.4f : 0.22f), "%s",
+        if (open) draw_ngon(v2(x + 8.0f, y + UNL_RH * 0.5f - 1.0f), 5.5f, 3 + u % 4, 0.0f, c);
+        else draw_ngon_outline(v2(x + 8.0f, y + UNL_RH * 0.5f - 1.0f), 5.5f, 3 + u % 4, 0.0f, 1.5f, col_a(COL_WHITE, 0.2f));
+        draw_text(x + 20.0f, y + 4.0f, 1.375f, open ? col_a(COL_WHITE, sel ? 1.0f : 0.85f) : col_a(COL_WHITE, sel ? 0.4f : 0.22f), "%s",
                   UPGRADES[u].name);
     }
     unlocks_detail(G.unl_sel);

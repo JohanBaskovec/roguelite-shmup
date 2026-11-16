@@ -23,9 +23,9 @@ void player_init(void) {
     character_apply(); /* also derives the Player stats from base */
 }
 
-static void player_bomb(void) {
+/* A bomb's blast around the ship (player_bomb spends one; LAST RESORT sets one off for free). */
+void player_bomb_blast(void) {
     Player *p = &G.pl;
-    p->bombs--;
     sfx_play(SFX_BOMB);
     ebullets_clear(true);
     for (int i = 0; i < G.nen; i++) {
@@ -43,6 +43,11 @@ static void player_bomb(void) {
     fx_particle(p->pos, v2(0, 0), 0.6f, 1500.0f, col_hex(0xffffff, 0.9f), 0.0f, PT_RING);
     fx_particle(p->pos, v2(0, 0), 0.45f, 900.0f, col_hex(0xff8a3d, 1.0f), 0.0f, PT_RING);
     fx_burst(p->pos, 120, 300.0f, 1600.0f, 0.6f, 4.0f, col_hex(0xffc04d, 1));
+}
+
+static void player_bomb(void) {
+    G.pl.bombs--;
+    player_bomb_blast();
 }
 
 bool player_hurt(int dmg) {
@@ -88,6 +93,7 @@ void player_update(void) {
     mv = v2_norm(mv);
 
     p->invuln -= DT;
+    p->chill_t -= DT;
 
     V2 to_mouse = v2_sub(in->mouse, p->pos);
     if (v2_len2(to_mouse) > 4.0f) p->aim_angle = v2_heading(to_mouse);
@@ -101,7 +107,8 @@ void player_update(void) {
     } else {
         /* DRIFT malus: a heavier ship, slower to start and stop */
         float resp = 24.0f * fmaxf(0.25f, 1.0f - malus_pct(MAL_DRIFT));
-        p->vel = v2_lerp(p->vel, v2_scale(mv, p->speed * upg_move_speed_mult()), smooth_k(resp));
+        float chill = p->chill_t > 0.0f ? 0.6f : 1.0f; /* frost / a web (FROSTBITE, WEAVER) */
+        p->vel = v2_lerp(p->vel, v2_scale(mv, p->speed * upg_move_speed_mult() * chill), smooth_k(resp));
     }
 
     p->pos = v2_add(p->pos, v2_scale(p->vel, DT));
