@@ -509,6 +509,7 @@ static void gen_doors(void) {
         bool special = KINDS[k].type != ROOM_COMBAT, locked = door_needs_key(KINDS[k].type, KINDS[k].reward);
         if (r->type == ROOM_START && (special || locked)) continue;
         if (special && KINDS[k].type == r->type) continue;
+        if (!room_unlocked(KINDS[k].type)) continue; /* a room this save has not unlocked yet */
         pool[npool++] = k;
     }
     int pick[MAX_DOORS] = {0}, left[ARRAY_LEN(KINDS)], n = npool;

@@ -684,11 +684,12 @@ extern const CharDef CHARACTERS[CHAR_COUNT];
  * Outside a save (tests, the menu's demo before a save is chosen) everything is unlocked. */
 #define FLOORS 4              /* floors of BOSS_EVERY rooms, each ending with its boss: the 4th boss ends the game */
 #define ENEMY_TIERS 2         /* floor bosses that each unlock 5 more enemies of their floor (10 at the start + 5 + 5 = 20) */
+#define ROOM_LOCKS 5          /* forge, vault, purifier, Baphomet (the floors' bosses) and trader (the first boss with the second ship) start locked */
 #define UNLOCK_START_COUNT 24
 #define UNLOCK_BATCH 6
-#define UNLOCK_SHOTGUNNER_DEPTH 5 /* reaching this room unlocks the Shotgunner; a boss beaten, the Knight */
 typedef struct {
     uint8_t upg[UPG_COUNT], chr[CHAR_COUNT];
+    uint8_t rooms[ROOM_TYPE_COUNT]; /* room kinds this save may meet behind a door (ROOM_LOCKS of them start locked, see unlocks.c) */
     uint8_t boss_floor[FLOORS]; /* times the boss of each floor was beaten, at most ENEMY_TIERS: each unlocks 5 enemies of that floor */
     uint8_t seen[EN_COUNT]; /* bestiary: every enemy type met at least once (written at once) */
     int32_t runs, deaths, bosses, best_depth;
@@ -761,7 +762,7 @@ typedef struct {
     bool transitioning;
     float trans_t;
     int trans_door;
-    char banner[96], banner_sub[200];
+    char banner[96], banner_sub[320];
     float banner_t, banner_max;
     SDL_FColor banner_col;
     int rooms_cleared, kills;
@@ -1154,6 +1155,7 @@ void profile_fresh(Profile *p);       /* a new save: the first ship and the star
 void profile_unlock_all(Profile *p);  /* tests, demo: everything */
 bool upgrade_unlocked(int u);         /* in G.prof: may be offered (rolls never offer a locked one) */
 bool character_unlocked(int c);
+bool room_unlocked(RoomType t);       /* in G.prof: may be behind a door (gen_doors) */
 int profile_unlocked(const Profile *p); /* upgrades + ships unlocked */
 int profile_upgrades_unlocked(const Profile *p);
 int unlocks_total(void);              /* UPG_COUNT + CHAR_COUNT */

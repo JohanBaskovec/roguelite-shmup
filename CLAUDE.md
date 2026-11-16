@@ -29,7 +29,7 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   (NORMAL) and `UNLOCK_START_COUNT` = 24 upgrades (`START_UPGRADES`, simple ones for a first run). **Every boss
   beaten unlocks the next `UNLOCK_BATCH` = 6 upgrades at once** (`unlocks_boss_beaten` from `room_clear`; the first
   boss: `FIRST_BOSS`, then the rest in a fixed mixed order, `unlocks_next`), available for the rest of the run and
-  every later one, and the Knight; reaching room `UNLOCK_SHOTGUNNER_DEPTH` (5) unlocks the Shotgunner
+  every later one, ; ships: the floor 1 boss (any of the four) unlocks the Shotgunner, the floor 2 boss beaten **with the Shotgunner** unlocks the Knight (`unlocks_boss_beaten`)
   (`unlocks_on_room`). Every roll skips locked upgrades (`upgrade_unlocked` in `upgrade_roll`, `upgrade_fresh`,
   `upgrade_roll_exclusive`, CHAOS); a ship's own starting mod is granted even if locked. Locked ships are greyed
   out and refused by the character select (`character_unlock_hint`). The demo never unlocks anything (`G.demo`
@@ -82,6 +82,10 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   `room_type_name`, spawn / use / draw in `special.c`, door colour / icon (`room.c`), HUD title and hint (`hud.c`), bot support (`bot.c`: door
   score + the machine loop), a row in the F4 page, its checks in `check_special_room` (headless), `--room NAME` (`room_type_by_name`) and the
   `sim_rooms_special_*` / `render_rooms_special_*` CTests.
+- **Room unlocks** (`Profile.rooms[RoomType]`, `room_unlocked`, `ROOM_LOCKS` = 5): on a new save the forge, vault, purifier, Baphomet and trader are locked
+  and `gen_doors` never draws them. The boss of floor 1 / 2 / 3 / 4 unlocks the forge / vault / purifier / Baphomet (`unlocks_boss_beaten`, `LOCKED_ROOMS`);
+  the floor 1 boss beaten with the Shotgunner (`TRADER_UNLOCK_SHIP`: "the second ship") unlocks the trader. Counted in `unlock_percent`;
+  everything is unlocked outside a save. The "every kind has the same chance" rule below holds among the kinds a save has unlocked.
 - **Floors** (`FLOORS` = 4, each `BOSS_EVERY` = 10 rooms ending with its boss; `floor_of_depth`): the 4th boss (room 40) ends the game
   (`Room.win_t` -> `game_victory`: the game-over screen as a victory, `G.victory`; only in a run that went through the launch bay and the 39
   rooms before it, `G.rooms_cleared`; started on the spot - tests, teleports - it does not). **Enemies belong to floors**: `EnemyDef.min_floor` (1..4, 0 =

@@ -11,8 +11,8 @@
  * A new save starts with the first ship and UNLOCK_START_COUNT upgrades picked for a first run:
  * plain stat boosts, simple shot effects, a drone, a couple of shot mods. Every boss beaten
  * unlocks the next UNLOCK_BATCH upgrades in a fixed order (the first boss: the FIRST_BOSS list,
- * then every other upgrade in a mixed order), and the first one also the Knight; reaching
- * room UNLOCK_SHOTGUNNER_DEPTH unlocks the Shotgunner. Rolls never offer a locked upgrade
+ * then every other upgrade in a mixed order). The floor 1 boss also unlocks the Shotgunner, the floor 2 boss beaten
+ * with the Shotgunner the Knight. Rolls never offer a locked upgrade
  * (upgrade_roll, upgrade_fresh, upgrade_roll_exclusive, CHAOS); a ship starts with its own mod
  * even while it is locked for the others.
  */
@@ -55,10 +55,16 @@ static void build_order(void) {
         }
 }
 
+/* Locked on a new save: the first four are unlocked by the boss of floor 1, 2, 3, 4 in that order; the trader by the first boss beaten with the second ship. */
+static const RoomType LOCKED_ROOMS[ROOM_LOCKS] = {ROOM_FORGE, ROOM_VAULT, ROOM_PURIFIER, ROOM_BAPHOMET, ROOM_TRADER};
+#define TRADER_UNLOCK_SHIP CHAR_SHOTGUNNER /* "the second ship": the one the floor 1 boss unlocks */
+
 void profile_fresh(Profile *p) {
     memset(p, 0, sizeof *p);
     for (int i = 0; i < UNLOCK_START_COUNT; i++) p->upg[START_UPGRADES[i]] = 1;
     p->chr[CHAR_NORMAL] = 1;
+    memset(p->rooms, 1, sizeof p->rooms);
+    for (int i = 0; i < ROOM_LOCKS; i++) p->rooms[LOCKED_ROOMS[i]] = 0;
 }
 
 void profile_unlock_all(Profile *p) {
@@ -67,6 +73,7 @@ void profile_unlock_all(Profile *p) {
     memset(p->chr, 1, sizeof p->chr);
     memset(p->seen, 1, sizeof p->seen);
     memset(p->boss_floor, ENEMY_TIERS, sizeof p->boss_floor);
+    memset(p->rooms, 1, sizeof p->rooms);
 }
 
 int profile_seen(const Profile *p) {
@@ -101,6 +108,8 @@ float enemy_wave_weight(int t, int floor) {
 
 bool upgrade_unlocked(int u) { return u >= 0 && u < UPG_COUNT && G.prof.upg[u]; }
 
+bool room_unlocked(RoomType t) { return t >= 0 && t < ROOM_TYPE_COUNT && G.prof.rooms[t]; }
+
 bool character_unlocked(int c) { return c >= 0 && c < CHAR_COUNT && G.prof.chr[c]; }
 
 int profile_upgrades_unlocked(const Profile *p) {
@@ -112,18 +121,19 @@ int profile_upgrades_unlocked(const Profile *p) {
 int profile_unlocked(const Profile *p) {
     int n = profile_upgrades_unlocked(p);
     for (int c = 0; c < CHAR_COUNT; c++) n += p->chr[c] != 0;
+    for (int i = 0; i < ROOM_LOCKS; i++) n += p->rooms[LOCKED_ROOMS[i]] != 0;
     for (int f = 0; f < FLOORS; f++) n += p->boss_floor[f]; /* the enemies of each floor, 5 per boss beaten */
     return n;
 }
 
-int unlocks_total(void) { return UPG_COUNT + CHAR_COUNT + FLOORS * ENEMY_TIERS; }
+int unlocks_total(void) { return UPG_COUNT + CHAR_COUNT + FLOORS * ENEMY_TIERS + ROOM_LOCKS; }
 
 int unlock_percent(int unlocked, int total) { return total > 0 ? unlocked * 100 / total : 0; }
 
 const char *character_unlock_hint(int c) {
     switch (c) {
-    case CHAR_SHOTGUNNER: return "Reach room 5";
-    case CHAR_KNIGHT: return "Defeat a boss";
+    case CHAR_SHOTGUNNER: return "Defeat the floor 1 boss";
+    case CHAR_KNIGHT: return "Floor 2 boss with the Shotgunner";
     default: return "";
     }
 }
@@ -146,26 +156,34 @@ static void unlock_ship(int c, char *names, size_t size) {
 void unlocks_on_room(int depth) {
     if (G.demo) return;
     if (depth > G.prof.best_depth) G.prof.best_depth = depth;
-    if (depth >= UNLOCK_SHOTGUNNER_DEPTH && !G.prof.chr[CHAR_SHOTGUNNER]) {
-        char sub[64] = "";
-        unlock_ship(CHAR_SHOTGUNNER, sub, sizeof sub);
-        fx_banner("UNLOCKED", sub, col_hex(CHARACTERS[CHAR_SHOTGUNNER].color, 1), 3.0f);
-        sfx_play(SFX_POWER_UP);
-        /* saved with the room, a moment later (room entry) */
-    }
 }
 
 void unlocks_boss_beaten(void) {
     if (G.demo) return;
     G.prof.bosses++;
-    char sub[200] = "";
+    char sub[320] = "";
     int fl = floor_of_depth(G.room.depth);
     bool harder = G.prof.boss_floor[fl - 1] < ENEMY_TIERS && G.room.depth <= FLOORS * BOSS_EVERY; /* the floor's next 5 enemies, for the runs to come */
     if (harder) {
         G.prof.boss_floor[fl - 1]++;
         SDL_snprintf(sub, sizeof sub, "5 NEW ENEMIES ON FLOOR %d", fl);
     }
-    unlock_ship(CHAR_KNIGHT, sub, sizeof sub);
+    /* Ships: the boss of floor 1 unlocks the Shotgunner; the boss of floor 2, beaten with the Shotgunner, the Knight. */
+    if (G.room.depth <= FLOORS * BOSS_EVERY) {
+        if (fl == 1) unlock_ship(CHAR_SHOTGUNNER, sub, sizeof sub);
+        if (fl == 2 && G.character == CHAR_SHOTGUNNER) unlock_ship(CHAR_KNIGHT, sub, sizeof sub);
+    }
+    /* Rooms: the boss of floor f unlocks the f-th of the first four; the first boss beaten with the second ship, the trader. */
+    RoomType gain[2];
+    int ngain = 0;
+    if (G.room.depth <= FLOORS * BOSS_EVERY) gain[ngain++] = LOCKED_ROOMS[fl - 1];
+    if (fl == 1 && G.character == TRADER_UNLOCK_SHIP) gain[ngain++] = ROOM_TRADER;
+    for (int i = 0; i < ngain; i++) {
+        if (G.prof.rooms[gain[i]]) continue;
+        G.prof.rooms[gain[i]] = 1;
+        size_t len = strlen(sub);
+        SDL_snprintf(sub + len, sizeof sub - len, "%sNEW ROOM: %s", len ? "  +  " : "", room_type_name(gain[i]));
+    }
     int next[UNLOCK_BATCH], n = unlocks_next(next, UNLOCK_BATCH);
     for (int i = 0; i < n; i++) {
         G.prof.upg[next[i]] = 1;

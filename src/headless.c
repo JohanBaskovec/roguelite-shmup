@@ -2034,6 +2034,30 @@ static int debug_rooms_run(const HeadlessOptions *o) {
             G.prof.boss_floor[1] = 2;
             floors_ok = floors_ok && enemy_wave_weight(dear, 2) == 1.0f && enemy_wave_weight(dear, 3) == 0.5f && enemy_wave_weight(dear, 1) == 0.0f;
             floors_ok = floors_ok && floor_of_depth(1) == 1 && floor_of_depth(10) == 1 && floor_of_depth(11) == 2 && floor_of_depth(40) == 4 && floor_of_depth(77) == FLOORS;
+            /* Rooms: a new save has the forge, vault, purifier, Baphomet and trader locked, and no door ever leads to one. */
+            {
+                int locked = 0;
+                for (int t = 0; t < ROOM_TYPE_COUNT; t++) locked += !fresh.rooms[t];
+                floors_ok = floors_ok && locked == ROOM_LOCKS && !fresh.rooms[ROOM_FORGE] && !fresh.rooms[ROOM_VAULT] && !fresh.rooms[ROOM_PURIFIER] &&
+                            !fresh.rooms[ROOM_BAPHOMET] && !fresh.rooms[ROOM_TRADER] && fresh.rooms[ROOM_SHOP] && fresh.rooms[ROOM_KEYS] && fresh.rooms[ROOM_INFIRMARY];
+                for (int n = 0; n < 150 && floors_ok; n++) {
+                    room_enter(ROOM_COMBAT, RW_COINS, 1 + n % 30);
+                    for (int i = 0; i < G.room.ndoors; i++) floors_ok = floors_ok && room_unlocked(G.room.type) && room_unlocked(G.room.doors[i].type);
+                }
+            }
+            for (int ship = 0; ship < 2 && floors_ok; ship++) { /* the first boss: the forge; with the Knight (the ship it unlocks) the trader too; the 2nd boss: the vault */
+                G.prof = fresh;
+                G.character = ship ? CHAR_SHOTGUNNER : CHAR_NORMAL;
+                G.room.depth = BOSS_EVERY;
+                unlocks_boss_beaten();
+                floors_ok = floors_ok && G.prof.rooms[ROOM_FORGE] && G.prof.rooms[ROOM_TRADER] == ship && !G.prof.rooms[ROOM_VAULT] && !G.prof.rooms[ROOM_PURIFIER] &&
+                            !G.prof.rooms[ROOM_BAPHOMET] && G.prof.chr[CHAR_SHOTGUNNER] && !G.prof.chr[CHAR_KNIGHT];
+                G.room.depth = 2 * BOSS_EVERY;
+                unlocks_boss_beaten();
+                floors_ok = floors_ok && G.prof.rooms[ROOM_VAULT] && !G.prof.rooms[ROOM_PURIFIER] && !G.prof.rooms[ROOM_BAPHOMET] &&
+                            G.prof.chr[CHAR_KNIGHT] == ship; /* the Knight: the 2nd boss beaten with the Shotgunner only */
+            }
+            G.character = CHAR_NORMAL;
             G.prof = keep;
             names[nres] = "enemy floors (20 each: 10 + 5 + 5, rarer behind)", oks[nres++] = floors_ok;
         }
@@ -3838,9 +3862,9 @@ static int save_test_run(const HeadlessOptions *o) {
     int i50 = -1;
     for (int i = 0; i < n; i++)
         if (list[i].slot == 50) i50 = i;
-    CHECK(batch && character_unlocked(CHAR_KNIGHT) && profile_upgrades_unlocked(&G.prof) == UNLOCK_START_COUNT + UNLOCK_BATCH &&
+    CHECK(batch && character_unlocked(CHAR_SHOTGUNNER) && !character_unlocked(CHAR_KNIGHT) && profile_upgrades_unlocked(&G.prof) == UNLOCK_START_COUNT + UNLOCK_BATCH &&
               G.prof.bosses == 1,
-          "a boss beaten unlocks 6 upgrades and the Knight at once");
+          "a floor 1 boss beaten unlocks 6 upgrades and the Shotgunner at once");
     CHECK(save_profile_writes() == pw + 1 + (profile_seen(&G.prof) - seen0) && G.prof.seen[G.room.boss] && save_writes() == writes && save_load_profile(50, &saved) &&
               !memcmp(&saved, &G.prof, sizeof saved) && i50 >= 0 && list[i50].has_run && list[i50].depth == BOSS_EVERY,
           "...written at once, the run part still the start of the boss room");
@@ -4004,16 +4028,16 @@ static int save_test_run(const HeadlessOptions *o) {
     G.in.confirm_pressed = true;
     STICK();
     bool sel_ok = G.state == GS_CHAR_SELECT;
-    G.in.number = CHAR_KNIGHT; /* unlocked by the boss */
+    G.in.number = CHAR_SHOTGUNNER; /* unlocked by the boss */
     G.in.confirm_pressed = true;
     STICK();
     n = save_list(list, SAVE_SLOTS);
-    CHECK(sel_ok && G.state == GS_PLAYING && G.character == CHAR_KNIGHT && G.save_slot == 50 && n == 2,
+    CHECK(sel_ok && G.state == GS_PLAYING && G.character == CHAR_SHOTGUNNER && G.save_slot == 50 && n == 2,
           "NEW RUN: the character select, the run starts in this save");
     /* ESC in the run: the save's menu over the frozen run (NEW RUN, UNLOCKS, BESTIARY, TAB), ESC or
      * RESUME RUN goes on with the run in memory, exactly where it was, nothing saved meanwhile. */
     {
-        for (int t = 0; t < 240; t++) {
+        for (int t = 0; t < 60; t++) { /* (still in the launch bay: the Shotgunner is quick) */
             bot_input();
             game_update();
             clear_edges();
@@ -4078,7 +4102,7 @@ static int save_test_run(const HeadlessOptions *o) {
     bool back = G.state == GS_TITLE && G.title_page == 2 && G.menu_slot == 50 && G.title_sel == 0;
     G.in.confirm_pressed = true;
     STICK();
-    CHECK(back && G.state == GS_PLAYING && G.save_slot == 50 && G.character == CHAR_KNIGHT && G.room.type == ROOM_START,
+    CHECK(back && G.state == GS_PLAYING && G.save_slot == 50 && G.character == CHAR_SHOTGUNNER && G.room.type == ROOM_START,
           "Q: back to the save's menu; RESUME RUN loads the run");
     /* The new save (nothing unlocked): its locked ships are refused, ESC goes back to its menu. */
     G.state = GS_PAUSED;
@@ -4338,7 +4362,8 @@ worker:
                               ? "first room: only the launch bay / secret rooms start without enemies" : NULL;
         int tick = 0, hits = 0, life = G.pl.hp + G.pl.shield;
         int unlocked = profile_upgrades_unlocked(&G.prof); /* only a boss beaten unlocks upgrades */
-        uint8_t bf_prev[FLOORS];
+        uint8_t bf_prev[FLOORS], rooms_prev[ROOM_TYPE_COUNT];
+        memcpy(rooms_prev, G.prof.rooms, sizeof rooms_prev);
         memcpy(bf_prev, G.prof.boss_floor, sizeof bf_prev);
         int taken_side = -1; /* side of the door being walked through (-1: none / secret passage) */
         static char entry_msg[128];
@@ -4382,6 +4407,10 @@ worker:
                     }
                 }
                 taken_side = -1;
+                if (!G.room.revisit && !room_unlocked(G.room.type) && !(o->start_room || o->casino_room || o->baphomet_room || o->shop_room || o->workshop_room) ) {
+                    err = "entered a kind of room this save has not unlocked";
+                    break;
+                }
                 if (G.room.revisit) {
                     /* Leaving a secret room: back in the (cleared) room it was found in. */
                     if (G.room.id != secret_parent || !G.room.cleared) {
@@ -4423,13 +4452,24 @@ worker:
                 int want = unlocked + (UPG_COUNT - unlocked < UNLOCK_BATCH ? UPG_COUNT - unlocked : UNLOCK_BATCH);
                 Profile saved;
                 int bfl = floor_of_depth(G.room.depth) - 1;
+                {   /* rooms: the boss of floor f unlocks the f-th of forge / vault / purifier / Baphomet; the first one, with the Shotgunner, the trader */
+                    static const RoomType lock[] = {ROOM_FORGE, ROOM_VAULT, ROOM_PURIFIER, ROOM_BAPHOMET};
+                    uint8_t want[ROOM_TYPE_COUNT];
+                    memcpy(want, rooms_prev, sizeof want);
+                    if (G.room.depth <= FLOORS * BOSS_EVERY) want[lock[bfl]] = 1;
+                    if (bfl == 0 && G.character == CHAR_SHOTGUNNER) want[ROOM_TRADER] = 1;
+                    if (memcmp(want, G.prof.rooms, sizeof want)) err = "a boss beaten did not unlock the right rooms (forge / vault / purifier / Baphomet by floor, trader with the second ship)";
+                    memcpy(rooms_prev, G.prof.rooms, sizeof rooms_prev);
+                    if (err) break;
+                }
                 bool floor_up = G.room.depth <= FLOORS * BOSS_EVERY && bf_prev[bfl] < ENEMY_TIERS; /* the floor's next 5 enemies, only for the floor of that boss */
                 for (int f = 0; f < FLOORS; f++)
                     if (G.prof.boss_floor[f] != bf_prev[f] + (f == bfl && floor_up)) err = "a boss beaten did not unlock 5 enemies of its floor (and only its floor)";
                 if (err) break;
                 memcpy(bf_prev, G.prof.boss_floor, sizeof bf_prev);
-                if (profile_upgrades_unlocked(&G.prof) != want || !character_unlocked(CHAR_KNIGHT)) {
-                    err = "a boss beaten did not unlock the next upgrades (and the Knight) at once";
+                if (profile_upgrades_unlocked(&G.prof) != want || (bfl == 0 && !character_unlocked(CHAR_SHOTGUNNER)) ||
+                    (bfl == 1 && G.character == CHAR_SHOTGUNNER && !character_unlocked(CHAR_KNIGHT))) {
+                    err = "a boss beaten did not unlock the next upgrades (and the ships) at once";
                     break;
                 }
                 if (save_enabled() && (!save_load_profile(G.save_slot, &saved) || memcmp(&saved, &G.prof, sizeof saved))) {
@@ -4440,10 +4480,6 @@ worker:
             }
             if (!o->no_checks && profile_upgrades_unlocked(&G.prof) != unlocked) {
                 err = "upgrades unlocked without beating a boss";
-                break;
-            }
-            if (G.room.depth >= UNLOCK_SHOTGUNNER_DEPTH && !character_unlocked(CHAR_SHOTGUNNER)) {
-                err = "reached room 5 but the Shotgunner is still locked";
                 break;
             }
             if (G.room.cleared && !was_cleared) {
