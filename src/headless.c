@@ -340,14 +340,15 @@ static const char *check_room_reward(void) {
         if (!kinds[PK_HEART] || !kinds[PK_BOMB] || !kinds[PK_KEY]) return "shop supply counter without its heart, bomb and key";
     }
     if (G.room.type == ROOM_BOSS) {
-        if (count_choices() != REWARD_CHOICES) return "boss beaten but it did not leave a choice of 3 upgrades";
+        if (count_choices() != UPGRADE_CHOICES) return "boss beaten but it did not leave a choice of 2 upgrades";
         for (int i = 0; i < G.npk; i++)
             if (G.pk[i].type != PK_UPGRADE && G.pk[i].type != PK_STAT) return "boss reward is not an upgrade choice";
     }
     bool item_room = G.room.type == ROOM_COMBAT && (G.room.reward == RW_UPGRADE || G.room.reward == RW_ACTIVE);
-    if (item_room && count_choices() != REWARD_CHOICES) {
+    int want_choices = G.room.reward == RW_ACTIVE ? ACTIVE_CHOICES : UPGRADE_CHOICES;
+    if (item_room && count_choices() != want_choices) {
         snprintf(buf, sizeof buf, "%s room offers %d items to choose from instead of %d",
-                 reward_name(G.room.reward), count_choices(), REWARD_CHOICES);
+                 reward_name(G.room.reward), count_choices(), want_choices);
         return buf;
     }
     if (G.room.type == ROOM_COMBAT && G.room.reward == RW_UPGRADE)
@@ -751,7 +752,7 @@ static int debug_rooms_run(const HeadlessOptions *o) {
 
     /* Scripted: the bosses. The room before has a single door leading to it (room 10: one of
      * four); for each boss, damage stops at each phase threshold, a phase change makes it
-     * invulnerable; its death takes the minions along and leaves a choice of 3 upgrades. */
+     * invulnerable; its death takes the minions along and leaves a choice of 2 upgrades. */
     {
         game_init(o->seed);
         G.god = true;
@@ -799,11 +800,11 @@ static int debug_rooms_run(const HeadlessOptions *o) {
                     enemy_damage(b, b->max_hp, v2(0, 0));
                     for (int t = 0; t < 10 + (int)(ROOM_REVEAL_T * TICK_RATE); t++) boss_step(); /* the room shatters first */
                     death_ok = phase_ok && last_phase == BOSS_PHASES - 1 && minions > 0 && G.room.cleared && G.nen == 0 &&
-                               count_choices() == REWARD_CHOICES && check_room_reward() == NULL && G.room.gravity == 0.0f &&
+                               count_choices() == UPGRADE_CHOICES && check_room_reward() == NULL && G.room.gravity == 0.0f &&
                                G.room.arc_mask == 0 && G.room.nobs == 0;
                 }
             }
-            printf("scripted: %s: phase threshold -> %s, phase invulnerability -> %s, death + 3 upgrades -> %s\n", boss_title((EnemyType)type),
+            printf("scripted: %s: phase threshold -> %s, phase invulnerability -> %s, death + 2 upgrades -> %s\n", boss_title((EnemyType)type),
                    phase_ok ? "OK" : "FAILED", inv_ok ? "OK" : "FAILED", death_ok ? "OK" : "FAILED");
             failures += !phase_ok + !inv_ok + !death_ok;
         }
@@ -975,7 +976,7 @@ static int debug_rooms_run(const HeadlessOptions *o) {
                 sig_ok = sig_ok && G.pk[i].type == PK_UPGRADE && G.pk[i].sub != UPG_W_NEEDLER && UPGRADES[G.pk[i].sub].tier == 0;
                 shot_seen = shot_seen || upgrade_is_weapon(G.pk[i].sub);
             }
-            sig_ok = sig_ok && G.npk == REWARD_CHOICES;
+            sig_ok = sig_ok && G.npk == UPGRADE_CHOICES;
         }
         sig_ok = sig_ok && shot_seen;
         G.npk = 0;
@@ -1121,7 +1122,7 @@ static int debug_rooms_run(const HeadlessOptions *o) {
             G.npk = 0;
             active_spawn_choices(v2(ARENA_CX, ARENA_CY));
             for (int i = 0; i < G.npk; i++) offered_max |= G.pk[i].sub == ACT_SHIELD;
-            level_ok = level_ok && G.npk == REWARD_CHOICES;
+            level_ok = level_ok && G.npk == ACTIVE_CHOICES;
         }
         G.npk = 0;
         level_ok = level_ok && offered_held && !offered_max && sh->level == MAX_ACTIVE_LEVEL;
@@ -1359,13 +1360,13 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         pickups_refresh_owned();
         for (int i = 0; i < G.npk; i++)
             once_ok = once_ok && (G.pk[i].type != PK_UPGRADE || (G.pl.upg_count[G.pk[i].sub] == 0 && G.pk[i].sub != first));
-        once_ok = once_ok && G.npk == REWARD_CHOICES;
+        once_ok = once_ok && G.npk == UPGRADE_CHOICES;
         /* Every upgrade owned: rooms fall back to stat trades. */
         for (int u = 0; u < UPG_COUNT; u++) pl->upg_count[u] = 1;
         player_recompute();
         G.npk = 0;
         reward_drop(RW_UPGRADE, v2(ARENA_CX, ARENA_CY));
-        once_ok = once_ok && upgrade_roll() < 0 && upgrade_fresh() < 0 && G.npk == REWARD_CHOICES;
+        once_ok = once_ok && upgrade_roll() < 0 && upgrade_fresh() < 0 && G.npk == UPGRADE_CHOICES;
         for (int i = 0; i < G.npk; i++) once_ok = once_ok && G.pk[i].type == PK_STAT;
         G.npk = 0;
         names[nres] = "owned upgrades never come back", oks[nres++] = once_ok;
@@ -2629,13 +2630,13 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         for (int t = 0; t < 70; t++) BTICK();
         int offers = G.npk, owned0 = 0, owned1 = 0, tpk = -1, tmc = -1;
         for (int u = 0; u < UPG_COUNT; u++) owned0 += pl->upg_count[u] > 0;
-        bool take_ok = offers == 3;
+        bool take_ok = offers == UPGRADE_CHOICES;
         if (take_ok) {
             pl->pos = G.pk[1].pos; /* standing on it: nothing happens... */
             int sub = G.pk[1].sub;
             for (int t = 0; t < 70; t++) BTICK();
             interact_target(&tpk, &tmc);
-            take_ok = G.npk == 3 && tpk >= 0 && G.pk[tpk].sub == sub && tmc < 0; /* ...but it is the one E points at */
+            take_ok = G.npk == UPGRADE_CHOICES && tpk >= 0 && G.pk[tpk].sub == sub && tmc < 0; /* ...but it is the one E points at */
             in->interact_pressed = true;
             BTICK();
             for (int u = 0; u < UPG_COUNT; u++) owned1 += pl->upg_count[u] > 0;

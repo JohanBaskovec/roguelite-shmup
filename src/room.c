@@ -485,7 +485,7 @@ void room_enter(RoomType type, RewardType reward, int depth) {
     if (type == ROOM_WORKSHOP) r->hue = 80.0f;
     if (type == ROOM_BOSS) {
         r->hue = 350.0f;
-        r->reward = RW_UPGRADE; /* the boss always leaves a choice of 3 upgrades */
+        r->reward = RW_UPGRADE; /* the boss always leaves a choice of 2 upgrades */
         r->boss = boss_for_depth(depth);
     }
     /* Open floor for the tutorial / the loot; the boss fights in its own room (always the same). */

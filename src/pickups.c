@@ -111,10 +111,10 @@ static int fresh_stat_offer(void) {
     return n > 0 ? offers[0] : -1;
 }
 
-/* Upgrade rooms: REWARD_CHOICES distinct upgrades in a row, take one (stat trades once every
+/* Upgrade rooms: UPGRADE_CHOICES distinct upgrades in a row, take one (stat trades once every
  * upgrade is owned). */
 static void spawn_item_choices(V2 center) {
-    for (int i = 0; i < REWARD_CHOICES; i++) {
+    for (int i = 0; i < UPGRADE_CHOICES; i++) {
         PickupType type = PK_UPGRADE;
         int sub = upgrade_fresh();
         if (sub < 0) {
@@ -122,7 +122,7 @@ static void spawn_item_choices(V2 center) {
             sub = fresh_stat_offer();
             if (sub < 0) continue;
         }
-        V2 p = v2(center.x + ((float)i - (float)(REWARD_CHOICES - 1) * 0.5f) * 420.0f, center.y - 20.0f);
+        V2 p = v2(center.x + ((float)i - (float)(UPGRADE_CHOICES - 1) * 0.5f) * 420.0f, center.y - 20.0f);
         pickup_spawn_choice(type, sub, p);
         uint32_t c = type == PK_STAT ? COLOR_STATS : 0xb57cff;
         fx_particle(p, v2(0, 0), 0.5f, 160.0f, col_hex(c, 1), 0.0f, PT_RING);

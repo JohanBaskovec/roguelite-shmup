@@ -346,7 +346,7 @@ typedef struct {
 /* ---- Rooms --------------------------------------------------------------- */
 
 typedef enum { ROOM_START, ROOM_COMBAT, ROOM_STATS, ROOM_TREASURE, ROOM_SHOP, ROOM_BOSS, ROOM_SECRET, ROOM_WORKSHOP } RoomType;
-/* RW_UPGRADE: a choice of 3 upgrades not owned (any of them, those reshaping the shots included). */
+/* RW_UPGRADE: a choice of UPGRADE_CHOICES (2) upgrades not owned (any of them, those reshaping the shots included). */
 typedef enum { RW_NONE, RW_COINS, RW_KEY, RW_BOMBS, RW_HEART, RW_UPGRADE, RW_ACTIVE, RW_COUNT } RewardType;
 typedef enum { SIDE_LEFT, SIDE_TOP, SIDE_RIGHT, SIDE_BOTTOM } Side;
 
@@ -741,7 +741,8 @@ extern const StatDef STATS[ST_COUNT];
 #define SHOP_ITEMS 5 /* a shop always sells exactly this many items (upgrades, stat trades) */
 #define SHOP_SUPPLIES 3 /* ...plus a supply counter: a heart, a bomb, a key (shop_supply_spot) */
 V2 shop_supply_spot(int i);
-#define REWARD_CHOICES 3 /* weapon / upgrade rooms always offer this many items to pick from */
+#define UPGRADE_CHOICES 2 /* upgrade rooms and bosses offer this many upgrades to pick from */
+#define ACTIVE_CHOICES 3  /* active rooms offer this many items to pick from */
 #define COLOR_STATS 0x4dffd2
 #define COLOR_SHOP 0xff6bd6
 #define COLOR_SECRET 0xffb347
@@ -981,7 +982,7 @@ const char *active_desc(int a, int level); /* '|' splits it over two lines */
 void active_end_chaos(void);
 const char *active_option_name(int a); /* lowercase name for --active */
 void draw_active_icon(int a, V2 pos, float s, float t);
-/* Active room: REWARD_CHOICES distinct actives; ones owned only while they can still level up. */
+/* Active room: ACTIVE_CHOICES distinct actives; ones owned only while they can still level up. */
 void active_spawn_choices(V2 center);
 #define COLOR_ACTIVE 0xffe94d
 

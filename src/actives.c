@@ -3,7 +3,7 @@
 #include "game.h"
 
 /*
- * Active items: the ship starts without any; active rooms (RW_ACTIVE) offer a choice of 3.
+ * Active items: the ship starts without any; active rooms (RW_ACTIVE) offer a choice of 3 (ACTIVE_CHOICES).
  * Every item taken is kept (Player.act[], indexed by ActiveId): SPACE / SHIFT / right click
  * triggers all the ones turned on and ready at once, then each recharges on its own. Taking
  * one already owned levels it up: longer effects, bigger explosions, faster recharge. Each
@@ -616,7 +616,7 @@ void active_spawn_choices(V2 center) {
     int cand[ACT_COUNT], n = 0;
     for (int a = ACT_NONE + 1; a < ACT_COUNT; a++)
         if (G.pl.act[a].level < MAX_ACTIVE_LEVEL) cand[n++] = a; /* one owned = a level up */
-    int k = n < REWARD_CHOICES ? n : REWARD_CHOICES;
+    int k = n < ACTIVE_CHOICES ? n : ACTIVE_CHOICES;
     for (int i = 0; i < k; i++) {
         int j = irand(i, n - 1), t = cand[i];
         cand[i] = cand[j];

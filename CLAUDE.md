@@ -37,7 +37,8 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   chosen) everything is unlocked (`profile_unlock_all`); `--fresh-profile` runs on a new save's unlocks, kept
   from run to run (headless checks: never a locked upgrade offered, +6 exactly when a boss dies and only then,
   saved at once, ships unlocked). A new unlock kind: `Profile` field + its condition + `unlock_percent` total.
-- **Upgrade rooms always offer a choice of 3 items** (take one, the other two vanish).
+- **Upgrade rooms (and bosses) always offer a choice of `UPGRADE_CHOICES` = 2 upgrades** (take one, the other vanishes);
+  active rooms offer `ACTIVE_CHOICES` = 3 items.
 - **Every upgrade has a bonus AND a malus** (`MALUSES` table in `src/maluses.c`, one `MalusKind` + amount
   per upgrade, or `MAL_CUSTOM` text when the trade-off is built into the effect, e.g. weapon-like ones).
   Stat maluses go through `stat_effect` (`malus_stat_effect`), the others are read with `malus(kind)`
@@ -183,7 +184,7 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   `EN_BOSS .. EN_SINGULARITY`); state kept outside the `Enemy` lives in `Room` (wyrm segments, storm arcs,
   black hole wells / gravity), reset by `boss_on_death`. No secret; a boss either fights on open floor or
   in its own room (`room_boss_layout`: walls only, symmetric both ways, always the same for the same boss -
-  headless checks both). Once it is dead (its minions die with it) it leaves a choice of 3 upgrades
+  headless checks both). Once it is dead (its minions die with it) it leaves a choice of 2 upgrades
   (`RW_UPGRADE`). Health bar at the top of the HUD (`draw_boss_bar`, named by `boss_title`). Three phases:
   a phase change clears the bullets, makes it invulnerable `BOSS_INVULN_T`; the last one is faster. A boss
   never scales either: later bosses only call more minions. Its damage goes through `enemy_damage_cap` (0
