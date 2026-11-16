@@ -565,10 +565,10 @@ void bot_input(void) {
     if (back < 0.0f) shy = v2_sub(shy, v2_scale(dir, back));
     if (v2_len2(shy) > 0.1f * 0.1f) shy = v2_scale(v2_norm(shy), 0.1f); /* a row of drums: still a nudge */
     avoid = v2_add(avoid, shy);
-    /* A barrel / oil drum on fire goes off any moment: get out of its reach. */
+    /* A barrel / oil drum / spark pod on fire goes off any moment: get out of its reach. */
     for (int i = 0; i < G.room.nobs && !G.room.cleared; i++) {
         const Obstacle *o = &G.room.obs[i];
-        if ((o->kind != OB_BARREL && o->kind != OB_OIL) || !obstacle_solid(o) || o->burn_t <= 0.0f) continue;
+        if ((o->kind != OB_BARREL && o->kind != OB_OIL && o->kind != OB_SPARK) || !obstacle_solid(o) || o->burn_t <= 0.0f) continue;
         V2 d = v2_sub(pl->pos, v2(o->r.x + o->r.w * 0.5f, o->r.y + o->r.h * 0.5f));
         float dd = v2_len(d), keep = hazard_reach(o) + 20.0f;
         if (dd < keep) {

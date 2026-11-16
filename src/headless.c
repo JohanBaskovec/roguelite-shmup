@@ -2169,31 +2169,39 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         bool nest_ok = G.nen == 1 && G.nsp == 0 && !enemy_is_boss(&G.en[0]) && ENEMIES[G.en[0].type].radius <= 18.0f && !G.room.cleared;
 
         /* Fire: crate A on fire spreads to crate B next to it, then to the barrel next to B, each going
-         * off in turn; the spark pod next to A never catches, nor crate C two cells away. */
+         * off in turn; the other way to the spark pod next to A, then the nest next to the pod (every
+         * breakable block burns); never to crate C two cells away. */
 #define CELL(x, y) v2(ARENA_X0 + GRID * ((float)(x) + 0.5f), ARENA_Y0 + GRID * ((float)(y) + 0.5f))
         BFRESH();
-        V2 ca = CELL(10, 7), cb = CELL(11, 7), cbar = CELL(12, 7), cspark = CELL(9, 7), cc = CELL(10, 10), cd = CELL(12, 9);
+        V2 ca = CELL(10, 7), cb = CELL(11, 7), cbar = CELL(12, 7), cspark = CELL(9, 7), cnest = CELL(8, 7), cc = CELL(10, 10), cd = CELL(12, 9);
         test_block(ca.x, ca.y, OB_CRATE);
         test_block(cb.x, cb.y, OB_CRATE);
         test_block(cbar.x, cbar.y, OB_BARREL);
         test_block(cspark.x, cspark.y, OB_SPARK);
+        test_block(cnest.x, cnest.y, OB_NEST);
         test_block(cc.x, cc.y, OB_CRATE);
         test_block(cd.x, cd.y, OB_CRATE); /* not next to any: only the barrel's blast breaks it */
         BDUMMY(ARENA_X1 - 100.0f, ARENA_Y0 + 100.0f, 20.0f); /* keeps the fight going */
         room_block_ignite(block_at(ca));
         BTICK();
-        bool fire_ok = G.room.obs[block_at(ca)].burn_t > 0.0f && G.room.obs[block_at(cb)].burn_t <= 0.0f;
+        bool fire_ok = G.room.obs[block_at(ca)].burn_t > 0.0f && G.room.obs[block_at(cb)].burn_t <= 0.0f &&
+                       G.room.obs[block_at(cspark)].burn_t <= 0.0f;
         for (int t = 0; t < (int)((BLOCK_SPREAD_T + 0.1f) * TICK_RATE); t++) BTICK();
-        fire_ok = fire_ok && block_at(cb) >= 0 && G.room.obs[block_at(cb)].burn_t > 0.0f && G.room.obs[block_at(cbar)].burn_t <= 0.0f;
-        bool spread_ok = true;
+        fire_ok = fire_ok && block_at(cb) >= 0 && G.room.obs[block_at(cb)].burn_t > 0.0f && G.room.obs[block_at(cbar)].burn_t <= 0.0f &&
+                  block_at(cspark) >= 0 && G.room.obs[block_at(cspark)].burn_t > 0.0f && G.room.obs[block_at(cnest)].burn_t <= 0.0f;
+        bool spread_ok = true, nest_lit = false;
+        int balls_seen = 0;
         for (int t = 0; t < 4 * TICK_RATE; t++) {
             BTICK();
-            int s = block_at(cspark), c = block_at(cc);
-            int d = block_at(cd);
-            spread_ok = spread_ok && s >= 0 && G.room.obs[s].burn_t <= 0.0f && c >= 0 && G.room.obs[c].burn_t <= 0.0f &&
-                        (d < 0 || G.room.obs[d].burn_t <= 0.0f);
+            int c = block_at(cc), d = block_at(cd), ne = block_at(cnest);
+            nest_lit |= ne >= 0 && G.room.obs[ne].burn_t > 0.0f;
+            int balls = count_ebullets(EB_BALL);
+            balls_seen = balls > balls_seen ? balls : balls_seen;
+            spread_ok = spread_ok && c >= 0 && G.room.obs[c].burn_t <= 0.0f && (d < 0 || G.room.obs[d].burn_t <= 0.0f);
         }
-        fire_ok = fire_ok && spread_ok && block_at(ca) < 0 && block_at(cb) < 0 && block_at(cbar) < 0 && block_at(cd) < 0;
+        bool hatched = G.nen + G.nsp >= 2; /* the dummy and what crawled out of the burnt nest */
+        fire_ok = fire_ok && spread_ok && nest_lit && hatched && balls_seen >= SPARK_BALLS && block_at(ca) < 0 && block_at(cb) < 0 &&
+                  block_at(cbar) < 0 && block_at(cd) < 0 && block_at(cspark) < 0 && block_at(cnest) < 0;
 
         BFRESH(); /* flame shots and burning enemies set crates alight */
         upgrade_apply(UPG_W_FLAMER);

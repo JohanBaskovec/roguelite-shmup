@@ -106,10 +106,10 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   indestructible walls (`OB_WALL`) plus breakable blocks: crate, barrel (explodes, `BARREL_BLAST_R`), oil drum
   (leaves a `FirePool` that sets the ship and enemies on fire; a dash jumps over), spark pod (ring of `EB_BALL`
   that hurt enemies too), nest (`OB_NEST`: hatches one small enemy, `enemy_hatchling`, through `enemy_queue_spawn`;
-  nothing hatches on the shatter). **Fire spreads**: crates, barrels and oil drums (`obstacle_flammable`) catch fire
+  nothing hatches on the shatter). **Fire spreads**: every breakable block (`obstacle_flammable`) catches fire
   (`room_block_ignite`, `Obstacle.burn_t`) from a fire pool, a flame shot (`PB_FLAME`, HELLFIRE) or a burning enemy
-  touching them; a burning block lights the flammable blocks it touches after `BLOCK_SPREAD_T` and breaks (goes
-  off) at `BLOCK_BURN_TIME` (`blocks_burn`). Blocks only break under player shots / the blade / explosions, never enemy bullets,
+  touching them; a burning block lights every breakable block it touches after `BLOCK_SPREAD_T` and breaks (goes
+  off: blast, oil, sparks, hatchling) at `BLOCK_BURN_TIME` (`blocks_burn`). Blocks only break under player shots / the blade / explosions, never enemy bullets,
   and a bomb breaks them all (`room_blocks_break_all`). A broken block goes off in `blocks_update`, outside
   the entity loops (chains on the next tick); call `room_nav_reset()` whenever obstacles change (the path finder and the collision cell map, `occ` in `room.c`, are rebuilt from it; headless checks the map). Connectivity
   counts walls only (`room_walls_connected`: every free cell and door reachable from the entry spot), so

@@ -334,12 +334,13 @@ typedef struct {
     float flash;       /* hit flash */
     int swing_id;      /* last sword swing that cut it */
     float shatter_t;   /* room cleared: > 0 = cracking, bursts into glass when it reaches 0 */
-    float burn_t;      /* crate / barrel / oil drum on fire: seconds burning (0 = not), goes off at BLOCK_BURN_TIME */
+    float burn_t;      /* block on fire: seconds burning (0 = not), goes off at BLOCK_BURN_TIME */
 } Obstacle;
 
 static inline bool obstacle_breakable(const Obstacle *o) { return o->kind != OB_WALL; }
-/* Catches fire when fire touches it (burning oil, flame shots, a burning enemy, a burning neighbour). */
-static inline bool obstacle_flammable(const Obstacle *o) { return o->kind == OB_CRATE || o->kind == OB_BARREL || o->kind == OB_OIL; }
+/* Catches fire when fire touches it (burning oil, flame shots, a burning enemy, a burning neighbour):
+ * every breakable block, so fire runs along any row of them. */
+static inline bool obstacle_flammable(const Obstacle *o) { return obstacle_breakable(o); }
 static inline bool obstacle_solid(const Obstacle *o) { return o->kind == OB_WALL || o->hp > 0.0f; }
 
 typedef struct {

@@ -826,16 +826,10 @@ static void fires_update(void) {
             e->burn_dps = fmaxf(e->burn_t > 0.0f ? e->burn_dps : 0.0f, 14.0f);
             e->burn_t = fmaxf(e->burn_t, 2.0f);
         }
-        /* Crates, barrels and drums in it catch fire; the other blocks slowly burn down. */
+        /* The blocks in it catch fire. */
         for (int k = 0; k < r->nobs; k++) {
-            Obstacle *o = &r->obs[k];
-            if (!obstacle_breakable(o) || o->hp <= 0.0f || rect_dist(f->pos, o->r) >= f->r * 0.8f) continue;
-            if (obstacle_flammable(o)) {
-                room_block_ignite(k);
-            } else {
-                o->hp -= 10.0f * DT;
-                if (o->hp <= 0.0f) o->hp = 0.0f;
-            }
+            const Obstacle *o = &r->obs[k];
+            if (obstacle_flammable(o) && o->hp > 0.0f && rect_dist(f->pos, o->r) < f->r * 0.8f) room_block_ignite(k);
         }
     }
     /* The ship catches fire walking in (a dash jumps over), and burns on for a moment. */
