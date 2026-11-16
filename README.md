@@ -22,6 +22,7 @@ Preset `debug` disponible aussi (`build/debug`).
 | Bombe (efface toutes les balles) | Espace |
 | Prendre / acheter un objet, utiliser une machine (celui qui est encadré, marqué « E ») | E |
 | Menu des améliorations (activer / désactiver) | Tab |
+| Finir la salle (test) | A en AZERTY (Q en QWERTY : la même touche) : tous les ennemis disparaissent, plus de vagues, la salle se brise et la récompense sort comme à la fin d'un vrai combat |
 | Recommencer vite (même vaisseau) | Maintenir R 1 s en partie (une barre se remplit ; relâcher avant annule) |
 | Pause | Échap : le menu de la sauvegarde par-dessus la partie figée (Resume Run, New Run, Unlocks, Bestiary, Main Menu, Quit ; Échap reprend, Tab = améliorations) |
 | Couper le son | M |

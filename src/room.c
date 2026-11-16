@@ -784,6 +784,22 @@ void room_debug_clear(void) {
     room_clear(true);
 }
 
+void room_skip(void) {
+    Room *r = &G.room;
+    if (r->cleared || r->peaceful || G.transitioning) return;
+    r->wave = r->nwaves;
+    for (int i = 0; i < G.nen; i++) {
+        Enemy *e = &G.en[i];
+        if (enemy_is_boss(e)) boss_on_death(e);
+        fx_explosion(e->pos, e->radius, col_hex(ENEMIES[e->type].color, 1));
+        r->last_death = e->pos;
+    }
+    if (G.nen == 0) r->last_death = G.pl.pos;
+    G.nen = G.nsp = 0;
+    ebullets_clear(true);
+    room_clear(false);
+}
+
 static bool touching_door(const Door *d) {
     V2 p = G.pl.pos;
     float reach = PLAYER_BODY_R + 6.0f;

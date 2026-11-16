@@ -666,6 +666,7 @@ typedef enum { GS_TITLE, GS_CHAR_SELECT, GS_PLAYING, GS_PAUSED, GS_GAMEOVER, GS_
 typedef struct {
     bool up, down, left, right, fire;
     bool restart_held; /* R kept down: held RESTART_HOLD_T in a run, a new run with the same ship */
+    bool skip_pressed; /* test key (A on AZERTY, Q on QWERTY: the same key): the room is finished at once */
     /* edge-triggered, cleared after each simulation tick */
     bool active_pressed, bomb_pressed, interact_pressed /* E: take / buy / use */, pause_pressed, restart_pressed, confirm_pressed, debug_pressed;
     bool char_pressed; /* C: back to the character select screen */
@@ -1027,6 +1028,9 @@ void room_enter_secret(void);
 void room_return_from_secret(void);
 /* Dev only (debug menu): kill the pending waves and clear the room at once. */
 void room_debug_clear(void);
+/* Test key: every enemy gone (no kill effects), no more waves, the room cleared like a real fight's end (shatter,
+ * reward, a boss's unlocks). */
+void room_skip(void);
 
 /* player.c */
 void player_init(void);

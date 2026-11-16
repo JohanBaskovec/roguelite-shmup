@@ -217,6 +217,7 @@ static void parse_args(int argc, char **argv, Options *o) {
 static void clear_edges(void) {
     Input *in = &G.in;
     in->active_pressed = in->bomb_pressed = in->interact_pressed = in->pause_pressed = in->restart_pressed = in->confirm_pressed = false;
+    in->skip_pressed = false;
     in->debug_pressed = in->char_pressed = in->menu_pressed = in->click_pressed = in->delete_pressed = false;
     in->number = -1;
     in->wheel = 0;
@@ -252,6 +253,7 @@ static void handle_event(const SDL_Event *e, SDL_Window *win, bool bot) {
         case SDL_SCANCODE_LSHIFT:
         case SDL_SCANCODE_RSHIFT: in->active_pressed = true; break;
         case SDL_SCANCODE_E: in->interact_pressed = true; break;
+        case SDL_SCANCODE_Q: in->skip_pressed = true; break; /* the A key on AZERTY (test: finish the room) */
         case SDL_SCANCODE_RETURN:
         case SDL_SCANCODE_KP_ENTER: in->confirm_pressed = true; break;
         case SDL_SCANCODE_TAB: in->menu_pressed = true; break;

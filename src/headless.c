@@ -476,6 +476,7 @@ static int count_pedestals(void) {
 static void clear_edges(void) {
     Input *in = &G.in;
     in->active_pressed = in->bomb_pressed = in->interact_pressed = in->pause_pressed = in->restart_pressed = in->confirm_pressed = false;
+    in->skip_pressed = false;
     in->debug_pressed = in->char_pressed = in->menu_pressed = in->click_pressed = in->delete_pressed = false;
     in->number = -1;
     in->wheel = 0;
@@ -2954,6 +2955,40 @@ static int debug_rooms_run(const HeadlessOptions *o) {
             printf("scripted hold R: a tap does nothing -> %s, held -> new run, same ship -> %s, held on -> no second restart -> %s\n",
                    tap_ok ? "OK" : "FAILED", hold_ok ? "OK" : "FAILED", once_ok ? "OK" : "FAILED");
             failures += !tap_ok + !hold_ok + !once_ok;
+        }
+
+        /* Test key (A on AZERTY): the room finished at once, waves to come included, like a real end (shatter,
+         * then the reward); a boss leaves its choice. */
+        {
+            game_init(o->seed);
+            game_new_run();
+            debug_teleport(ROOM_COMBAT, RW_COINS, 9, true);
+            G.state = GS_PLAYING;
+            G.god = true;
+            for (int t = 0; t < 200 && G.room.wave == 0; t++) BTICK();
+            bool fighting = !G.room.cleared && G.room.wave >= 1 && G.room.wave < G.room.nwaves && G.nen + G.nsp > 0;
+            in->skip_pressed = true;
+            BTICK();
+            bool skip_ok = fighting && G.room.cleared && G.nen == 0 && G.nsp == 0 && G.npk == 0; /* the reward after the shatter */
+            for (int t = 0; t < (int)(ROOM_REVEAL_T * TICK_RATE) + 10; t++) BTICK();
+            int coins = 0;
+            for (int i = 0; i < G.npk; i++) coins += G.pk[i].type == PK_COIN;
+            skip_ok = skip_ok && coins > 0 && G.room.nobs == 0 && G.nen == 0;
+
+            game_init(o->seed);
+            game_new_run();
+            debug_teleport(ROOM_BOSS, RW_UPGRADE, BOSS_EVERY, true);
+            G.state = GS_PLAYING;
+            for (int t = 0; t < 400 && !boss_alive(); t++) BTICK();
+            bool boss_there = boss_alive() != NULL;
+            in->skip_pressed = true;
+            BTICK();
+            for (int t = 0; t < (int)(ROOM_REVEAL_T * TICK_RATE) + 10; t++) BTICK();
+            bool boss_skip_ok = boss_there && G.room.cleared && !boss_alive() && count_choices() == UPGRADE_CHOICES;
+            G.god = false;
+            printf("scripted test key: room finished (waves to come too), reward after the shatter -> %s, boss -> its choice -> %s\n",
+                   skip_ok ? "OK" : "FAILED", boss_skip_ok ? "OK" : "FAILED");
+            failures += !skip_ok + !boss_skip_ok;
         }
 #undef BTICK
 #undef BFRESH

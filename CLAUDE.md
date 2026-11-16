@@ -354,6 +354,8 @@ invariants / a CTest entry in `CMakeLists.txt`.
   `draw_clip` (`draw.c`). A new enemy needs a `DESC` line there (and a spawn group / wide view if it needs one);
   `--debug-rooms` checks every type shows up and fires in it and the real world comes back untouched.
 - Controls: SHIFT / right click = active items, SPACE = bomb, E = take / buy / use, TAB = upgrades menu, R held
-  `RESTART_HOLD_T` in a run = a new run with the same ship (`Input.restart_held`, `G.restart_hold`: let go before the next one). The
+  `RESTART_HOLD_T` in a run = a new run with the same ship (`Input.restart_held`, `G.restart_hold`: let go before the next one).
+  Test key: A on AZERTY (`SDL_SCANCODE_Q`, a physical key: Q on QWERTY) finishes the room (`room_skip`: enemies gone
+  without kill effects, no more waves, a real clear - shatter, reward, a boss's unlocks). The
   mouse is grabbed during a run (`SDL_SetWindowMouseGrab` in `main.c`, released in pause / menus / game over).
 - In-game text is English and ASCII only (SDL's debug font has no accents). The user writes in French.

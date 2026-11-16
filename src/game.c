@@ -89,6 +89,7 @@ static void update_playing(void) {
         return;
     }
     /* R held down: a quick new run with the same ship (in the same save file, like R after a game over). */
+    if (G.in.skip_pressed && !G.demo) room_skip(); /* test key: the room finished at once */
     /* After a restart R must be let go first (< 0), or holding it would restart again and again. */
     if (!G.in.restart_held || G.demo) {
         G.restart_hold = 0.0f;
