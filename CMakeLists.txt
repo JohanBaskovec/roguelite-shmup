@@ -344,11 +344,53 @@ if(SHMUP_BUILD_TESTS)
                          render_chakram sim_weapon_scatter sim_weapon_needler sim_weapon_seeker sim_weapon_bouncer
                          sim_toggle_upgrades sim_toggle_all_upgrades render_upgrades_menu
                          sim_debug_teleports render_debug_menu render_stats_room render_stats_overlay render_offscreen sfx_synthesis PROPERTIES TIMEOUT 600)
+    # Labels by area, from the test names (`ctest --preset release -L enemies`): a new test gets its
+    # labels by itself. Anything touching the bot, the rooms' flow or shared code: the whole suite.
+    get_property(_all_tests DIRECTORY PROPERTY TESTS)
+    foreach(_t IN LISTS _all_tests)
+        set(_labels "")
+        if(_t MATCHES "^render_")
+            list(APPEND _labels render)
+        endif()
+        if(_t MATCHES "enem")
+            list(APPEND _labels enemies)
+        endif()
+        if(_t MATCHES "weapon|sword|rockets|chakram|laser|lightsaber")
+            list(APPEND _labels weapons)
+        endif()
+        if(_t MATCHES "active|chaos")
+            list(APPEND _labels actives)
+        endif()
+        if(_t MATCHES "synerg")
+            list(APPEND _labels synergies)
+        endif()
+        if(_t MATCHES "upgrades")
+            list(APPEND _labels upgrades)
+        endif()
+        if(_t MATCHES "boss")
+            list(APPEND _labels boss)
+        endif()
+        if(_t MATCHES "knight|shotgunner|char_select")
+            list(APPEND _labels characters)
+        endif()
+        if(_t MATCHES "rooms|room$|shop|workshop|secret|blocks|door|teleports|debug_menu")
+            list(APPEND _labels rooms)
+        endif()
+        if(_t MATCHES "god_seed|mortal|deep_rooms")
+            list(APPEND _labels runs)
+        endif()
+        if(_t MATCHES "^sfx_")
+            list(APPEND _labels audio)
+        endif()
+        if(_labels)
+            set_tests_properties(${_t} PROPERTIES LABELS "${_labels}")
+        endif()
+    endforeach()
     # "quick": one test per area (rooms, characters, boss, workshop, actives, weapon mods, layouts,
-    # rendering, sound), ~5 s with the quick test preset (NEON_TICK_SCALE=0.4). For small edits only: the full suite stays
-    # the step before a commit.
-    set_tests_properties(sim_debug_teleports sim_god_seed1 sim_knight_mortal sim_all_upgrades sim_stats_rooms sim_shop_rooms
-                         sim_secret_rooms sim_workshop sim_boss sim_active_rooms sim_active_multi sim_knight sim_shotgunner
-                         sim_toggle_upgrades sim_dense_blocks sim_enemies_knight sim_weapon_laser render_offscreen
-                         render_stats_room sfx_synthesis PROPERTIES LABELS quick)
+    # rendering, sound), a few seconds with the quick test preset (NEON_TICK_SCALE=0.4). For small edits
+    # only: the full suite stays the step before a commit.
+    set_property(TEST sim_debug_teleports sim_god_seed1 sim_knight_mortal sim_all_upgrades sim_stats_rooms sim_shop_rooms
+                      sim_secret_rooms sim_workshop sim_boss sim_active_rooms sim_active_multi sim_knight sim_shotgunner
+                      sim_toggle_upgrades sim_dense_blocks sim_enemies_knight sim_weapon_laser render_offscreen
+                      render_stats_room sfx_synthesis APPEND PROPERTY LABELS quick)
 endif()

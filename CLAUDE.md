@@ -139,9 +139,10 @@ the `--debug-rooms` test too.
 
 ```sh
 cmake --preset release && cmake --build --preset release -j
-ctest --preset quick              # ~4 s: label "quick", one test per area, simulations at 40%
-ctest --preset release            # ~35 s
-cmake --preset asan && cmake --build --preset asan -j && ctest --preset asan   # ASan + UBSan, ~1 min
+ctest --preset quick              # ~2 s: label "quick", one test per area, simulations at 40%
+ctest --preset release            # ~15 s
+ctest --preset release -L enemies # one area: enemies, weapons, actives, synergies, upgrades, boss, characters, rooms, runs, render
+cmake --preset asan && cmake --build --preset asan -j && ctest --preset asan   # ASan + UBSan, ~40 s
 ```
 
 - The build must stay free of compiler warnings (`-Wall -Wextra`).
@@ -150,9 +151,12 @@ cmake --preset asan && cmake --build --preset asan -j && ctest --preset asan   #
   The asan build is `-O1` (Debug keeps asserts and debug info).
 - Don't pass `-j` to ctest: the presets already use the 8 cores.
 - The asan preset sets `NEON_TICK_SCALE=0.5` (simulations and their expected rooms halved; `sim_mortal_runs*`
-  and `sim_deep_rooms` keep their full length, set in `CMakeLists.txt`). `--shot` draws one frame in 8 plus the
+  and `sim_deep_rooms` keep their full length, set in `CMakeLists.txt`). `--shot` draws one frame in 32 plus the
   last ones (`--shot-draw-every N`; drawing never changes the game state). Long batches of runs are split into
-  several tests with consecutive seeds so they run side by side.
+  several tests with consecutive seeds so they run side by side. Tests get their area labels from their names
+  (`CMakeLists.txt`): name a new test like its neighbours (`sim_enemy_*`, `sim_weapon_*`, `render_*`...).
+- The path finder is what the simulations spend their time in (`room_navigate_ex`, `line_blocked` in `room.c`):
+  a line test that only needs yes / no uses `line_blocked` (stops at the first hit), never `nearest_blocker`.
 
 ## Testing: never open a window
 
@@ -167,7 +171,7 @@ Do not launch the game in a real window to test it. Use:
   the command replaying it alone (`replay it alone: ... --seed S --trace-bot T`). `--trace-bot TICK` prints one
   line per tick from TICK on (position, goal, path waypoint, digging, keys, fire / aim, target, threats...).
 - `neon_breach --shot out.bmp --frames N [...]` — offscreen render (SDL offscreen driver; simulates every
-  frame, draws one in 8).
+  frame, draws one in 32).
 - `neon_breach --dump-sfx DIR` — writes every synthesized sound as WAV.
 - `neon_breach --record PREFIX --frames N [--record-from F] [--record-step S] [...]` — offscreen 1920x1080 at
   60 fps, the bot playing: raw RGB24 frames (`PREFIX.rgb`), the game's sounds mixed offline on the game clock

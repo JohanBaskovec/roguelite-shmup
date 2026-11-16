@@ -59,7 +59,7 @@ typedef struct {
 static void parse_args(int argc, char **argv, Options *o) {
     memset(o, 0, sizeof *o);
     o->frames = 300;
-    o->shot_draw_every = 8;
+    o->shot_draw_every = 32;
     o->ticks = 120 * 600;
     o->runs = 1;
     for (int i = 1; i < argc; i++) {

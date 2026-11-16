@@ -161,10 +161,24 @@ static int nearest_blocker_ex(V2 a, V2 b, float margin, bool walls_only) {
     return best;
 }
 
+/* Same test, but only whether anything is crossed: stops at the first obstacle hit (most callers
+ * - lines of sight, the path finder - never need to know which one comes first). */
+static bool line_blocked(V2 a, V2 b, float margin, bool walls_only) {
+    float x0 = fminf(a.x, b.x) - margin, x1 = fmaxf(a.x, b.x) + margin;
+    float y0 = fminf(a.y, b.y) - margin, y1 = fmaxf(a.y, b.y) + margin;
+    for (int i = 0; i < G.room.nobs; i++) {
+        SDL_FRect o = G.room.obs[i].r;
+        if (o.x > x1 || o.x + o.w < x0 || o.y > y1 || o.y + o.h < y0 || !nav_counts(i, walls_only)) continue;
+        float m = fminf(margin, fmaxf(0.0f, fminf(box_dist(a, o), box_dist(b, o)) - 0.5f));
+        if (segment_entry(a, b, obs_inflated(i, m)) >= 0.0f) return true;
+    }
+    return false;
+}
+
 static int nearest_blocker(V2 a, V2 b, float margin) { return nearest_blocker_ex(a, b, margin, false); }
 
-bool room_line_clear(V2 a, V2 b, float margin) { return nearest_blocker(a, b, margin) < 0; }
-bool room_line_clear_walls(V2 a, V2 b, float margin) { return nearest_blocker_ex(a, b, margin, true) < 0; }
+bool room_line_clear(V2 a, V2 b, float margin) { return !line_blocked(a, b, margin, false); }
+bool room_line_clear_walls(V2 a, V2 b, float margin) { return !line_blocked(a, b, margin, true); }
 
 int room_block_between(V2 a, V2 b, float margin) {
     int i = nearest_blocker(a, b, margin);
@@ -223,7 +237,7 @@ static NavGraph *nav_graph(float margin, bool walls_only) {
     for (int i = 0; i < g->n; i++) {
         g->vis[i][i] = 0;
         for (int j = i + 1; j < g->n; j++)
-            g->vis[i][j] = g->vis[j][i] = (uint8_t)(nearest_blocker_ex(g->pt[i], g->pt[j], margin, walls_only) < 0);
+            g->vis[i][j] = g->vis[j][i] = (uint8_t)!line_blocked(g->pt[i], g->pt[j], margin, walls_only);
     }
     return g;
 }
@@ -232,20 +246,19 @@ V2 room_navigate(V2 from, V2 goal, float margin) { return room_navigate_ex(from,
 
 V2 room_navigate_ex(V2 from, V2 goal, float margin, bool walls_only, bool *reached) {
     if (reached) *reached = true;
-    if (nearest_blocker_ex(from, goal, margin, walls_only) < 0) return goal;
+    if (!line_blocked(from, goal, margin, walls_only)) return goal;
     NavGraph *g = nav_graph(margin, walls_only);
     int n = g->n, goal_node = n;
     float dist[NAV_MAX_NODES + 1];
     int prev[NAV_MAX_NODES + 1];
-    bool done[NAV_MAX_NODES + 1], sees_goal[NAV_MAX_NODES];
+    bool done[NAV_MAX_NODES + 1];
     for (int i = 0; i <= n; i++) {
         dist[i] = 1e30f;
         prev[i] = -1;
         done[i] = false;
     }
     for (int i = 0; i < n; i++) {
-        if (nearest_blocker_ex(from, g->pt[i], margin, walls_only) < 0) dist[i] = v2_dist(from, g->pt[i]);
-        sees_goal[i] = nearest_blocker_ex(g->pt[i], goal, margin, walls_only) < 0;
+        if (!line_blocked(from, g->pt[i], margin, walls_only)) dist[i] = v2_dist(from, g->pt[i]);
     }
     /* Dijkstra (dense, O(n^2) with n <= ~100). */
     for (;;) {
@@ -259,7 +272,8 @@ V2 room_navigate_ex(V2 from, V2 goal, float margin, bool walls_only, bool *reach
             float d = dist[u] + v2_dist(g->pt[u], g->pt[v]);
             if (d < dist[v]) { dist[v] = d; prev[v] = u; }
         }
-        if (sees_goal[u]) {
+        /* Whether a node sees the goal is only worked out for the nodes actually visited. */
+        if (!line_blocked(g->pt[u], goal, margin, walls_only)) {
             float d = dist[u] + v2_dist(g->pt[u], goal);
             if (d < dist[goal_node]) { dist[goal_node] = d; prev[goal_node] = u; }
         }
