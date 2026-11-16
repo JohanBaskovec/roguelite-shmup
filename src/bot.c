@@ -340,7 +340,7 @@ void bot_input(void) {
             scores[i] = -1;
             const Door *d = &G.room.doors[i];
             if (d->locked && pl->keys == 0) continue;
-            if (d->mod == MOD_WAGER && pl->hp <= WAGER_COST + 2) continue; /* a heart it can spare, and one more */
+            if ((d->mods & MOD_BIT(MOD_WAGER)) && pl->hp <= WAGER_COST + 2) continue; /* a heart it can spare, and one more */
             int score = d->type == ROOM_SHOP ? (pl->coins >= 25 ? 7 : pl->coins >= 14 ? 4 : 0)
                       : d->type == ROOM_STATS ? 4
                       : d->type == ROOM_WORKSHOP ? (pl->coins >= GAMBLE_COST || pl->max_hp >= 6 ? 5 : 2)
@@ -349,7 +349,7 @@ void bot_input(void) {
                       : d->reward == RW_HEART && pl->hp <= pl->max_hp / 2 ? 6
                       : d->reward == RW_COINS && pl->coins < 40 ? 4
                       : d->reward == RW_KEY ? 3 : d->reward == RW_BOMBS ? (pl->bombs == 0 ? 5 : 2) : 1; /* the run starts without any */
-            if (d->mod == MOD_WAGER) score += 2; /* double reward */
+            if ((d->mods & MOD_BIT(MOD_WAGER))) score += 2; /* double reward */
             scores[i] = score * MAX_DOORS + (MAX_DOORS - 1 - i); /* ties: first door first */
         }
         /* The (give_ups)-th best door it can open. */

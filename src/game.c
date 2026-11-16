@@ -119,7 +119,7 @@ void game_world_step(void) {
             } else {
                 Door d = G.room.doors[G.trans_door];
                 G.entry_side = side_opposite(d.side); /* out on the right: in on the left */
-                G.entry_mod = d.mod;
+                G.entry_mods = d.mods;
                 room_enter(d.type, d.reward, G.room.depth + 1);
             }
             save_autosave(); /* a new screen, its enemies about to show up: the only time the game saves */
@@ -146,9 +146,11 @@ void game_update(void) {
     G.ticks++;
     fx_timers();
 
-    if (G.in.debug_pressed && !title_world_hidden()) { /* not over the bestiary's small world */
-        if (G.state == GS_DEBUG) debug_menu_close();
-        else debug_menu_open();
+    int page = G.in.debug_pressed ? 0 : G.in.teleport_pressed ? 1 : -1; /* F3 cheats, F4 teleport */
+    if (page >= 0 && !title_world_hidden()) { /* not over the bestiary's small world */
+        if (G.state == GS_DEBUG && debug_menu_page() == page) debug_menu_close();
+        else if (G.state == GS_DEBUG) debug_menu_set_page(page);
+        else debug_menu_open(page);
         return;
     }
 

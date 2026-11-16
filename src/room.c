@@ -451,15 +451,14 @@ static void gen_doors(void) {
         d->reward = roll_reward_except(used);
         used |= 1u << d->reward;
     }
-    /* Room modifiers: combat rooms only, shown on the door (mods.c). One wager door at most: a ship down to its
-     * last heart can always leave by another one. */
+    /* Room modifiers: any room behind a door but the boss's (WAGER: combat rooms only), shown on the door (mods.c).
+     * One wager door at most: a ship down to its last heart can always leave by another one. */
     bool wager = false;
     for (int i = 0; i < MAX_DOORS; i++) {
         Door *d = &r->doors[i];
-        if (d->type != ROOM_COMBAT) continue;
-        d->mod = (uint8_t)(g_mod_override >= 0 ? g_mod_override : (int)mod_roll(r->depth + 1));
-        if (d->mod == MOD_WAGER && wager) d->mod = MOD_NONE;
-        wager |= d->mod == MOD_WAGER;
+        d->mods = (uint8_t)(g_mod_override >= 0 ? mods_allowed(d->type, (unsigned)g_mod_override) : mod_roll(r->depth + 1, d->type));
+        if (wager) d->mods &= (uint8_t)~MOD_BIT(MOD_WAGER);
+        wager |= (d->mods & MOD_BIT(MOD_WAGER)) != 0;
     }
 }
 
@@ -483,8 +482,8 @@ void room_enter(RoomType type, RewardType reward, int depth) {
     static int layouts;
     r->layout_id = ++layouts;
     r->entry = G.entry_side;
-    r->mod = type == ROOM_COMBAT ? (uint8_t)(g_mod_override >= 0 ? g_mod_override : G.entry_mod) : MOD_NONE;
-    G.entry_mod = MOD_NONE; /* used up */
+    r->mods = (uint8_t)mods_allowed(type, g_mod_override >= 0 ? (unsigned)g_mod_override : G.entry_mods);
+    G.entry_mods = 0; /* used up */
     unlocks_on_room(depth); /* ships unlocked by depth (not in the demo) */
     bool can_hide = type == ROOM_COMBAT || type == ROOM_STATS || type == ROOM_SHOP;
     if (can_hide && (G.force_secret || chance(SECRET_CHANCE))) {
@@ -597,7 +596,7 @@ static void spawn_wave(void) {
     float budget = WAVE_BUDGET_BASE + WAVE_BUDGET_SCALE * powf((float)depth, WAVE_BUDGET_EXP) +
                    (float)r->wave * WAVE_BUDGET_PER_WAVE;
     budget *= 1.0f + malus_pct(MAL_CROWD); /* CROWD malus: bigger waves (more enemies, never stronger ones) */
-    bool horde = r->mod == MOD_HORDE;
+    bool horde = room_has_mod(MOD_HORDE);
     if (horde) budget *= HORDE_BUDGET; /* the waves of a room all at once (a bit less) */
     int cap = (int)((horde ? 40.0f : 20.0f) + 2.0f * (float)depth);
     if (cap > MAX_ENEMIES - 20) cap = MAX_ENEMIES - 20;
@@ -631,7 +630,7 @@ static void spawn_wave(void) {
     if (g_wave_time_override > 0.0f) time = g_wave_time_override;
     r->wave_t = r->wave_time = time;
     r->since_wave = 0.0f;
-    if (r->mod == MOD_COMPACTOR && r->wave == 1) crush_start(true); /* the walls start to crawl */
+    if (room_has_mod(MOD_COMPACTOR) && r->wave == 1) crush_start(true); /* the walls start to crawl */
 }
 
 /* Stats room reward: a row of trades, take one and the others vanish. */
@@ -701,7 +700,7 @@ static void room_reveal(void) {
     else if (r->type == ROOM_SHOP) spawn_shop_items();
     else if (r->type == ROOM_WORKSHOP) workshop_spawn();
     else if (r->type == ROOM_SECRET) secret_loot(); /* after an ambush */
-    else if (r->mod == MOD_WAGER && r->reward != RW_NONE) { /* the reward twice: two choices / twice the loot */
+    else if (room_has_mod(MOD_WAGER) && r->reward != RW_NONE) { /* the reward twice: two choices / twice the loot */
         bool offers = r->reward == RW_UPGRADE || r->reward == RW_ACTIVE;
         reward_drop(r->reward, v2(ARENA_CX, ARENA_CY - (offers ? 150.0f : 0.0f)));
         pickups_set_choice_group(2);
@@ -1139,9 +1138,13 @@ static void draw_door(const Door *d, bool cleared, bool entry) {
     else if (d->type == ROOM_SECRET) draw_text_centered(ip.x + 1.0f, ip.y - 12.0f * sc, 3.0f * sc, col_hex(COLOR_SECRET, 1), "%s", G.room.type == ROOM_SECRET ? "v" : "?");
     else draw_pickup_icon(d->type == ROOM_STATS ? PK_STAT : reward_icon(d->reward), -1, ip, 11.0f * sc, G.time);
     if (pop >= 1.0f) draw_text_centered(ip.x, ip.y + 34.0f, 1.5f, col_a(rc, 0.9f), "%s", door_label(d));
-    if (pop >= 1.0f && d->mod != MOD_NONE) { /* the room's modifier, under its reward */
-        SDL_FColor mc = col_hex(mod_color(d->mod), 0.75f + 0.25f * pulse);
-        draw_text_centered(ip.x, ip.y + 50.0f, 1.5f, mc, "+ %s", mod_name(d->mod));
+    if (pop >= 1.0f) { /* the room's modifiers, under its reward */
+        float y = ip.y + 50.0f;
+        for (int m = MOD_NONE + 1; m < MOD_COUNT; m++) {
+            if (!(d->mods & MOD_BIT(m))) continue;
+            draw_text_centered(ip.x, y, 1.5f, col_hex(mod_color(m), 0.75f + 0.25f * pulse), "+ %s", mod_name(m));
+            y += 16.0f;
+        }
     }
 }
 

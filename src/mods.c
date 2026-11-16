@@ -1,6 +1,7 @@
 /*
- * Room modifiers: a combat room with one more rule, rolled with its door (gen_doors) and shown under the door's
- * reward ("+ HORDE"). The room keeps it in Room.mod (G.entry_mod carries it through the transition).
+ * Room modifiers: a room with one more rule, rolled with its door (gen_doors) and shown under the door's reward
+ * ("+ HORDE"). A room holds a set of them (MOD_BIT mask in Room.mods, G.entry_mods carries it through the
+ * transition): a rolled door has one at most, the F4 menu / --mod can stack any of them.
  *   COMPACTOR  the walls close in slowly from the first wave on (crush.c, crush_slow), fast once the last wave's
  *              timer runs out
  *   BLACKOUT   dark: a circle of light round the ship; the shots and the enemies' glow show through (drawing only)
@@ -11,13 +12,15 @@
  *              blocks alight
  *   WAGER      the door costs a whole heart (WAGER_COST hp, never the last one); the reward comes twice (two
  *              one-of-N groups for an upgrade / active room, twice the loot otherwise)
- * Never in a boss room, a stats room, a shop, a workshop or a secret room.
+ * Any room with a fight (combat, stats, shop, workshop) but a boss room; WAGER only on combat rooms (its double
+ * reward is a combat room's reward). Never the launch bay or a secret room (no door leads there).
  */
 #include "audio.h"
 #include "draw.h"
 #include "game.h"
 
 #include <stdio.h>
+#include <string.h>
 
 int g_mod_override = -1;
 
@@ -55,12 +58,25 @@ int mod_by_name(const char *name) {
     return -1;
 }
 
-RoomMod mod_roll(int depth) {
-    if (!chance(MOD_CHANCE)) return MOD_NONE;
+bool mod_allowed(RoomType type, int mod) {
+    if (mod <= MOD_NONE || mod >= MOD_COUNT) return false;
+    if (type == ROOM_BOSS || room_type_peaceful(type)) return false;
+    return mod != MOD_WAGER || type == ROOM_COMBAT;
+}
+
+unsigned mods_allowed(RoomType type, unsigned mods) {
+    unsigned out = 0;
+    for (int m = MOD_NONE + 1; m < MOD_COUNT; m++)
+        if ((mods & MOD_BIT(m)) && mod_allowed(type, m)) out |= MOD_BIT(m);
+    return out;
+}
+
+unsigned mod_roll(int depth, RoomType type) {
+    if (!chance(MOD_CHANCE)) return 0;
     int cand[MOD_COUNT], n = 0;
     for (int m = MOD_NONE + 1; m < MOD_COUNT; m++)
-        if (MODS[m].min_depth <= depth) cand[n++] = m;
-    return n ? (RoomMod)cand[irand(0, n - 1)] : MOD_NONE;
+        if (MODS[m].min_depth <= depth && mod_allowed(type, m)) cand[n++] = m;
+    return n ? MOD_BIT(cand[irand(0, n - 1)]) : 0;
 }
 
 /* ELITE: a type that can fill a wave on its own at this depth (or one of the --enemy ones). */
@@ -75,33 +91,41 @@ static int elite_type(int depth) {
 
 void mods_on_room_enter(void) {
     Room *r = &G.room;
-    if (r->mod == MOD_NONE || r->type != ROOM_COMBAT) {
-        r->mod = MOD_NONE;
-        return;
+    r->mods = (uint8_t)mods_allowed(r->type, r->mods);
+    if (!r->mods) return;
+    /* The banner names them all ("HORDE + STORM"), their lines under it; the colour is the first one's. */
+    char title[96] = "", sub[200] = "";
+    int first = MOD_NONE;
+    for (int m = MOD_NONE + 1; m < MOD_COUNT; m++) {
+        if (!room_has_mod(m)) continue;
+        char line[64];
+        snprintf(line, sizeof line, "%s", MODS[m].desc);
+        switch (m) {
+        case MOD_HORDE: r->nwaves = 1; break;
+        case MOD_ELITE: {
+            int t = elite_type(r->depth);
+            r->elite = t + 1;
+            char name[32];
+            snprintf(name, sizeof name, "%s", ENEMIES[t].name);
+            for (char *c = name; *c; c++) *c = (char)(*c >= 'a' && *c <= 'z' ? *c - 32 : *c);
+            snprintf(line, sizeof line, "only %ss", name);
+        } break;
+        case MOD_STORM: r->storm_cd = 2.0f; break;
+        default: break;
+        }
+        if (!first) first = m;
+        size_t tl = strlen(title), sl = strlen(sub);
+        snprintf(title + tl, sizeof title - tl, "%s%s", tl ? " + " : "", MODS[m].name);
+        snprintf(sub + sl, sizeof sub - sl, "%s%s", sl ? " / " : "", line);
     }
-    char sub[64];
-    snprintf(sub, sizeof sub, "%s", MODS[r->mod].desc);
-    switch (r->mod) {
-    case MOD_HORDE: r->nwaves = 1; break;
-    case MOD_ELITE: {
-        int t = elite_type(r->depth);
-        r->elite = t + 1;
-        char name[32];
-        snprintf(name, sizeof name, "%s", ENEMIES[t].name);
-        for (char *c = name; *c; c++) *c = (char)(*c >= 'a' && *c <= 'z' ? *c - 32 : *c);
-        snprintf(sub, sizeof sub, "only %ss", name);
-    } break;
-    case MOD_STORM: r->storm_cd = 2.0f; break;
-    default: break;
-    }
-    fx_banner(MODS[r->mod].name, sub, col_hex(MODS[r->mod].color, 1), 1.6f);
+    fx_banner(title, sub, col_hex(MODS[first].color, 1), 1.6f);
 }
 
 /* ---- Wager --------------------------------------------------------------- */
 
 bool mod_door_pay(const Door *d) {
     Player *pl = &G.pl;
-    if (d->mod != MOD_WAGER) return true;
+    if (!(d->mods & MOD_BIT(MOD_WAGER))) return true;
     V2 at = v2_add(d->pos, v2_scale(v2_sub(v2(ARENA_CX, ARENA_CY), d->pos), 90.0f / v2_dist(v2(ARENA_CX, ARENA_CY), d->pos)));
     if (pl->hp <= WAGER_COST) { /* never the last heart */
         if (G.room.msg_cd <= 0.0f) {
@@ -140,7 +164,7 @@ static void strike_lands(V2 p) {
 
 void mods_update(void) {
     Room *r = &G.room;
-    if (r->mod != MOD_STORM || r->cleared || r->wave < 1 || active_time_stop_on()) return; /* TIME STOP holds the sky */
+    if (!room_has_mod(MOD_STORM) || r->cleared || r->wave < 1 || active_time_stop_on()) return; /* TIME STOP holds the sky */
     Player *pl = &G.pl;
     int w = 0;
     for (int i = 0; i < r->nstrikes; i++) {
@@ -168,7 +192,7 @@ void mods_update(void) {
 int mods_hazards(BossHazard *out, int max) {
     const Room *r = &G.room;
     int n = 0;
-    if (r->mod != MOD_STORM || r->cleared) return 0;
+    if (!room_has_mod(MOD_STORM) || r->cleared) return 0;
     for (int i = 0; i < r->nstrikes && n < max; i++)
         out[n++] = (BossHazard){r->strike_pos[i], r->strike_pos[i], STORM_R, r->strike_t[i] <= 0.0f};
     return n;
@@ -176,7 +200,7 @@ int mods_hazards(BossHazard *out, int max) {
 
 void mods_draw_under(void) {
     const Room *r = &G.room;
-    if (r->mod != MOD_STORM) return;
+    if (!room_has_mod(MOD_STORM)) return;
     draw_blend_add();
     for (int i = 0; i < r->nstrikes; i++) {
         V2 p = r->strike_pos[i];
@@ -214,7 +238,7 @@ void mods_draw_under(void) {
 
 void mods_draw_over(void) {
     const Room *r = &G.room;
-    if (r->mod != MOD_BLACKOUT) return;
+    if (!room_has_mod(MOD_BLACKOUT)) return;
     float a = r->cleared ? clampf(1.0f - (r->clear_t + ROOM_REVEAL_T) / 0.8f, 0.0f, 1.0f) : 1.0f; /* light back on */
     if (a <= 0.0f) return;
     V2 c = G.pl.pos;

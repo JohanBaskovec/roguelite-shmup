@@ -29,6 +29,7 @@ typedef struct {
     int bombs;             /* --bombs N: starting bombs (the run starts with none) */
     bool debug_rooms;      /* --debug-rooms (with --headless): test the debug menu teleports */
     bool debug_menu;       /* --debug-menu: open the F3 debug menu at startup */
+    bool teleport_menu;    /* --teleport-menu: the F4 teleport menu */
     bool secret;           /* --secret: every eligible room hides a secret room */
     bool show_stats;       /* --show-stats: start with the F2 stats overlay visible */
     bool workshop_room;    /* --workshop: start in a workshop */
@@ -95,6 +96,7 @@ static void parse_args(int argc, char **argv, Options *o) {
         else if (!strcmp(a, "--no-bot")) o->no_bot = true;
         else if (!strcmp(a, "--debug-rooms")) o->debug_rooms = true;
         else if (!strcmp(a, "--debug-menu")) o->debug_menu = true;
+        else if (!strcmp(a, "--teleport-menu")) o->debug_menu = o->teleport_menu = true;
         else if (!strcmp(a, "--secret")) o->secret = true;
         else if (!strcmp(a, "--dense-blocks")) g_dense_blocks = true; /* rooms packed with blocks and gates */
         else if (!strcmp(a, "--show-secret")) o->show_secret = true;
@@ -158,11 +160,12 @@ static void parse_args(int argc, char **argv, Options *o) {
         }
         else if (!strcmp(a, "--wave-time") && more) g_wave_time_override = (float)atof(argv[++i]);
         else if (!strcmp(a, "--mod") && more) {
-            g_mod_override = mod_by_name(argv[++i]);
-            if (g_mod_override < 0) {
+            int m = mod_by_name(argv[++i]); /* repeatable: several at once */
+            if (m < 0) {
                 fprintf(stderr, "unknown room modifier '%s' (compactor, blackout, powder-keg, horde, elite, storm, wager)\n", argv[i]);
                 exit(2);
             }
+            g_mod_override = (g_mod_override < 0 ? 0 : g_mod_override) | (int)MOD_BIT(m);
         }
         else if (!strcmp(a, "--boss-kind") && more) {
             int t = enemy_by_name(argv[++i]);
@@ -217,7 +220,7 @@ static void parse_args(int argc, char **argv, Options *o) {
 static void clear_edges(void) {
     Input *in = &G.in;
     in->active_pressed = in->bomb_pressed = in->interact_pressed = in->pause_pressed = in->restart_pressed = in->confirm_pressed = false;
-    in->skip_pressed = false;
+    in->skip_pressed = in->teleport_pressed = false;
     in->debug_pressed = in->char_pressed = in->menu_pressed = in->click_pressed = in->delete_pressed = false;
     in->number = -1;
     in->wheel = 0;
@@ -261,6 +264,7 @@ static void handle_event(const SDL_Event *e, SDL_Window *win, bool bot) {
         case SDL_SCANCODE_BACKSPACE: in->delete_pressed = true; break;
         case SDL_SCANCODE_F2: G.show_stats = !G.show_stats; break;
         case SDL_SCANCODE_F3: in->debug_pressed = true; break;
+        case SDL_SCANCODE_F4: in->teleport_pressed = true; break;
         case SDL_SCANCODE_F11:
             SDL_SetWindowFullscreen(win, (SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN) == 0);
             break;
@@ -481,7 +485,7 @@ int main(int argc, char **argv) {
     if (opt.char_select) char_select_open();
     if (opt.upgrades_menu) upgrade_menu_open();
     if (opt.pause) pause_open();
-    if (opt.debug_menu) debug_menu_open();
+    if (opt.debug_menu) debug_menu_open(opt.teleport_menu ? 1 : 0);
 
     const double freq = (double)SDL_GetPerformanceFrequency();
     Uint64 last = SDL_GetPerformanceCounter();

@@ -20,7 +20,7 @@
  * whenever the meaning of saved data changes without changing its layout (enum reordered...).
  */
 
-#define SAVE_VERSION 2
+#define SAVE_VERSION 3
 #define SAVE_SLOTS 99     /* save_1.sav .. save_99.sav */
 #define SAVE_DEV_SLOT 100 /* save_100.sav: DEV MODE's save (everything unlocked, every enemy met), never listed */
 

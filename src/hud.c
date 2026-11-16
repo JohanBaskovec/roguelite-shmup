@@ -327,9 +327,11 @@ void overlay_draw(void) {
         float age = G.banner_max - G.banner_t;
         float a = clampf(G.banner_t / 0.4f, 0.0f, 1.0f) * clampf(age / 0.08f, 0.0f, 1.0f);
         float scale = 5.0f + 1.5f * fmaxf(0.0f, 1.0f - age / 0.12f);
+        float tw = draw_text_width(G.banner, scale); /* several room modifiers: "HORDE + STORM + ...", shrunk to fit */
+        if (tw > SCREEN_W - 120.0f) scale *= (SCREEN_W - 120.0f) / tw;
         draw_text_centered(SCREEN_W * 0.5f, 250.0f, scale, col_a(G.banner_col, a), "%s", G.banner);
         if (G.banner_sub[0]) { /* upgrades: "bonus  /  malus", shrunk to fit */
-            float ss = draw_text_width(G.banner_sub, 2.5f) <= SCREEN_W - 120.0f ? 2.5f : 1.75f;
+            float sw = draw_text_width(G.banner_sub, 2.5f), ss = sw <= SCREEN_W - 120.0f ? 2.5f : 2.5f * (SCREEN_W - 120.0f) / sw;
             draw_text_centered(SCREEN_W * 0.5f, 310.0f, ss, col_a(COL_WHITE, a * 0.85f), "%s", G.banner_sub);
         }
     }

@@ -533,7 +533,7 @@ static Theme roll_theme(void) {
 }
 
 static int theme_kind(Theme th) {
-    if (G.room.mod == MOD_POWDER) { /* powder keg: barrels and oil drums everywhere */
+    if (room_has_mod(MOD_POWDER)) { /* powder keg: barrels and oil drums everywhere */
         float k = frand(0.0f, 1.0f);
         return k < 0.45f ? OB_BARREL : k < 0.85f ? OB_OIL : OB_CRATE;
     }
@@ -583,7 +583,7 @@ static int add_cluster(int sym, bool attached) {
     case 3: w = irand(2, 4), h = 2; break;           /* thick row */
     default: w = h = 1; break;                       /* single */
     }
-    if ((th == TH_BARRELS || G.room.mod == MOD_POWDER) && w * h > 4) h = 1; /* a whole depot of barrels would be a death trap */
+    if ((th == TH_BARRELS || room_has_mod(MOD_POWDER)) && w * h > 4) h = 1; /* a whole depot of barrels would be a death trap */
     int x = irand(BLOCK_EDGE, GW - BLOCK_EDGE - w), y = irand(BLOCK_EDGE, GH - BLOCK_EDGE - h);
     if (attached) { /* slide it until it leans on something solid */
         bool found = false;
@@ -603,7 +603,7 @@ static int add_cluster(int sym, bool attached) {
 }
 
 static void gen_blocks(int sym) {
-    int budget = g_dense_blocks ? 200 : G.room.mod == MOD_POWDER ? irand(POWDER_BLOCKS_MIN, POWDER_BLOCKS_MIN + 12) : irand(6, 16);
+    int budget = g_dense_blocks ? 200 : room_has_mod(MOD_POWDER) ? irand(POWDER_BLOCKS_MIN, POWDER_BLOCKS_MIN + 12) : irand(6, 16);
     int walls = 0;
     for (int y = 0; y < GH; y++)
         for (int x = 0; x < GW; x++) walls += cells[y][x] == C_WALL;

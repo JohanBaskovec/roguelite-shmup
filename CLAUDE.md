@@ -158,17 +158,20 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   is whole again before the reward). **Never in a boss room** (nor before the last wave, but in a COMPACTOR room), nor without `wave_time` (bestiary, scripted fights).
   The bot keeps off the closing walls (`crush_hazards`). `--wave-time S` forces every timer (tests:
   `sim_rooms_closing_walls*`); headless checks all of it (inside the box, last wave only, no boss room).
-- **Room modifiers** (`src/mods.c`, `RoomMod`, `Door.mod` -> `G.entry_mod` -> `Room.mod`): a combat room with one more
-  rule, rolled with its door (`mod_roll`, `MOD_CHANCE`, a first depth each) and written under the door's reward; the
-  only exception to "what makes a room special comes after the fight". Combat rooms only, never two wager doors in a
-  room (a ship on its last heart must always have a way out). COMPACTOR: `crush_start(true)` at the first wave
+- **Room modifiers** (`src/mods.c`, `RoomMod`; a room holds a set, `MOD_BIT` mask: `Door.mods` -> `G.entry_mods` ->
+  `Room.mods`, read with `room_has_mod()`): a room with one more rule, rolled with its door (`mod_roll`, `MOD_CHANCE`, a
+  first depth each, one at most per rolled door) and written under the door's reward; the only exception to "what makes
+  a room special comes after the fight". Any room with a fight but a boss room (`mod_allowed` / `mods_allowed`: combat,
+  stats, shop, workshop), WAGER on combat rooms only; never two wager doors in a room (a ship on its last heart must
+  always have a way out). Any mix must work together (the F4 menu and `--mod`, repeatable, stack them). COMPACTOR: `crush_start(true)` at the first wave
   (`crush_slow`, towards the centre), full speed when the last wave's timer runs out. BLACKOUT: drawing only
   (`mods_draw_over`). POWDER: `theme_kind` / the block budget. HORDE: one wave (`HORDE_BUDGET`), its timer is the
   last wave's. ELITE: `Room.elite` filters `spawn_wave`. STORM: strikes (`Room.strike_*`, `mods_update`, hazards for
   the bot, hold under TIME STOP). WAGER: `mod_door_pay` takes `WAGER_COST` hp (refused on the last heart), the reward
   drops twice (`room_reveal`; one-of-N offers have a group, `Pickup.choice` 1 / 2, one taken from each). A new one:
   enum + `MODS` entry, its effect, bot support if needed, invariants, a line in the scripted check and
-  `sim_rooms_mod_<name>` CTests (`--mod NAME` forces it on every combat room).
+  `sim_rooms_mod_<name>` CTests (`--mod NAME` forces it on every room that can have it; `sim_rooms_mod_combo*` mix them),
+  a check box on the F4 page comes with the enum.
 - After a room is cleared the player chooses between 3 doors; each door previews what the next
   room gives. One door may be locked (costs a key). The 3 doors are always different (no reward or
   special room behind two doors, locked or not).
@@ -223,9 +226,9 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   attack must respect TIME STOP (it does as long as it lives in `boss_update`).
 
 These rules are enforced by invariants in `src/headless.c`; keep them there when adding rooms.
-Besides the two peaceful room types, the only exception is the F3 debug menu (`src/debug_menu.c`), a dev tool that can teleport into a
-room "without enemies" (already cleared). When adding a room type, add it to the debug menu and to
-the `--debug-rooms` test too.
+Besides the two peaceful room types, the only exception is the debug menu (`src/debug_menu.c`: F3 cheats, F4 teleport), a dev tool that can teleport into a
+room "without enemies" (already cleared). When adding a room type or a room modifier, add it to the F4 teleport page (modifiers: a check box each) and
+to the `--debug-rooms` test too.
 
 ## Build & test
 

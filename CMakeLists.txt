@@ -217,6 +217,13 @@ if(SHMUP_BUILD_TESTS)
                  COMMAND neon_breach --headless --mod ${_m} --seed 44 --runs 4
                          --fail-shot ${_out}/fail_sim_rooms_mod_${_m}_mortal.bmp)
     endforeach()
+    # Several at once (the F4 menu can tick any mix; --mod is repeatable).
+    add_test(NAME sim_rooms_mod_combo
+             COMMAND neon_breach --headless --god --mod compactor --mod horde --mod storm --mod blackout --hp 20 --seed 48 --runs 2
+                     --ticks 36000 --expect-rooms 4 --fail-shot ${_out}/fail_sim_rooms_mod_combo.bmp)
+    add_test(NAME sim_rooms_mod_combo_mortal
+             COMMAND neon_breach --headless --mod elite --mod powder-keg --mod wager --seed 52 --runs 4
+                     --fail-shot ${_out}/fail_sim_rooms_mod_combo_mortal.bmp)
     add_test(NAME render_rooms_mod_blackout
              COMMAND neon_breach --shot ${_out}/rooms_mod_blackout.bmp --frames 600 --depth 6 --seed 3 --god --mod blackout)
     add_test(NAME render_rooms_mod_storm
@@ -431,6 +438,8 @@ if(SHMUP_BUILD_TESTS)
                      --fail-shot ${_out}/fail_debug_teleports.bmp)
     add_test(NAME render_debug_menu
              COMMAND neon_breach --shot ${_out}/render_debug_menu.bmp --debug-menu --depth 4 --seed 4 --frames 3)
+    add_test(NAME render_debug_menu_teleport
+             COMMAND neon_breach --shot ${_out}/render_debug_menu_teleport.bmp --teleport-menu --depth 4 --seed 4 --frames 3)
     add_test(NAME render_stats_room
              COMMAND neon_breach --shot ${_out}/render_stats.bmp --stats --seed 4 --frames 20)
     add_test(NAME render_stats_overlay
@@ -487,7 +496,7 @@ if(SHMUP_BUILD_TESTS)
                          sim_active_blink sim_active_nova sim_active_timestop sim_active_blades render_rockets
                          render_chakram sim_weapon_scatter sim_weapon_needler sim_weapon_seeker sim_weapon_bouncer
                          sim_toggle_upgrades sim_toggle_all_upgrades render_upgrades_menu
-                         sim_debug_teleports render_debug_menu render_stats_room render_stats_overlay render_offscreen sfx_synthesis PROPERTIES TIMEOUT 600)
+                         sim_debug_teleports render_debug_menu render_debug_menu_teleport render_stats_room render_stats_overlay render_offscreen sfx_synthesis PROPERTIES TIMEOUT 600)
     # Labels by area, from the test names (`ctest --preset release -L enemies`): a new test gets its
     # labels by itself. Anything touching the bot, the rooms' flow or shared code: the whole suite.
     get_property(_all_tests DIRECTORY PROPERTY TESTS)

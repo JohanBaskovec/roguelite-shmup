@@ -350,7 +350,8 @@ typedef enum { ROOM_START, ROOM_COMBAT, ROOM_STATS, ROOM_TREASURE, ROOM_SHOP, RO
 /* RW_UPGRADE: a choice of UPGRADE_CHOICES (2) upgrades not owned (any of them, those reshaping the shots included). */
 typedef enum { RW_NONE, RW_COINS, RW_KEY, RW_BOMBS, RW_HEART, RW_UPGRADE, RW_ACTIVE, RW_COUNT } RewardType;
 typedef enum { SIDE_LEFT, SIDE_TOP, SIDE_RIGHT, SIDE_BOTTOM } Side;
-/* Room modifiers (mods.c): a combat room with one more rule, shown on its door. */
+/* Room modifiers (mods.c): one more rule for a room (any but a boss room; WAGER: combat rooms only), shown on its
+ * door. A room holds a set of them (a bit mask, MOD_BIT): rolled doors carry one at most, the F4 menu any mix. */
 typedef enum {
     MOD_NONE,
     MOD_COMPACTOR, /* the walls close in slowly from the first wave on (fast once the last wave's timer runs out) */
@@ -362,12 +363,13 @@ typedef enum {
     MOD_WAGER,     /* the door costs a whole heart to go through; the room gives its reward twice */
     MOD_COUNT
 } RoomMod;
+#define MOD_BIT(m) (1u << (m))
 
 typedef struct {
     Side side;
     RoomType type;       /* room behind the door */
     RewardType reward;   /* reward granted when that room is cleared */
-    uint8_t mod;         /* RoomMod of the room behind it (combat rooms only) */
+    uint8_t mods;        /* MOD_BIT set of RoomMods of the room behind it (none behind the boss door) */
     bool locked;
     V2 pos;
     float anim;
@@ -475,7 +477,7 @@ typedef struct {
     V2 graves[8];           /* NECRO: where the last enemies died (and what they were), to raise them */
     uint8_t grave_type[8];
     int ngraves;
-    uint8_t mod;            /* RoomMod (mods.c) */
+    uint8_t mods;           /* MOD_BIT set of RoomMods (mods.c) */
     int elite;              /* MOD_ELITE: the only enemy type of the waves + 1 (0 = none) */
     bool crush_slow;        /* MOD_COMPACTOR: the walls crawl until the last wave's timer runs out */
     /* MOD_STORM: strikes shown at `pos` STORM_WARN before they land (t counts down to 0, live down to -STORM_LIVE). */
@@ -666,6 +668,7 @@ typedef enum { GS_TITLE, GS_CHAR_SELECT, GS_PLAYING, GS_PAUSED, GS_GAMEOVER, GS_
 typedef struct {
     bool up, down, left, right, fire;
     bool restart_held; /* R kept down: held RESTART_HOLD_T in a run, a new run with the same ship */
+    bool teleport_pressed; /* F4: the teleport page of the debug menu */
     bool skip_pressed; /* test key (A on AZERTY, Q on QWERTY: the same key): the room is finished at once */
     /* edge-triggered, cleared after each simulation tick */
     bool active_pressed, bomb_pressed, interact_pressed /* E: take / buy / use */, pause_pressed, restart_pressed, confirm_pressed, debug_pressed;
@@ -683,7 +686,7 @@ typedef struct {
     Rng rng;
     Input in;
     Side entry_side; /* entry door of the next room_enter (opposite the door taken) */
-    uint8_t entry_mod; /* RoomMod of the next room_enter (the door taken), used up by it */
+    uint8_t entry_mods; /* MOD_BIT set of the next room_enter (the door taken), used up by it */
     /* Main menu (title.c): a demo run played by the bot behind it, on its own generator. */
     bool demo;
     Rng demo_rng;
@@ -718,7 +721,7 @@ typedef struct {
     bool transitioning;
     float trans_t;
     int trans_door;
-    char banner[64], banner_sub[200];
+    char banner[96], banner_sub[200];
     float banner_t, banner_max;
     SDL_FColor banner_col;
     int rooms_cleared, kills;
@@ -749,6 +752,7 @@ typedef struct {
 } Game;
 
 extern Game G;
+static inline bool room_has_mod(int m) { return G.room.mods & MOD_BIT(m); }
 
 /* The room's live bounds: the arena, or less while its walls close in (crush.c). */
 static inline float room_x0(void) { return ARENA_X0 + G.room.crush_in[0]; }
@@ -998,12 +1002,14 @@ void draw_wave_bar(void); /* hud: the wave timer at the bottom */
 #define STORM_LIVE 0.12f  /* hurts that long */
 #define STORM_ENEMY_DMG 40.0f
 #define POWDER_BLOCKS_MIN 26 /* MOD_POWDER: at least that many blocks (barrels, oil drums, a few crates) */
-extern int g_mod_override; /* tests (--mod NAME): every combat room has that modifier, -1 = random */
+extern int g_mod_override; /* tests (--mod NAME, repeatable): MOD_BIT set every room gets (where allowed), -1 = random */
 const char *mod_name(int mod);
 const char *mod_desc(int mod);
 uint32_t mod_color(int mod);
 int mod_by_name(const char *name);
-RoomMod mod_roll(int depth);   /* a door's modifier: usually none */
+bool mod_allowed(RoomType type, int mod); /* any room with a fight but a boss room; WAGER: combat rooms only */
+unsigned mods_allowed(RoomType type, unsigned mods); /* the part of a MOD_BIT set that type can have */
+unsigned mod_roll(int depth, RoomType type); /* a door's MOD_BIT set: usually none, one at most */
 void mods_on_room_enter(void); /* after the room is set up (banner, elite type, horde) */
 void mods_update(void);        /* the storm (room_update, while fighting) */
 int mods_hazards(BossHazard *out, int max); /* the strikes, for the bot */
@@ -1250,7 +1256,10 @@ void fx_draw_popups(void);
 void fx_clear(void);
 
 /* debug_menu.c - F3 dev menu (teleport to any room type, cheats) */
-void debug_menu_open(void);
+void debug_menu_open(int page); /* 0 = cheats (F3), 1 = teleport (F4) */
+int debug_menu_page(void);
+unsigned debug_menu_mods(void); /* the modifiers ticked on the F4 page */
+void debug_menu_set_page(int page);
 void debug_menu_close(void);
 void debug_menu_update(void);
 void debug_menu_draw(void);
@@ -1258,6 +1267,7 @@ void debug_menu_draw(void);
  * Without enemies the room starts cleared with its reward already out - the one sanctioned
  * exception to the "every room starts full of enemies" rule, never reachable in normal play. */
 void debug_teleport(RoomType type, RewardType reward, int depth, bool with_enemies);
+void debug_teleport_mod(RoomType type, RewardType reward, int depth, bool with_enemies, unsigned mods); /* with a MOD_BIT set */
 
 /* workshop.c - machines that appear once a workshop is cleared */
 #define WORKSHOP_MACHINE_X 470.0f

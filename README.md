@@ -31,7 +31,7 @@ Preset `debug` disponible aussi (`build/debug`).
 
 Pendant une partie, le curseur est capturé dans la fenêtre (relâché en pause, au menu principal et à l'écran de game over).
 | Afficher / cacher les stats | F2 |
-| Menu de debug | F3 |
+| Menu de debug | F3 (triches), F4 (téléportation) |
 
 ## Personnages
 
@@ -65,7 +65,7 @@ New Run (menu d'une sauvegarde) mène au choix du vaisseau (A / D, 1-3 ou souris
   **Tout est aligné sur la grille du sol** (cases de 60 px, arène de 30 x 15 cases, 1800 x 900) : chaque mur et chaque bloc remplit des cases entières ; un bloc fait une case, un mur une ou deux cases d'épaisseur. Les murs se touchent (ils fusionnent en une seule forme) ou laissent au moins deux cases (120 px) entre eux : jamais un passage d'une seule case, jamais deux murs qui ne se touchent que par un coin, jamais de gros pavé de mur plein. Le Crawler s'arrête contre un mur qui part du bord.
   Pendant le combat, tout reste accessible : seuls les murs comptent pour la connexité (chaque porte et chaque recoin est relié à l'entrée, `room_walls_connected`), les blocs peuvent fermer un passage mais se cassent. Seule la zone devant la porte d'entrée reste dégagée.
 - **Chaque vague a un timer**, affiché en barre en bas de l'écran (« NEXT WAVE », secondes restantes ; plus long pour une grosse vague : 9 s + 0,45 s par ennemi, 22 s max). **À 0, la vague suivante arrive**, quoi qu'il reste de la précédente (nettoyer les trois quarts d'une vague la fait toujours venir plus tôt). **Sur la dernière vague** (barre rouge, +5 s), à 0 **les murs se referment sur le vaisseau de tous les côtés** (`src/crush.c`) : une case toutes les 0,9 s, jusqu'à une boîte de 10 x 8 cases autour de l'endroit où il se trouvait. Les obstacles qu'ils atteignent volent en éclats, vaisseau, ennemis (les crawlers longent le mur qui avance) et balles restent à l'intérieur, **toucher un mur qui avance blesse**, Time Stop les fige (et le timer avec). La salle nettoyée, ils éclatent et la salle retrouve sa taille. Jamais dans une salle de boss.
-- **Modificateurs de salle** (`src/mods.c`) : environ 30 % des portes vers une salle de combat annoncent une règle en plus, écrite sous la récompense (« + HORDE »), avec une bannière à l'entrée :
+- **Modificateurs de salle** (`src/mods.c`) : environ 30 % des portes (vers une salle de combat, de stats, un shop ou un workshop ; jamais la porte du boss) annoncent une règle en plus, écrite sous la récompense (« + HORDE »), avec une bannière à l'entrée :
   - **Compactor** (dès la salle 3) : les murs se referment lentement dès la première vague (une case toutes les 3,2 s, vers le centre), puis à pleine vitesse quand le timer de la dernière vague est écoulé.
   - **Blackout** (salle 2) : noir complet sauf un cercle de lumière autour du vaisseau ; les tirs, la lueur des ennemis et les murs qui se referment restent visibles.
   - **Powder Keg** (salle 2) : la salle est bourrée de barils et de bidons d'huile (26 blocs ou plus, quelques caisses).
@@ -73,7 +73,7 @@ New Run (menu d'une sauvegarde) mène au choix du vaisseau (A / D, 1-3 ou souris
   - **Elite** (salle 3) : toutes les vagues sont d'un seul type d'ennemi, nommé par la bannière.
   - **Storm** (salle 4) : la foudre frappe le sol, sur des zones montrées 1,1 s avant (souvent autour du vaisseau) ; elle blesse le vaisseau et les ennemis et enflamme les blocs. Time Stop la fige.
   - **Wager** (salle 2) : passer la porte coûte **un cœur entier** (refusé s'il n'en reste qu'un ; jamais plus d'une porte Wager par salle) ; la salle donne sa récompense **deux fois** (deux rangées de choix pour une salle d'amélioration ou d'objet activable, une dans chaque rangée ; le double de ressources sinon).
-  Jamais dans une salle de boss, de stats, un shop, un workshop ou une salle secrète.
+  Wager seulement sur les salles de combat (sa double récompense est celle d'une salle de combat). Jamais dans une salle de boss, la Launch Bay ou une salle secrète. Une salle porte un **ensemble** de modificateurs : une porte tirée au hasard en a au plus un, mais le menu F4 et `--mod` peuvent en cumuler autant qu'on veut (la bannière les nomme tous, « HORDE + STORM »).
 - **La salle se brise comme du verre** : dès que le dernier ennemi meurt, tous les obstacles (murs compris) se fissurent puis volent en éclats, en une vague qui part de l'endroit du dernier kill, et les flaques de feu s'éteignent (aucun dégât, aucune explosion). Après 1,2 s (`ROOM_REVEAL_T`) la salle est vide : c'est seulement alors qu'apparaissent la récompense, le shop, les machines du workshop ou le butin, et que les portes s'ouvrent. Une salle nettoyée est donc toujours entièrement dégagée.
 - **Salles d'amélioration : toujours 2 améliorations au choix** (avec leur description), on en prend une et l'autre disparaît. Il n'y a plus de salles d'arme : les améliorations qui transforment le tir sont proposées comme toutes les autres.
 - **Menu des améliorations (Tab)**, en jeu ou depuis la pause : la liste des objets activables possédés (en premier) et de toutes les améliorations trouvées, chacun(e) **activable / désactivable une par une** (clic, Entrée ou Espace ; flèches / molette pour naviguer ; Tab ou Échap pour revenir). Le jeu est figé pendant ce temps. Une amélioration désactivée n'a plus aucun effet (stats comprises) jusqu'à ce qu'on la réactive ; réactiver un cœur ne soigne pas ; les échanges de stats restent acquis. Seule Skeleton Key (+3 clefs, effet déjà dépensé) n'est pas désactivable. Le HUD (en haut à droite) affiche une icône par amélioration active et le nombre d'améliorations désactivées.
@@ -228,7 +228,7 @@ New Run (menu d'une sauvegarde) mène au choix du vaisseau (A / D, 1-3 ou souris
 | `save.c` | Sauvegardes : déblocages, partie sauvegardée à l'entrée de chaque salle, chargement, suppression |
 | `unlocks.c` | Déblocages par sauvegarde : améliorations et vaisseaux de départ, 6 améliorations par boss battu |
 | `characters.c` | Personnages (stats et amélioration de départ) et écran de sélection |
-| `debug_menu.c` | Menu de debug F3 : téléportation dans chaque type de salle (avec / sans ennemis), cheats |
+| `debug_menu.c` | Menu de debug : F3 triches, F4 téléportation dans chaque type de salle (avec / sans ennemis), avec les modificateurs cochés |
 
 Le type de salle `ROOM_TREASURE` est déjà prévu (sur le modèle de `ROOM_STATS` / `ROOM_SHOP`) dans `RoomType` (`game.h`) : il suffit de le générer dans `gen_doors()` (`room.c`) et de lui donner un comportement dans `room_enter()`.
 
@@ -250,9 +250,9 @@ Aucun test n'ouvre de fenêtre :
 
 Les sorties des tests sont dans `build/<preset>/test-output/`.
 
-## Menu de debug (F3)
+## Menu de debug (F3 / F4)
 
-Fige le jeu et permet de se téléporter dans chaque type de salle (Launch Bay, combat, Stats, Shop, Workshop, boss — à la prochaine profondeur multiple de 10 —, salle secrète), **avec ses ennemis** ou **sans ennemis** (salle déjà nettoyée, récompense déjà sortie) ; la Launch Bay et la salle secrète n'ont que « sans ennemis ». On choisit aussi la profondeur de la salle et la récompense des salles de combat (aléatoire ou imposée). Pour la salle secrète, on arrive depuis une salle de combat nettoyée, où l'on revient en sortant. Bonus : god mode, overlay FPS, « secret dans chaque salle », « afficher les secrets » (carré, libellé et rayon de la bombe à côté de la porte d'entrée ; le secret est aussi indiqué en bas du menu), +50 pièces, +3 bombes, « give upgrade » (choisir n'importe quelle amélioration), « give active » (n'importe quel objet activable), et le boss de la salle de boss (selon la profondeur, ou l'un des sept). La récompense « ACTIVE » est dans la liste des récompenses de combat. Pour la salle secrète, on choisit aussi son contenu (aléatoire / objet / shop) ; « avec ennemis » donne l'embuscade. Navigation flèches / WASD + Entrée, ou à la souris ; F3 ou Échap pour fermer.
+Deux pages du même menu, qui figent le jeu. **F3 (triches)** : god mode, overlay FPS, « secret dans chaque salle », « afficher les secrets » (carré, libellé et rayon de la bombe à côté de la porte d'entrée ; le secret est aussi indiqué en bas du menu), +50 pièces, +3 bombes, +3 clefs, « give upgrade » (choisir n'importe quelle amélioration), « give active » (n'importe quel objet activable). **F4 (téléportation)** : chaque type de salle (Launch Bay, combat, Stats, Shop, Workshop, boss — à la prochaine profondeur multiple de 10 —, salle secrète) **avec ses ennemis** ou **sans ennemis** (salle déjà nettoyée, récompense déjà sortie) ; la Launch Bay n'a que « sans ennemis ». Au-dessus, une **case à cocher par modificateur** (Compactor, Blackout, Powder Keg, Horde, Elite, Storm, Wager), cumulables : la salle choisie reçoit ceux qu'elle peut avoir (« NO WAGER » / « NO MODIFIERS » à côté des salles qui en laissent de côté ; les cases restent cochées d'une téléportation à l'autre). On y choisit aussi la profondeur, la récompense des salles de combat (aléatoire ou imposée, « ACTIVE » comprise), le contenu de la salle secrète (aléatoire / objet / shop ; « avec ennemis » donne l'embuscade) et le boss (selon la profondeur, ou l'un des sept). Pour la salle secrète, on arrive depuis une salle de combat nettoyée, où l'on revient en sortant. F3 / F4 passent d'une page à l'autre ; la même touche ou Échap ferme. Navigation flèches / WASD + Entrée, ou à la souris.
 
 ## Options de dev
 
@@ -280,7 +280,8 @@ neon_breach --weapon rockets                            # démarrer avec une am�
                                                         #   flamer / rockets / chakram / cluster / arc / vulcan / wave / laser / orbit / prism / graviton / sword), option répétable
 neon_breach --enemy rammer --enemy mortar                # vagues composées uniquement de ces ennemis (à toute profondeur), répétable
 neon_breach --headless --god --wave-time 3              # timers de vague à 3 s : vagues empilées, murs qui se referment presque partout
-neon_breach --headless --god --mod storm                 # chaque salle de combat avec ce modificateur (compactor, blackout, powder-keg, horde, elite, storm, wager)
+neon_breach --headless --god --mod storm                 # chaque salle (sauf boss) avec ce modificateur (compactor, blackout, powder-keg, horde, elite, storm, wager)
+neon_breach --headless --god --mod horde --mod storm     # --mod se répète : plusieurs modificateurs à la fois
 neon_breach --upgrade aegis --upgrade deflector-shells    # démarrer avec des améliorations précises (nom du jeu, « - » pour les espaces), répétable
 neon_breach --shot u.bmp --all-upgrades --upgrades-menu # capture du menu Tab
 neon_breach --shot p.bmp --depth 4 --pause            # capture de la pause (menu de la sauvegarde)
@@ -288,6 +289,7 @@ neon_breach --headless --toggle-upgrades --runs 10      # le bot désactive / r�
 neon_breach --active-room --cleared --no-bot            # salle Active nettoyée (3 objets au choix)
 neon_breach --secret                                    # chaque salle cache une salle secrète
 neon_breach --show-secret                               # signale les secrets (comme dans le menu F3)
+neon_breach --shot menu.bmp --teleport-menu --frames 3     # rendu de la page de téléportation (F4)
 neon_breach --show-stats                                # démarre avec l'overlay des stats (F2) visible
 neon_breach --char knight --depth 3                     # joue un personnage (normal / shotgunner / knight)
 neon_breach --headless --char knight --runs 20          # simulations avec un personnage
