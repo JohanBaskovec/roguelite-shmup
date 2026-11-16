@@ -104,6 +104,8 @@ static void grid_reset(void) {
     /* The ship arrives (and comes back after the fight) by the entry door: room to fly in. */
     V2 e = room_entry_spot();
     ban_rect(e.x - 200.0f, e.y - 200.0f, e.x + 200.0f, e.y + 200.0f);
+    /* The vault's safe stands in the middle of the floor, nothing around it. */
+    if (G.room.type == ROOM_VAULT) ban_rect(ARENA_CX - 240.0f, ARENA_CY - 210.0f, ARENA_CX + 240.0f, ARENA_CY + 210.0f);
     /* Nothing jutting out of the edge next to a door. */
     float hx = DOOR_HALF + DOOR_CLEAR, d = 2.0f * GRID;
     ban_rect(ARENA_CX - hx, ARENA_Y0, ARENA_CX + hx, ARENA_Y0 + d);
@@ -921,11 +923,9 @@ void room_obstacles_vanish(void) {
 }
 
 /* Bursts into shards of glass that spin away and fade (no blast, no oil, no balls). */
-static void shatter(const Obstacle *o) {
-    SDL_FRect r = o->r;
-    V2 c = rect_center(r), push = v2_sub(c, shatter_origin);
+static void shatter_rect(SDL_FRect r, SDL_FColor col, V2 origin) {
+    V2 c = rect_center(r), push = v2_sub(c, origin);
     push = v2_len2(push) > 1.0f ? v2_norm(push) : v2(0, -1);
-    SDL_FColor col = o->kind == OB_WALL ? col_hsv(G.room.hue, 0.6f, 1.0f, 0.95f) : block_color(o->kind);
     int n = (int)clampf(r.w * r.h / (15.0f * 15.0f), 10.0f, 44.0f);
     for (int k = 0; k < n; k++) {
         V2 p = v2(frand(r.x, r.x + r.w), frand(r.y, r.y + r.h));
@@ -939,6 +939,13 @@ static void shatter(const Obstacle *o) {
     fx_particle(c, v2(0, 0), 0.32f, fmaxf(r.w, r.h) * 1.6f + 40.0f, col_a(col, 0.45f), 0.0f, PT_GLOW);
     sfx_play_at(SFX_SHATTER, c);
 }
+
+static void shatter(const Obstacle *o) {
+    shatter_rect(o->r, o->kind == OB_WALL ? col_hsv(G.room.hue, 0.6f, 1.0f, 0.95f) : block_color(o->kind), shatter_origin);
+}
+
+/* The same glass burst for something that is not an obstacle (the vault's safe), flying out from `origin`. */
+void room_shatter_rect(SDL_FRect r, SDL_FColor col, V2 origin) { shatter_rect(r, col, origin); }
 
 /* The closing walls (crush.c) reached them: every obstacle not strictly inside box (a free cell all
  * round, so what is left never cuts the room in two) bursts into glass, whole - all of them when
@@ -1111,10 +1118,7 @@ static void draw_block(const Obstacle *o, int idx) {
 }
 
 /* Cracking before it bursts: white cracks running across it, a growing glare. */
-static void draw_shatter_cracks(const Obstacle *o, int seed) {
-    if (o->shatter_t <= 0.0f || o->shatter_t > CRACK_TIME) return;
-    float k = 1.0f - o->shatter_t / CRACK_TIME;
-    SDL_FRect r = o->r;
+void room_draw_cracks(SDL_FRect r, float k, int seed) { /* k: 0 (none yet) .. 1 (about to burst) */
     V2 c = rect_center(r);
     float reach = 0.5f * sqrtf(r.w * r.w + r.h * r.h) * k;
     draw_blend_add();
@@ -1129,6 +1133,11 @@ static void draw_shatter_cracks(const Obstacle *o, int seed) {
         draw_line(m, e, 1.5f, col_a(COL_WHITE, 0.8f));
     }
     draw_blend_alpha();
+}
+
+static void draw_shatter_cracks(const Obstacle *o, int seed) {
+    if (o->shatter_t <= 0.0f || o->shatter_t > CRACK_TIME) return;
+    room_draw_cracks(o->r, 1.0f - o->shatter_t / CRACK_TIME, seed);
 }
 
 /* A wall rect on whole grid cells (every generated wall): its cells, false otherwise. */

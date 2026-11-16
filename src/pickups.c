@@ -53,6 +53,7 @@ const char *door_label(const Door *d) {
     if (d->type == ROOM_CASINO) return "CASINO";
     if (d->type == ROOM_BAPHOMET) return "BAPHOMET";
     if (d->type == ROOM_BOSS) return "BOSS";
+    if (room_type_name(d->type)[0]) return room_type_name(d->type);
     return d->type == ROOM_SHOP ? "SHOP" : reward_name(d->reward);
 }
 
@@ -97,7 +98,9 @@ static bool item_present(PickupType type, int sub) {
 static bool on_offer(int u) {
     if (item_present(PK_UPGRADE, u)) return true;
     for (int i = 0; i < G.nmc; i++) /* the slot machine's prize */
-        if (G.mc[i].type == MC_GAMBLE && !G.mc[i].broken && G.mc[i].prize == PK_UPGRADE && G.mc[i].prize_sub == u) return true;
+        if ((G.mc[i].type == MC_GAMBLE || G.mc[i].type == MC_TRADE || G.mc[i].type == MC_GATE) && !G.mc[i].broken && G.mc[i].prize == PK_UPGRADE &&
+            G.mc[i].prize_sub == u)
+            return true;
     return false;
 }
 
@@ -316,6 +319,7 @@ void interact_target(int *pk, int *mc) {
         }
     }
     for (int i = 0; i < G.nmc; i++) {
+        if (G.mc[i].type == MC_SAFE) continue; /* shot open, never used with E (and no coin opens it) */
         float d2 = v2_dist2(G.pl.pos, G.mc[i].pos);
         if (d2 < INTERACT_R_MACHINE * INTERACT_R_MACHINE && d2 < best) {
             best = d2;

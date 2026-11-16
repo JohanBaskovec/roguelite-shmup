@@ -394,6 +394,13 @@ static void sword_sweep(V2 center, float lo, float hi, float dmg_k, bool clone) 
         for (int s = 0; s < 3; s++)
             fx_particle(c, v2_scale(v2_angle(frand(0, TAU_F)), frand(150, 350)), 0.18f, 2.5f, col, 4.0f, PT_SPARK);
     }
+    /* The vault's safe: the blade breaks it open like shots do (once per swing). */
+    for (int i = 0; i < G.nmc && !clone; i++) {
+        Machine *m = &G.mc[i];
+        if (m->type != MC_SAFE || m->broken || m->swing_id == p->swing_id || !in_sweep(center, m->pos, 90.0f, lo, hi)) continue;
+        m->swing_id = p->swing_id;
+        machine_damage(i, p->swing_dmg * dmg_k);
+    }
     bool parry = syn(SYN_PARRY); /* with DEFLECTOR SHELLS the blade sends the bullets back */
     int cut = 0;
     for (int i = 0; i < G.neb; i++) {

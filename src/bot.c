@@ -251,6 +251,15 @@ void bot_input(void) {
     in->fire = !(G.room.cleared && G.nen == 0) &&
                (t || over || (hidden && room_line_clear_walls(pl->pos, hidden->pos, 4.0f)) || (melee && nearest));
 
+    /* The vault's safe: it must be broken while the enemies attack (it vanishes with the last one): shots at it first. */
+    const Machine *safe = NULL;
+    for (int i = 0; i < G.nmc && !G.room.cleared; i++)
+        if (G.mc[i].type == MC_SAFE && !G.mc[i].broken) safe = &G.mc[i];
+    if (safe && (melee || room_line_clear_walls(pl->pos, safe->pos, 4.0f))) {
+        in->mouse = safe->pos;
+        in->fire = true;
+    }
+
     V2 goal;
     /* One-of-N choice (stat trades, weapon / upgrade rooms): take one (varies with depth), then leave. */
     /* Augments cost heart containers: only those that leave at least 2. */
@@ -295,8 +304,14 @@ void bot_input(void) {
     const Machine *machine = NULL;
     for (int i = 0; i < G.nmc && G.room.cleared && !offer; i++) {
         const Machine *m = &G.mc[i];
-        bool want = !m->broken && (m->type == MC_SUPPLY ? pl->hp + pl->shield >= 5
-                                                         : pl->coins >= GAMBLE_COST && m->plays < 3);
+        bool want = !m->broken;
+        if (m->type == MC_SUPPLY) want = want && pl->hp + pl->shield >= 5;
+        else if (m->type == MC_GAMBLE) want = want && pl->coins >= GAMBLE_COST && m->plays < 3;
+        else if (m->type == MC_PURIFY || m->type == MC_FORGE) want = want && pl->coins >= m->price;
+        else if (m->type == MC_GATE) want = want && pl->keys >= 1;
+        else if (m->type == MC_HEAL) want = want && pl->hp < pl->max_hp;
+        else if (m->type == MC_CONTAINER) want = want && pl->coins >= m->price && stat_can_change(ST_MAX_HP, true) && pl->hp >= pl->max_hp - 1;
+        /* (the trader and the forge: the first offer; the safe: shoot it) */
         if (want) {
             machine = m;
             break;
@@ -311,7 +326,11 @@ void bot_input(void) {
         in->interact_pressed = reach_pk >= 0 && &G.pk[reach_pk] == offer;
     } else if (machine) {
         goal = machine->pos;
-        in->interact_pressed = reach_mc >= 0 && &G.mc[reach_mc] == machine && machine->spin <= 0.0f &&
+        if (machine->type == MC_SAFE) { /* break it open: close in and shoot it */
+            in->mouse = machine->pos;
+            in->fire = true;
+        }
+        in->interact_pressed = machine->type != MC_SAFE && reach_mc >= 0 && &G.mc[reach_mc] == machine && machine->spin <= 0.0f &&
                                machine->anim <= 0.0f && G.ticks % 30 == 0;
     } else if (G.room.cleared && secret_known && !r->secret_open && pl->bombs > 0) {
         goal = room_secret_spot();
@@ -345,6 +364,12 @@ void bot_input(void) {
                       : d->type == ROOM_WORKSHOP ? 4
                       : d->type == ROOM_CASINO ? (pl->coins >= 3 * GAMBLE_COST ? 5 : pl->hp + pl->shield >= 5 ? 2 : 0)
                       : d->type == ROOM_BAPHOMET ? (pl->max_hp >= 8 ? 5 : 1)
+                      : d->type == ROOM_TRADER ? 3
+                      : d->type == ROOM_PURIFIER ? (pl->coins >= 25 ? 4 : 1)
+                      : d->type == ROOM_VAULT ? 5
+                      : d->type == ROOM_FORGE ? (pl->coins >= 20 ? 3 : 1)
+                      : d->type == ROOM_KEYS ? (pl->keys >= 2 ? 6 : 1) /* a key for the door, one for the gate */
+                      : d->type == ROOM_INFIRMARY ? (pl->hp <= pl->max_hp / 2 ? 7 : 1)
                       : d->reward == RW_ACTIVE ? (G.active_uses == 0 && !pl->act[ACT_DASH].level ? 7 : 4)
                       : d->reward == RW_UPGRADE ? 5
                       : d->reward == RW_HEART && pl->hp <= pl->max_hp / 2 ? 6
@@ -365,6 +390,11 @@ void bot_input(void) {
             pick = best;
         }
         goal = G.room.clear_t < DOORS_AT ? v2(ARENA_CX, ARENA_CY) : door_position(G.room.doors[pick].side);
+    } else if (safe && (melee || short_range || v2_dist(pl->pos, safe->pos) > gun_reach() * 0.85f)) {
+        /* close in on the safe (the blade, the flames), or into the gun's reach */
+        V2 to = v2_sub(safe->pos, pl->pos);
+        float d = v2_len(to), stand = melee ? 120.0f : short_range ? 200.0f : gun_reach() * 0.6f;
+        goal = d > stand ? v2_sub(safe->pos, v2_scale(to, stand / d)) : pl->pos;
     } else if (short_range && nearest) {
         V2 to = v2_sub(nearest->pos, pl->pos);
         float d = v2_len(to);

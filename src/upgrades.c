@@ -510,6 +510,8 @@ bool upgrade_toggleable(int u) { return u >= 0 && u < UPG_COUNT && G.pl.upg_coun
 bool upgrade_toggle(int u) {
     if (!upgrade_toggleable(u)) return false;
     G.pl.upg_off[u] = !G.pl.upg_off[u];
+    for (int v = 0; v < UPG_COUNT; v++) /* a fusion goes on and off as one */
+        if (G.pl.fused_into[v] == u + 1) G.pl.upg_off[v] = G.pl.upg_off[u];
     player_recompute();
     G.toggles++;
     return true;

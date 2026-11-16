@@ -220,6 +220,12 @@ static void update_player_bullets(void) {
             }
         }
 
+        /* The vault's safe takes the ship's shots (a piercing one goes on through it). */
+        if (!dead && !(b->flags & PB_VORTEX) && G.nmc > 0 && machine_shot_hit(b)) {
+            if (b->pierce > 0) b->pierce--;
+            else dead = true;
+        }
+
         /* Walls are resolved after enemy hits, so point-blank shots at an enemy
          * pressed against a wall still connect. */
         if (!dead && wall) {

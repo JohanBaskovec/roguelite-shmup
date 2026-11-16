@@ -29,7 +29,7 @@ static V2 centre(void) { return v2(ARENA_CX, ARENA_CY - 60.0f); }
 
 /* The slot machine's prize: an upgrade not owned, a stat trade once every upgrade is owned,
  * 10 coins if even that is impossible. */
-static void roll_prize(Machine *g) {
+void machine_roll_prize(Machine *g) {
     int offer;
     g->prize_sub = upgrade_fresh();
     g->prize = PK_UPGRADE;
@@ -42,8 +42,9 @@ void workshop_refresh_prize(void) {
     for (int i = 0; i < G.nmc; i++) {
         Machine *m = &G.mc[i];
         if (m->type == MC_GAMBLE && !m->broken && m->prize == PK_UPGRADE && G.pl.upg_count[m->prize_sub] > 0)
-            roll_prize(m);
+            machine_roll_prize(m);
     }
+    special_refresh_prize();
 }
 
 static Machine *machine_add(MachineType type, V2 pos) {
@@ -78,7 +79,7 @@ void casino_spawn(void) {
             machine_add(MC_SUPPLY, p)->uses = irand(SUPPLY_USES_MIN, SUPPLY_USES_MAX);
         } else {
             Machine *g = machine_add(MC_GAMBLE, p);
-            roll_prize(g);
+            machine_roll_prize(g);
         }
     }
 }
@@ -187,6 +188,7 @@ void workshop_update(void) {
     for (int i = 0; i < G.nmc; i++) {
         Machine *m = &G.mc[i];
         m->anim -= DT;
+        if (m->type >= MC_TRADE) special_tick(i); /* the six newer rooms (special.c) */
         if (m->spin > 0.0f) {
             m->spin -= DT;
             if (m->spin <= 0.0f) resolve_gamble(m);
@@ -197,11 +199,12 @@ void workshop_update(void) {
         if (!m->inside || !G.in.interact_pressed || m->spin > 0.0f) continue;
         G.in.interact_pressed = false;
         if (m->broken) {
-            deny(m, m->type == MC_SUPPLY ? "BROKEN" : "PRIZE WON");
+            deny(m, machine_used_text(m));
             continue;
         }
         if (m->type == MC_SUPPLY) use_supply(m);
-        else use_gamble(m);
+        else if (m->type == MC_GAMBLE) use_gamble(m);
+        else special_use(m);
     }
 }
 
@@ -220,6 +223,10 @@ static void draw_reel(V2 p, float s, int symbol, SDL_FColor c) {
 void workshop_draw(void) {
     for (int i = 0; i < G.nmc; i++) {
         const Machine *m = &G.mc[i];
+        if (m->type >= MC_TRADE) {
+            special_draw(m);
+            continue;
+        }
         bool supply = m->type == MC_SUPPLY;
         SDL_FColor c = col_hex(supply ? SUPPLY_COLOR : GAMBLE_COLOR, m->broken && supply ? 0.35f : 1.0f);
         float bump = m->anim > 0.0f ? sinf(m->anim * 40.0f) * 3.0f : 0.0f;

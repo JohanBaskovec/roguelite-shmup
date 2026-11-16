@@ -264,7 +264,37 @@ static const char *check_invariants(float room_time) {
         if (bosses > 1) return "more than one boss";
     }
     if (G.nmc < 0 || G.nmc > MAX_MACHINES) return "machine count out of range";
-    if (G.nmc > 0 && (G.room.type != ROOM_CASINO || !G.room.cleared)) return "machines outside a cleared casino";
+    if (G.nmc > 0 && (!room_type_machines(G.room.type) || (!G.room.cleared && G.room.type != ROOM_VAULT))) return "machines outside a cleared casino / machine room";
+    if (G.room.type == ROOM_VAULT && G.room.cleared && G.nmc > 0) return "the vault's safe is still there once the fight is over";
+    if (G.room.vault_coins != 0 && G.room.type != ROOM_VAULT) return "vault coins banked outside a vault";
+    if (G.room.type == ROOM_VAULT && !G.room.cleared) {
+        const Machine *m = G.nmc == 1 ? &G.mc[0] : NULL;
+        if (!m || m->type != MC_SAFE) return "a vault with enemies without its one safe";
+        if (fabsf(m->pos.x - ARENA_CX) > 1.0f || fabsf(m->pos.y - ARENA_CY) > 1.0f) return "the safe is not in the middle of the floor";
+        for (int i = 0; i < G.room.nobs; i++) { /* nothing on it, nothing hugging it */
+            const SDL_FRect *o = &G.room.obs[i].r;
+            if (m->pos.x > o->x - 150.0f && m->pos.x < o->x + o->w + 150.0f && m->pos.y > o->y - 150.0f && m->pos.y < o->y + o->h + 150.0f)
+                return "an obstacle on or right next to the vault's safe";
+        }
+    }
+    for (int i = 0; i < G.nmc; i++) {
+        const Machine *m = &G.mc[i];
+        if (m->type == MC_SAFE && (!(m->hp >= 0.0f) || m->hp > SAFE_HP || !(m->timer >= 0.0f) || m->timer > SAFE_TIME || (m->broken && m->hp > 0.0f && m->timer > 0.0f)))
+            return "the safe's hit points / countdown out of range (or locked with time left)";
+        if (m->type == MC_SAFE && G.room.type != ROOM_VAULT) return "a safe outside the vault";
+    }
+    for (int u = 0; u < UPG_COUNT; u++) { /* purified / fused upgrades */
+        if (p->malus_off[u] && (p->upg_count[u] == 0 || !malus_removable(u))) return "a malus removed from an upgrade not owned, or whose malus is part of its effect";
+        int a = p->fused_into[u] - 1;
+        if (a < 0) continue;
+        if (a >= UPG_COUNT || a == u || p->upg_count[u] == 0 || p->upg_count[a] == 0 || p->fused_into[a] != 0 || !p->malus_off[u] || p->upg_off[u] != p->upg_off[a])
+            return "a fused upgrade out of sync with its partner (owned, malus gone, switched together)";
+    }
+    {
+        int list[UPG_COUNT], n = upgrade_menu_list(list);
+        for (int i = 0; i < n; i++)
+            if (p->fused_into[list[i]]) return "a fused upgrade listed on its own in the upgrades menu";
+    }
     if (!(p->spread_mult >= SPREAD_MIN * 0.99f) || !(p->spread_mult <= SPREAD_MAX * 1.01f)) return "spread out of range";
     if (p->max_hp < 2 || p->max_hp > 24 || (p->max_hp & 1)) return "max hp out of range";
     if (!(p->dmg_mult >= 0.3f * 0.99f) || !(p->rate_mult >= 0.3f * 0.99f) || !(p->range_mult >= 0.35f * 0.99f) ||
@@ -391,8 +421,86 @@ static int shop_count(bool supplies) {
     return n;
 }
 
+/* The six newer rooms (special.c): exactly their own machines, valid, once cleared. */
+static const char *check_special_room(void) {
+    RoomType t = G.room.type;
+    if (t < ROOM_TRADER || t > ROOM_INFIRMARY) return NULL;
+    static const MachineType want[] = {MC_TRADE, MC_PURIFY, MC_SAFE, MC_FORGE, MC_GATE, MC_HEAL};
+    if (t == ROOM_VAULT) { /* the safe is gone; the coins it paid (if it was broken in time) lie in the middle */
+        int coins = 0;
+        for (int i = 0; i < G.npk; i++) coins += G.pk[i].type == PK_COIN;
+        if (G.nmc != 0 || coins != G.npk || coins != G.room.vault_coins) return "vault cleared with a safe still there, or the wrong coins";
+        return NULL;
+    }
+    if (G.nmc < 1) { /* nothing the ship could use: coins instead */
+        for (int i = 0; i < G.npk; i++)
+            if (G.pk[i].type != PK_COIN) return "special room without machines drops something else than coins";
+        return G.npk > 0 ? NULL : "special room cleared without a machine or coins";
+    }
+    if (G.npk > 0) return "special room has pickups next to its machines before anything is used";
+    for (int i = 0; i < G.nmc; i++) {
+        const Machine *m = &G.mc[i];
+        if (t == ROOM_INFIRMARY ? m->type != MC_HEAL && m->type != MC_CONTAINER : m->type != want[t - ROOM_TRADER])
+            return "special room with a machine of another room";
+        if (m->broken) return "special room machine already used up when it opens";
+        for (int j = i + 1; j < G.nmc; j++)
+            if (G.mc[j].prize == PK_UPGRADE && m->prize == PK_UPGRADE && G.mc[j].prize_sub == m->prize_sub && m->type != MC_SAFE)
+                return "two machines sell the same upgrade";
+    }
+    const Player *p = &G.pl;
+    switch (t) {
+    case ROOM_TRADER: {
+        if (G.nmc > TRADER_OFFERS) return "trader with too many offers";
+        int used[UPG_COUNT] = {0};
+        for (int i = 0; i < G.nmc; i++) {
+            const Machine *m = &G.mc[i];
+            if (m->prize != PK_UPGRADE || p->upg_count[m->prize_sub] > 0) return "trader sells an upgrade the ship owns (or something else)";
+            for (int k = 0; k < TRADE_COST; k++) {
+                int u = m->arg[k];
+                if (u < 0 || u >= UPG_COUNT || !upgrade_tradable(u) || used[u]++) return "trader asks for an upgrade the ship cannot pay with (or twice)";
+                if (u == m->prize_sub) return "trader asks the upgrade it sells";
+            }
+        }
+    } break;
+    case ROOM_PURIFIER: {
+        if (G.nmc > PURIFY_OFFERS) return "purifier with too many offers";
+        for (int i = 0; i < G.nmc; i++) {
+            int u = G.mc[i].arg[0];
+            if (u < 0 || u >= UPG_COUNT || p->upg_count[u] == 0 || !malus_removable(u) || p->malus_off[u] || G.mc[i].price < 1)
+                return "purifier offers an upgrade whose malus cannot be removed (or no price)";
+            for (int j = i + 1; j < G.nmc; j++)
+                if (G.mc[j].arg[0] == u) return "purifier offers the same upgrade twice";
+        }
+    } break;
+    case ROOM_VAULT: /* (handled above: no machine once the fight is over) */
+        break;
+    case ROOM_FORGE: {
+        if (G.nmc > FORGE_OFFERS) return "forge with too many offers";
+        for (int i = 0; i < G.nmc; i++) {
+            int a = G.mc[i].arg[0], b = G.mc[i].arg[1];
+            if (a < 0 || b < 0 || a >= UPG_COUNT || b >= UPG_COUNT || a == b || p->upg_count[a] == 0 || p->upg_count[b] == 0 ||
+                upgrade_in_fusion(a) || upgrade_in_fusion(b) || !malus_removable(b) || G.mc[i].group == 0 || G.mc[i].price < 1)
+                return "forge offers a pair that cannot be fused";
+        }
+    } break;
+    case ROOM_KEYS:
+        if (G.nmc != 1) return "key room without exactly one gate";
+        if (G.mc[0].prize == PK_UPGRADE && p->upg_count[G.mc[0].prize_sub] > 0) return "key room hides an upgrade the ship owns";
+        break;
+    case ROOM_INFIRMARY:
+        if (G.nmc != 2 || G.mc[0].type == G.mc[1].type || G.mc[0].group == 0 || G.mc[0].group != G.mc[1].group) return "infirmary without its two one-of-two machines";
+        for (int i = 0; i < 2; i++)
+            if (G.mc[i].type == MC_CONTAINER && G.mc[i].price < 1) return "infirmary heart container without a price";
+        break;
+    default: break;
+    }
+    return NULL;
+}
+
 static const char *check_room_reward(void) {
     static char buf[128];
+    const char *special = check_special_room();
+    if (special) return special;
     if ((G.room.type == ROOM_SHOP || G.room.secret_shop) && (shop_count(false) != SHOP_ITEMS || shop_count(true) != SHOP_SUPPLIES)) {
         snprintf(buf, sizeof buf, "shop opened with %d items + %d supplies for sale instead of %d + %d", shop_count(false),
                  shop_count(true), SHOP_ITEMS, SHOP_SUPPLIES);
@@ -737,10 +845,12 @@ static int count_ebullets(int kind) {
 
 static int debug_rooms_run(const HeadlessOptions *o) {
     static const RoomType types[] = {ROOM_START, ROOM_COMBAT, ROOM_COMBAT, ROOM_COMBAT, ROOM_SHOP, ROOM_WORKSHOP, ROOM_CASINO, ROOM_BAPHOMET,
-                                     ROOM_BOSS, ROOM_SECRET, ROOM_SECRET};
-    static const RewardType rewards[] = {RW_NONE, RW_NONE, RW_UPGRADE, RW_ACTIVE, RW_NONE, RW_NONE, RW_NONE, RW_NONE, RW_NONE, RW_NONE, RW_NONE};
-    static const int secret_shop[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
-    static const char *names[] = {"launch bay", "combat", "upgrade", "active", "shop", "workshop", "casino", "baphomet", "boss", "secret", "secret shop"};
+                                     ROOM_BOSS, ROOM_SECRET, ROOM_SECRET, ROOM_TRADER, ROOM_PURIFIER, ROOM_VAULT, ROOM_FORGE, ROOM_KEYS, ROOM_INFIRMARY};
+    static const RewardType rewards[] = {RW_NONE, RW_NONE, RW_UPGRADE, RW_ACTIVE, RW_NONE, RW_NONE, RW_NONE, RW_NONE, RW_NONE, RW_NONE, RW_NONE,
+                                         RW_NONE, RW_NONE, RW_NONE, RW_NONE, RW_NONE, RW_NONE};
+    static const int secret_shop[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0};
+    static const char *names[] = {"launch bay", "combat", "upgrade", "active", "shop", "workshop", "casino", "baphomet", "boss", "secret", "secret shop",
+                                  "trader", "purifier", "vault", "forge", "key room", "infirmary"};
     int failures = 0;
     for (int t = 0; t < ARRAY_LEN(types); t++) {
         for (int with = types[t] == ROOM_START ? 0 : 1; with >= 0; with--) {
@@ -748,6 +858,10 @@ static int debug_rooms_run(const HeadlessOptions *o) {
             G.god = true;
             game_new_run();
             G.pl.coins += o->coins;
+            if (types[t] >= ROOM_TRADER && types[t] <= ROOM_INFIRMARY) { /* the ship the machines are made for: upgrades to trade, fuse, purify; a key */
+                upgrade_apply(UPG_MULTI), upgrade_apply(UPG_BOUNCE), upgrade_apply(UPG_HOMING), upgrade_apply(UPG_DRONE);
+                G.pl.keys++;
+            }
             debug_menu_open(1);
             G.secret_shop_override = secret_shop[t];
             debug_teleport(types[t], rewards[t], o->depth > 0 ? o->depth : 3, with);
@@ -792,7 +906,8 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         {ROOM_COMBAT, MOD_BIT(MOD_HARD) | MOD_BIT(MOD_IMPOSSIBLE) | MOD_BIT(MOD_HORDE), RW_BOMBS}, {ROOM_SHOP, MOD_BIT(MOD_HARD)}, /* (difficulty: loot rooms only) */
         {ROOM_COMBAT, MOD_ALL, RW_COINS}, {ROOM_COMBAT, MOD_ALL}, {ROOM_WORKSHOP, MOD_ALL}, {ROOM_BOSS, MOD_ALL},
     };
-    static const char *type_names[ROOM_TYPE_COUNT] = {"launch bay", "combat", "shop", "boss", "secret", "workshop", "casino", "baphomet"};
+    static const char *type_names[ROOM_TYPE_COUNT] = {"launch bay", "combat", "shop", "boss", "secret", "workshop", "casino", "baphomet",
+                                                      "trader", "purifier", "vault", "forge", "key room", "infirmary"};
     for (int k = 0; k < (int)ARRAY_LEN(MOD_CASES); k++) {
         RoomType mtype = MOD_CASES[k].type;
         RewardType mreward = MOD_CASES[k].reward ? MOD_CASES[k].reward : RW_UPGRADE;
@@ -2928,6 +3043,50 @@ static int debug_rooms_run(const HeadlessOptions *o) {
                            mods_allowed(ROOM_COMBAT, RW_ACTIVE, levels) == 0 && mods_allowed(ROOM_CASINO, RW_NONE, levels) == 0 &&
                            mods_allowed(ROOM_BOSS, RW_COINS, levels) == 0;
 
+            /* Every kind of room and every modifier is as likely at depth 1 as at depth 33, with a full ship or one on its
+             * last half heart (the same door kinds / modifiers, counted the same way in both). */
+            static int kind_n[2][ROOM_TYPE_COUNT * RW_COUNT], mod_n[2][MOD_COUNT];
+            memset(kind_n, 0, sizeof kind_n);
+            memset(mod_n, 0, sizeof mod_n);
+            for (int cond = 0; cond < 2; cond++) {
+                game_init(o->seed + 900 + (uint64_t)cond);
+                game_new_run();
+                G.pl.hp = cond ? 1 : G.pl.max_hp;
+                for (int k = 0; k < 3000; k++) {
+                    room_enter(ROOM_COMBAT, RW_COINS, cond ? 33 : 1);
+                    for (int i = 0; i < G.room.ndoors; i++) {
+                        const Door *d = &G.room.doors[i];
+                        kind_n[cond][d->type * RW_COUNT + d->reward]++;
+                        for (int m = MOD_NONE + 1; m < MOD_COUNT; m++)
+                            if ((d->mods & MOD_BIT(m)) && d->type == ROOM_COMBAT && (d->reward == RW_COINS || d->reward == RW_KEY || d->reward == RW_BOMBS || d->reward == RW_HEART))
+                                mod_n[cond][m]++;
+                    }
+                }
+            }
+            bool uniform_ok = true;
+            int kinds_seen = 0;
+            for (int k = 0; k < ROOM_TYPE_COUNT * RW_COUNT; k++) {
+                int x = kind_n[0][k], y = kind_n[1][k];
+                if (x + y < 100) continue; /* (a kind that never exists: a boss, a launch bay...) */
+                kinds_seen++;
+                uniform_ok = uniform_ok && x * 100 >= y * 80 && y * 100 >= x * 80;
+            }
+            uniform_ok = uniform_ok && kinds_seen == 16;
+            for (int cls = 0; cls < 2; cls++) { /* kinds that cost a key / that do not: as likely as each other (the free door rule only lifts the second class) */
+                int lo = 1 << 30, hi = 0;
+                for (int k = 0; k < ROOM_TYPE_COUNT * RW_COUNT; k++) {
+                    int n = kind_n[0][k] + kind_n[1][k];
+                    if (n < 100 || door_needs_key((RoomType)(k / RW_COUNT), (RewardType)(k % RW_COUNT)) != (cls == 1)) continue;
+                    lo = n < lo ? n : lo;
+                    hi = n > hi ? n : hi;
+                }
+                uniform_ok = uniform_ok && hi * 100 <= lo * 135;
+            }
+            for (int m = MOD_NONE + 1; m < MOD_COUNT; m++) {
+                int x = mod_n[0][m], y = mod_n[1][m];
+                uniform_ok = uniform_ok && x > 0 && y > 0 && x * 100 >= y * 50 && y * 100 >= x * 50; /* (every one met at depth 1, none rarer deeper) */
+            }
+
             /* Wager: a whole heart through the door, refused on the last one; two rows of offers. */
             game_init(o->seed);
             game_new_run();
@@ -3085,10 +3244,176 @@ static int debug_rooms_run(const HeadlessOptions *o) {
 #undef FIRST_WAVE
             G.god = false;
             printf("scripted room modifiers: on doors (all met, wager on combat rooms only, one at most, none on the boss's; mixes kept where allowed) -> %s, wager: a heart in, refused on the last one, "
-                   "two rows -> %s, horde -> %s, elite -> %s, powder keg -> %s, storm -> %s, compactor -> %s, difficulty levels: waves, size, loot -> %s\n",
+                   "two rows -> %s, horde -> %s, elite -> %s, powder keg -> %s, storm -> %s, compactor -> %s, difficulty levels: waves, size, loot -> %s, every room and modifier as likely at any depth / health -> %s\n",
                    doors_mod_ok ? "OK" : "FAILED", wager_ok ? "OK" : "FAILED", horde_ok ? "OK" : "FAILED", elite_ok ? "OK" : "FAILED",
-                   powder_ok ? "OK" : "FAILED", storm_ok ? "OK" : "FAILED", comp_ok ? "OK" : "FAILED", diff_ok ? "OK" : "FAILED");
-            failures += !doors_mod_ok + !wager_ok + !horde_ok + !elite_ok + !powder_ok + !storm_ok + !comp_ok + !diff_ok;
+                   powder_ok ? "OK" : "FAILED", storm_ok ? "OK" : "FAILED", comp_ok ? "OK" : "FAILED", diff_ok ? "OK" : "FAILED", uniform_ok ? "OK" : "FAILED");
+            failures += !doors_mod_ok + !wager_ok + !horde_ok + !elite_ok + !powder_ok + !storm_ok + !comp_ok + !diff_ok + !uniform_ok;
+        }
+
+        /* The six newer rooms (special.c), used the way a player does it (standing on a machine, E). TRADER: two of the
+         * ship's upgrades paid, the one bought taken, offers never share an upgrade. PURIFIER: coins buy a malus off for
+         * good (the stat comes back). VAULT: the sooner the safe breaks the more it pays, nothing once time is up; shots
+         * and the blade break it. FORGE: B fused into A (both bonuses, A's malus, one entry, switched as one, one fusion
+         * only). KEY ROOM: no key, no upgrade; a key opens the gate onto a free pedestal. INFIRMARY: the heal or the
+         * container, one of the two. */
+        {
+#define SPECIAL(type, depth) do { game_init(o->seed); game_new_run(); G.god = true; pl->coins = 100; pl->keys = 1; \
+                                  upgrade_apply(UPG_MULTI); upgrade_apply(UPG_BOUNCE); upgrade_apply(UPG_HOMING); upgrade_apply(UPG_DRONE); \
+                                  upgrade_apply(UPG_FROST); upgrade_apply(UPG_COUPON); \
+                                  debug_teleport(type, RW_NONE, depth, false); G.state = GS_PLAYING; G.god = true; } while (0)
+#define USE(m) do { pl->pos = (m)->pos; pl->vel = v2(0, 0); in->interact_pressed = true; BTICK(); in->interact_pressed = false; BTICK(); } while (0)
+            Player *pl = &G.pl;
+            Input *in = &G.in;
+            bool trader_ok, purify_ok, vault_ok, forge_ok, keys_ok, infirm_ok;
+
+            SPECIAL(ROOM_TRADER, 6);
+            trader_ok = G.room.cleared && G.nmc == 3 && G.npk == 0;
+            int owned0 = 0;
+            for (int u = 0; u < UPG_COUNT; u++) owned0 += pl->upg_count[u] > 0;
+            Machine m0 = G.mc[0];
+            USE(&G.mc[0]);
+            int owned1 = 0;
+            for (int u = 0; u < UPG_COUNT; u++) owned1 += pl->upg_count[u] > 0;
+            trader_ok = trader_ok && G.mc[0].broken && pl->upg_count[m0.arg[0]] == 0 && pl->upg_count[m0.arg[1]] == 0 && pl->upg_count[m0.prize_sub] == 1 &&
+                        owned1 == owned0 - 1 && stats_in_sync() && !G.mc[1].broken;
+            USE(&G.mc[0]); /* nothing more to buy there */
+            trader_ok = trader_ok && owned1 == owned0 - 1;
+            pl->upg_count[UPG_MULTI] = pl->upg_count[UPG_BOUNCE] = pl->upg_count[UPG_HOMING] = pl->upg_count[UPG_DRONE] = 0; /* too few left to pay with */
+            pl->upg_count[UPG_FROST] = pl->upg_count[UPG_COUPON] = 0;
+            for (int u = 0; u < UPG_COUNT; u++) pl->upg_count[u] = pl->upg_count[u] && u == m0.prize_sub ? 1 : 0;
+            G.nmc = 0;
+            trader_spawn(); /* one upgrade left: nothing to pay with, nothing to sell */
+            trader_ok = trader_ok && G.nmc == 0;
+
+            SPECIAL(ROOM_PURIFIER, 6);
+            purify_ok = G.nmc == 3 && G.mc[0].price > 0;
+            G.mc[0].arg[0] = UPG_MULTI; /* -15% damage */
+            float dmg0 = pl->dmg_mult;
+            int coins0 = pl->coins, price = G.mc[0].price;
+            USE(&G.mc[0]);
+            purify_ok = purify_ok && G.mc[0].broken && pl->malus_off[UPG_MULTI] && pl->coins == coins0 - price && pl->dmg_mult > dmg0 * 1.1f && stats_in_sync();
+            pl->coins = 0;
+            USE(&G.mc[1]); /* no coins: refused */
+            purify_ok = purify_ok && !G.mc[1].broken && !pl->malus_off[G.mc[1].arg[0]];
+            pl->malus_off[UPG_MULTI] = false; /* a malus built into an upgrade's effect cannot be bought off */
+            purify_ok = purify_ok && !malus_removable(UPG_W_SCATTER) && malus_removable(UPG_MULTI);
+
+#define VAULT_FIGHT() do { game_init(o->seed); game_new_run(); G.god = true; debug_teleport(ROOM_VAULT, RW_NONE, 6, true); G.state = GS_PLAYING; G.god = true; } while (0)
+#define FINISH_FIGHT() do { room_skip(); for (int t = 0; t < (int)((ROOM_REVEAL_T + 0.5f) * TICK_RATE); t++) BTICK(); } while (0)
+            /* VAULT: the safe is there with the enemies, in the middle, nothing round it, nothing pays before the fight is over. */
+            VAULT_FIGHT();
+            vault_ok = !G.room.cleared && G.nmc == 1 && G.mc[0].type == MC_SAFE && G.mc[0].hp == SAFE_HP && G.mc[0].pos.x == ARENA_CX && G.mc[0].pos.y == ARENA_CY &&
+                       G.room.wave == 0 && check_invariants(0.0f) == NULL;
+            int target_mc = -2, target_pk = -2;
+            pl->pos = v2(G.mc[0].pos.x, G.mc[0].pos.y + 30.0f);
+            interact_target(&target_pk, &target_mc);
+            vault_ok = vault_ok && target_mc == -1; /* E has nothing to do with it */
+            in->interact_pressed = true;
+            BTICK();
+            in->interact_pressed = false;
+            vault_ok = vault_ok && !G.mc[0].broken && pl->coins == 0; /* no coin opens it either */
+            PBullet shot = {.pos = G.mc[0].pos, .radius = 5.0f, .damage = SAFE_HP * 0.4f, .last_hit = -1};
+            vault_ok = vault_ok && machine_shot_hit(&shot) && G.mc[0].hp < SAFE_HP && !machine_shot_hit(&shot); /* once per shot */
+            for (int t = 0; t < 30; t++) BTICK(); /* a quarter of a second */
+            G.npk = 0;
+            machine_damage(0, SAFE_HP);
+            int fast = G.room.vault_coins;
+            vault_ok = vault_ok && G.mc[0].broken && fast >= SAFE_MAX_COINS - 3 && fast <= SAFE_MAX_COINS && G.npk == 0; /* banked, nothing on the floor */
+            FINISH_FIGHT();
+            int out = 0;
+            for (int i = 0; i < G.npk; i++) out += G.pk[i].type == PK_COIN;
+            vault_ok = vault_ok && G.room.cleared && G.nmc == 0 && out + pl->coins == fast; /* the coins come once it is over (the ship may have picked some up) */
+            VAULT_FIGHT();
+            for (int t = 0; t < (int)((SAFE_TIME * 0.9f) * TICK_RATE); t++) BTICK(); /* nearly out of time */
+            machine_damage(0, SAFE_HP);
+            int slow = G.room.vault_coins;
+            vault_ok = vault_ok && slow >= SAFE_MIN_COINS - 1 && slow <= SAFE_MIN_COINS + 8 && slow < fast;
+            VAULT_FIGHT();
+            for (int t = 0; t < (int)((SAFE_TIME + 5.0f) * TICK_RATE); t++) BTICK(); /* the bonus is gone, the safe is not */
+            vault_ok = vault_ok && !G.mc[0].broken && G.nmc == 1;
+            FINISH_FIGHT(); /* the last enemy falls with the safe shut: it vanishes, nothing paid */
+            int none = 0;
+            for (int i = 0; i < G.npk; i++) none += G.pk[i].type == PK_COIN;
+            vault_ok = vault_ok && G.room.cleared && G.nmc == 0 && G.room.vault_coins == 0 && none == 0 && pl->coins == 0;
+            VAULT_FIGHT(); /* the ship's own shots, fired at it (the first wave held back: nothing in the line of fire) */
+            G.room.wave_t = 1e9f;
+            pl->pos = v2(G.mc[0].pos.x, G.mc[0].pos.y + 400.0f);
+            in->mouse = G.mc[0].pos;
+            in->fire = true;
+            for (int t = 0; t < 120 * 40 && !G.mc[0].broken; t++) {
+                pl->pos = v2(G.mc[0].pos.x, G.mc[0].pos.y + 400.0f);
+                BTICK();
+            }
+            in->fire = false;
+            vault_ok = vault_ok && G.mc[0].broken && G.mc[0].hp <= 0.0f && G.room.vault_coins > 0;
+            VAULT_FIGHT(); /* the layout leaves the middle free, whatever the seed */
+            for (int k = 0; k < 60 && vault_ok; k++) {
+                game_init(o->seed + 70 + (uint64_t)k);
+                game_new_run();
+                debug_teleport(ROOM_VAULT, RW_NONE, 1 + k % 9, true);
+                vault_ok = check_invariants(0.0f) == NULL;
+            }
+#undef VAULT_FIGHT
+#undef FINISH_FIGHT
+
+            SPECIAL(ROOM_FORGE, 6);
+            forge_ok = G.nmc >= 1;
+            int a = G.mc[0].arg[0], b = G.mc[0].arg[1];
+            forge_ok = forge_ok && G.mc[0].price > 0;
+            pl->coins = 0;
+            USE(&G.mc[0]); /* no coins: refused */
+            forge_ok = forge_ok && !G.mc[0].broken && pl->fused_into[b] == 0;
+            pl->coins = 100;
+            int fcoins = pl->coins, fprice = G.mc[0].price;
+            pl->upg_off[a] = false;
+            USE(&G.mc[0]);
+            forge_ok = forge_ok && pl->coins == fcoins - fprice;
+            forge_ok = forge_ok && pl->fused_into[b] == a + 1 && pl->malus_off[b] && !pl->malus_off[a] && pl->upg_count[a] && pl->upg_count[b] &&
+                       upgrade_in_fusion(a) && upgrade_in_fusion(b) && stats_in_sync();
+            for (int i = 1; i < G.nmc; i++) forge_ok = forge_ok && G.mc[i].broken; /* one fusion only */
+            forge_ok = forge_ok && upgrade_toggle(a) && pl->upg_off[a] && pl->upg_off[b]; /* off together */
+            forge_ok = forge_ok && upgrade_toggle(a) && !pl->upg_off[a] && !pl->upg_off[b];
+            int listed = 0, in_list[UPG_COUNT], nl = upgrade_menu_list(in_list);
+            for (int i = 0; i < nl; i++) listed += in_list[i] == a || in_list[i] == b;
+            forge_ok = forge_ok && listed == 1 && nl == 5; /* six upgrades owned, one entry for the pair */
+
+            SPECIAL(ROOM_KEYS, 6);
+            keys_ok = G.nmc == 1 && G.mc[0].type == MC_GATE && G.npk == 0;
+            pl->keys = 0;
+            USE(&G.mc[0]);
+            keys_ok = keys_ok && !G.mc[0].broken && G.npk == 0 && pl->keys == 0; /* no key, no upgrade */
+            pl->keys = 1;
+            int prize = G.mc[0].prize_sub;
+            USE(&G.mc[0]);
+            keys_ok = keys_ok && G.mc[0].broken && pl->keys == 0 && G.npk == 1 && G.pk[0].type == PK_UPGRADE && G.pk[0].sub == prize && G.pk[0].price == 0 &&
+                      G.pk[0].choice == 0 && pl->upg_count[prize] == 0;
+            pl->pos = G.pk[0].pos;
+            for (int t = 0; t < 60; t++) BTICK();
+            in->interact_pressed = true;
+            BTICK();
+            in->interact_pressed = false;
+            keys_ok = keys_ok && pl->upg_count[prize] == 1;
+
+            SPECIAL(ROOM_INFIRMARY, 6);
+            infirm_ok = G.nmc == 2 && G.npk == 0;
+            pl->hp = 1;
+            USE(&G.mc[0]); /* the heal */
+            infirm_ok = infirm_ok && pl->hp == pl->max_hp && G.mc[0].broken && G.mc[1].broken;
+            USE(&G.mc[1]); /* the other one is out of use */
+            infirm_ok = infirm_ok && pl->max_hp == 6;
+            SPECIAL(ROOM_INFIRMARY, 6);
+            int max0 = pl->max_hp;
+            coins0 = pl->coins;
+            USE(&G.mc[1]); /* the container */
+            infirm_ok = infirm_ok && pl->max_hp == max0 + 2 && pl->coins == coins0 - G.mc[1].price && G.mc[1].broken && G.mc[0].broken && stats_in_sync();
+            G.god = false;
+#undef SPECIAL
+#undef USE
+            printf("scripted special rooms: trader (2 upgrades for 1) -> %s, purifier (malus bought off) -> %s, vault (the faster the more) -> %s, "
+                   "fusion forge -> %s, key room -> %s, infirmary -> %s\n",
+                   trader_ok ? "OK" : "FAILED", purify_ok ? "OK" : "FAILED", vault_ok ? "OK" : "FAILED", forge_ok ? "OK" : "FAILED",
+                   keys_ok ? "OK" : "FAILED", infirm_ok ? "OK" : "FAILED");
+            failures += !trader_ok + !purify_ok + !vault_ok + !forge_ok + !keys_ok + !infirm_ok;
         }
 
         /* R held RESTART_HOLD_T in a run: a new run with the same ship; a short press does nothing; holding on
@@ -3813,6 +4138,7 @@ int headless_run(const HeadlessOptions *o) {
         G.bot_toggles = o->toggle_upgrades;
         G.pl.coins += o->coins;
         G.pl.bombs += o->bombs;
+        G.pl.keys += o->keys;
         if (o->all_upgrades)
             for (int u = 0; u < UPG_COUNT; u++)
                 if (!upgrade_capped(u)) upgrade_apply(u);
@@ -3822,7 +4148,8 @@ int headless_run(const HeadlessOptions *o) {
             G.pl.hp = o->hp < G.pl.max_hp ? o->hp : G.pl.max_hp;
         }
         int start_revives = G.pl.revives;
-        if (o->casino_room) room_enter(ROOM_CASINO, RW_NONE, o->depth > 0 ? o->depth : 3);
+        if (o->start_room) room_enter((RoomType)(o->start_room - 1), RW_NONE, o->depth > 0 ? o->depth : 3);
+        else if (o->casino_room) room_enter(ROOM_CASINO, RW_NONE, o->depth > 0 ? o->depth : 3);
         else if (o->baphomet_room) room_enter(ROOM_BAPHOMET, RW_NONE, o->depth > 0 ? o->depth : 3);
         else if (o->shop_room) room_enter(ROOM_SHOP, RW_NONE, o->depth > 0 ? o->depth : 1);
         else if (o->workshop_room) room_enter(ROOM_WORKSHOP, RW_NONE, o->depth > 0 ? o->depth : 3);
@@ -3835,6 +4162,7 @@ int headless_run(const HeadlessOptions *o) {
         const char *save_err = save_enabled() && run_slot <= 0 ? "saving on but the run got no save file" : NULL;
         int shops = G.room.type == ROOM_SHOP, secrets = 0;
         int workshops = G.room.type == ROOM_WORKSHOP, casinos = G.room.type == ROOM_CASINO, baphomets = G.room.type == ROOM_BAPHOMET;
+        int specials = G.room.type >= ROOM_TRADER && G.room.type <= ROOM_INFIRMARY; /* the six newer machine rooms */
         int locked_in = 0; /* doors opened with a key */
         int bosses = G.room.type == ROOM_BOSS, bosses_beaten = 0, boss_hits = 0, hits_at_entry = 0;
         float boss_time = 0.0f;
@@ -3910,6 +4238,7 @@ int headless_run(const HeadlessOptions *o) {
                         }
                     }
                     casinos += G.room.type == ROOM_CASINO;
+                    specials += G.room.type >= ROOM_TRADER && G.room.type <= ROOM_INFIRMARY;
                     baphomets += G.room.type == ROOM_BAPHOMET;
                     locked_in += door_needs_key(G.room.type, G.room.reward);
                     shops += G.room.type == ROOM_SHOP;
@@ -4007,8 +4336,8 @@ int headless_run(const HeadlessOptions *o) {
         for (int i = 0; i < na; i++) printf("%s%d%s", active_option_name(acts[i]), p->act[acts[i]].level, i + 1 < na ? "+" : "");
         printf("%s uses=%d", na ? "" : "none", G.active_uses);
         if (bosses) printf(" bosses=%d/%d (%.0fs, %d hits)", bosses_beaten, bosses, (double)boss_time, boss_hits);
-        if (workshops + casinos + baphomets)
-            printf(" workshops=%d casinos=%d baphomets=%d trades=%d machine_uses=%d pacts=%d", workshops, casinos, baphomets, G.trades,
+        if (workshops + casinos + baphomets + specials)
+            printf(" workshops=%d casinos=%d baphomets=%d specials=%d trades=%d machine_uses=%d pacts=%d", workshops, casinos, baphomets, specials, G.trades,
                    G.machine_uses, G.augments);
         if (start_revives > p->revives) printf(" second_winds=%d", start_revives - p->revives);
         if (o->fresh_profile)
@@ -4031,6 +4360,9 @@ int headless_run(const HeadlessOptions *o) {
             failures++;
         } else if (o->workshop_room && G.trades == 0) {
             printf("  started in a workshop but never took a stat trade\n");
+            failures++;
+        } else if (o->start_room && G.machine_uses == 0) {
+            printf("  started in the %s but never used a machine\n", room_type_name((RoomType)(o->start_room - 1)));
             failures++;
         } else if (o->casino_room && G.machine_uses == 0) {
             printf("  started in a casino but never used a machine\n");

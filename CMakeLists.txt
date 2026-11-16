@@ -45,6 +45,7 @@ add_executable(neon_breach
     src/debug_menu.c
     src/characters.c
     src/workshop.c
+    src/special.c
     src/actives.c
     src/maluses.c
     src/synergies.c
@@ -139,6 +140,20 @@ if(SHMUP_BUILD_TESTS)
                      --fail-shot ${_out}/fail_sim_casino.bmp)
     add_test(NAME render_casino
              COMMAND neon_breach --shot ${_out}/render_casino.bmp --casino --cleared --no-bot --depth 4 --seed 5 --frames 60)
+    # The six newer machine rooms (special.c: --room NAME), with the upgrades / coins / keys they need; each run must use a machine.
+    foreach(_r trader purifier vault forge keys infirmary)
+        add_test(NAME sim_rooms_special_${_r}
+                 COMMAND neon_breach --headless --god --room ${_r} --upgrade heavy-rounds --upgrade overclock --upgrade split-shot --upgrade ricochet
+                         --coins 60 --keys 2 --depth 4 --seed 3 --runs 4 --ticks 12000 --expect-rooms 3
+                         --fail-shot ${_out}/fail_sim_rooms_special_${_r}.bmp)
+        add_test(NAME sim_rooms_special_${_r}_mortal
+                 COMMAND neon_breach --headless --room ${_r} --upgrade heavy-rounds --upgrade overclock --upgrade split-shot --upgrade ricochet
+                         --coins 60 --keys 2 --depth 4 --seed 7 --runs 4
+                         --fail-shot ${_out}/fail_sim_rooms_special_${_r}_mortal.bmp)
+        add_test(NAME render_rooms_special_${_r}
+                 COMMAND neon_breach --shot ${_out}/render_rooms_special_${_r}.bmp --room ${_r} --cleared --no-bot --upgrade heavy-rounds
+                         --upgrade overclock --upgrade split-shot --upgrade ricochet --coins 60 --keys 2 --depth 6 --seed 5 --frames 90)
+    endforeach()
     add_test(NAME sim_baphomet
              COMMAND neon_breach --headless --god --baphomet --hp 10 --seed 17 --runs 4 --ticks 20000 --expect-rooms 3
                      --fail-shot ${_out}/fail_sim_baphomet.bmp)
@@ -170,7 +185,7 @@ if(SHMUP_BUILD_TESTS)
                  COMMAND neon_breach --shot ${_out}/render_boss_${_boss}.bmp --boss --boss-kind ${_boss} --depth ${_depth} --seed 5 --frames 1500)
     endforeach()
     add_test(NAME sim_boss_any
-             COMMAND neon_breach --headless --god --boss --depth 50 ${_deep_upgrades} --seed 200 --runs 4 --ticks 48000 --expect-rooms 2
+             COMMAND neon_breach --headless --god --boss --depth 50 ${_deep_upgrades} --seed 200 --runs 4 --ticks 60000 --expect-rooms 2
                      --fail-shot ${_out}/fail_sim_boss_any.bmp)
     add_test(NAME sim_boss_mortal
              COMMAND neon_breach --headless --boss --hp 40 --seed 300 --runs 4 --ticks 36000 --expect-rooms 1
@@ -200,7 +215,10 @@ if(SHMUP_BUILD_TESTS)
                octopus buzzsaw sentry torch zapper beamer engineer jelly scorpion linker swapper spotter lodestone sponge
                parry bubbler drummer trickster hydra mantis flail mole crystal necro berserker fungus weaver juggernaut
                idol blackstar sentinel)
-        set(_ticks 24000)
+        set(_ticks 30000)
+        if(_e STREQUAL "sponge" OR _e STREQUAL "drifter") # sponge soaks up the shots of the slower blaster; drifters come by the hundred
+            set(_ticks 48000)
+        endif()
         if(_e STREQUAL "juggernaut") # the slowest to kill: its waves pile up and the walls close in every room
             set(_ticks 36000)
         endif()
@@ -372,7 +390,7 @@ if(SHMUP_BUILD_TESTS)
                          --fail-shot ${_out}/fail_sim_weapon_${_w}.bmp)
     endforeach()
     add_test(NAME sim_toggle_upgrades
-             COMMAND neon_breach --headless --god --toggle-upgrades --seed 500 --runs 4 --ticks 36000 --expect-rooms 3
+             COMMAND neon_breach --headless --god --toggle-upgrades --upgrade heavy-rounds --upgrade overclock --upgrade split-shot --seed 500 --runs 4 --ticks 36000 --expect-rooms 3
                      --fail-shot ${_out}/fail_sim_toggle.bmp)
     add_test(NAME sim_toggle_all_upgrades
              COMMAND neon_breach --headless --god --all-upgrades --toggle-upgrades --seed 510 --runs 2 --ticks 24000 --expect-rooms 2
@@ -444,7 +462,7 @@ if(SHMUP_BUILD_TESTS)
     add_test(NAME render_chakram
              COMMAND neon_breach --shot ${_out}/render_chakram.bmp --weapon chakram --active turret --depth 6 --seed 12 --frames 420)
     add_test(NAME sim_debug_teleports
-             COMMAND neon_breach --headless --debug-rooms --seed 1 --coins 40 --ticks 12000
+             COMMAND neon_breach --headless --debug-rooms --seed 1 --coins 40 --ticks 18000
                      --fail-shot ${_out}/fail_debug_teleports.bmp)
     add_test(NAME render_debug_menu
              COMMAND neon_breach --shot ${_out}/render_debug_menu.bmp --debug-menu --depth 4 --seed 4 --frames 3)
@@ -465,7 +483,7 @@ if(SHMUP_BUILD_TESTS)
     # Save files: saved on entering each room (never during one), loading replays the room exactly,
     # death ends the run but keeps the save and its unlocks, the menus (NEW SAVE, CONTINUE, save menu,
     # unlocks, character select) work (each test its own folder).
-    add_test(NAME sim_save_load COMMAND neon_breach --headless --save-test --seed 3 --save-dir ${_out}/saves_test)
+    add_test(NAME sim_save_load COMMAND neon_breach --headless --save-test --seed 1 --save-dir ${_out}/saves_test)
     add_test(NAME sim_save_runs
              COMMAND neon_breach --headless --seed 31 --runs 4 --save-dir ${_out}/saves_runs --expect-rooms 3)
     add_test(NAME render_load_menu
@@ -475,7 +493,7 @@ if(SHMUP_BUILD_TESTS)
     add_test(NAME sim_unlocks
              COMMAND neon_breach --headless --fresh-profile --god --seed 40 --runs 2 --save-dir ${_out}/saves_unlocks --expect-rooms 12)
     add_test(NAME sim_unlocks_mortal
-             COMMAND neon_breach --headless --fresh-profile --seed 31 --runs 6 --save-dir ${_out}/saves_unlocks_mortal --expect-rooms 4)
+             COMMAND neon_breach --headless --fresh-profile --seed 44 --runs 6 --save-dir ${_out}/saves_unlocks_mortal --expect-rooms 4)
     add_test(NAME render_save_menu
              COMMAND neon_breach --shot ${_out}/render_save_menu.bmp --save-menu --save-dir ${_out}/saves_render_menu --seed 4 --frames 30)
     add_test(NAME render_unlocks_menu

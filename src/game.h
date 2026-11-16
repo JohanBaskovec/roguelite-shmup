@@ -325,7 +325,15 @@ typedef struct {
 
 /* ---- Machines (workshop, casino) ---------------------------------------------------- */
 
-typedef enum { MC_SUPPLY, MC_GAMBLE } MachineType;
+typedef enum {
+    MC_SUPPLY, MC_GAMBLE,       /* casino */
+    MC_TRADE,                   /* trader: an upgrade for sale, paid with two of the ship's own */
+    MC_PURIFY,                  /* purifier: an owned upgrade loses its malus, for coins */
+    MC_SAFE,                    /* vault: a safe to break open before the countdown ends */
+    MC_GATE,                    /* key room: a locked gate in front of an upgrade */
+    MC_HEAL, MC_CONTAINER,      /* infirmary: a full heal, or a heart container for coins (one of the two) */
+    MC_FORGE                    /* fusion forge: two owned upgrades become one (both bonuses, one malus) */
+} MachineType;
 
 typedef struct {
     MachineType type;
@@ -337,9 +345,16 @@ typedef struct {
     int prize_sub;
     float anim, spin;  /* feedback timers; GAMBLE: spin > 0 while the reels turn */
     int plays;
+    int arg[2];        /* TRADE: the two upgrades paid; PURIFY: arg[0] the upgrade; FORGE: arg[0] keeps its malus, arg[1] is absorbed into it */
+    int price;         /* PURIFY / CONTAINER: coins (follows COUPON / the PRICES malus) */
+    uint8_t group;     /* one-of-N (infirmary, forge): using one of the group puts the others out of use (0: none) */
+    float hp, timer;   /* SAFE: hit points left, seconds left (the faster it breaks, the more it pays) */
+    int swing_id;      /* SAFE: the blade's last swing that hit it (once per swing) */
+    float shatter_t;   /* SAFE: broken, cracking for CRACK_TIME before it bursts into glass (then `gone`) */
+    bool gone;         /* SAFE: burst, nothing left to draw or hit */
 } Machine;
 
-#define MAX_MACHINES 4 /* a casino: the supply press + CASINO_MACHINES slot machines */
+#define MAX_MACHINES 4 /* a casino: the supply press + CASINO_MACHINES slot machines; the new rooms: at most 3 */
 #define GAMBLE_COST 5
 #define SUPPLY_USES_MIN 3
 #define SUPPLY_USES_MAX 5
@@ -349,7 +364,8 @@ typedef struct {
 /* WORKSHOP: a row of stat trades; CASINO: slot machines + supply press; BAPHOMET: pacts (exclusive upgrades paid with
  * heart containers). Every one of them starts with its fight. */
 typedef enum {
-    ROOM_START, ROOM_COMBAT, ROOM_SHOP, ROOM_BOSS, ROOM_SECRET, ROOM_WORKSHOP, ROOM_CASINO, ROOM_BAPHOMET, ROOM_TYPE_COUNT
+    ROOM_START, ROOM_COMBAT, ROOM_SHOP, ROOM_BOSS, ROOM_SECRET, ROOM_WORKSHOP, ROOM_CASINO, ROOM_BAPHOMET,
+    ROOM_TRADER, ROOM_PURIFIER, ROOM_VAULT, ROOM_FORGE, ROOM_KEYS, ROOM_INFIRMARY, ROOM_TYPE_COUNT
 } RoomType;
 /* RW_UPGRADE: a choice of UPGRADE_CHOICES (2) upgrades not owned (any of them, those reshaping the shots included). */
 typedef enum { RW_NONE, RW_COINS, RW_KEY, RW_BOMBS, RW_HEART, RW_UPGRADE, RW_ACTIVE, RW_COUNT } RewardType;
@@ -489,6 +505,7 @@ typedef struct {
     int ngraves;
     uint16_t mods;          /* MOD_BIT set of RoomMods (mods.c) */
     int elite;              /* MOD_ELITE: the only enemy type of the waves + 1 (0 = none) */
+    int vault_coins;        /* VAULT: what the safe broke open pays, banked until the room is cleared */
     bool crush_slow;        /* MOD_COMPACTOR: the walls crawl until the last wave's timer runs out */
     /* MOD_STORM: strikes shown at `pos` STORM_WARN before they land (t counts down to 0, live down to -STORM_LIVE). */
     V2 strike_pos[8];
@@ -612,6 +629,8 @@ typedef struct {
     int coins, keys, bombs;
     Stats base;                 /* before upgrades (see Stats) */
     bool upg_off[UPG_COUNT];    /* turned off in the upgrades menu: no effect at all until turned back on */
+    bool malus_off[UPG_COUNT];  /* the upgrade's malus is gone for good (purifier, fusion forge) */
+    int16_t fused_into[UPG_COUNT]; /* fusion forge: B -> A + 1 when B was fused into A (B stays owned, its bonus keeps working, the menu shows one entry) */
     float dmg_mult, rate_mult, shot_speed_mult;
     int extra_proj, pierce, bounce;
     float homing;
@@ -792,6 +811,17 @@ typedef struct {
 extern const StatDef STATS[ST_COUNT];
 
 #define WORKSHOP_TRADES 4
+#define TRADER_OFFERS 3
+#define TRADE_COST 2          /* upgrades paid per upgrade bought at the trader */
+#define PURIFY_OFFERS 3
+#define PURIFY_PRICE_K 1.5f   /* a purification costs that many shop upgrades (shop_price) */
+#define FORGE_OFFERS 3
+#define FORGE_PRICE_K 1.0f    /* a fusion costs that many shop upgrades (shop_price) in coins */
+#define CONTAINER_PRICE_K 2.0f /* the infirmary's heart container: that many shop upgrades */
+#define SAFE_HP 520.0f        /* damage to break the safe (a bare ship: ~9 s) */
+#define SAFE_TIME 18.0f       /* seconds from the first enemies for the bonus to melt away */
+#define SAFE_MIN_COINS 6      /* paid at the last second... */
+#define SAFE_MAX_COINS 48     /* ...and at the first (linear in between) */
 #define SHOP_ITEMS 5 /* a shop always sells exactly this many items (upgrades, stat trades) */
 #define SHOP_SUPPLIES 3 /* ...plus a supply counter: a heart, a bomb, a key (shop_supply_spot) */
 V2 shop_supply_spot(int i);
@@ -804,6 +834,12 @@ V2 shop_supply_spot(int i);
 #define COLOR_CASINO 0xffd23f
 #define COLOR_BAPHOMET 0xff2a2a
 #define COLOR_BOSS 0xff3d5a
+#define COLOR_TRADER 0x5dc8ff
+#define COLOR_PURIFIER 0x9dffea
+#define COLOR_VAULT 0xe8d27a
+#define COLOR_FORGE 0xff7a3d
+#define COLOR_KEYS 0xc9d6e8
+#define COLOR_INFIRMARY 0xff8aa8
 static inline int stat_offer_encode(int up, int down) { return up * ST_COUNT + down; }
 static inline int stat_offer_up(int offer) { return offer / ST_COUNT; }
 static inline int stat_offer_down(int offer) { return offer % ST_COUNT; }
@@ -990,6 +1026,8 @@ void fires_draw(void);
 void room_nav_reset(void);
 /* The cell map used to skip collision tests in the open still covers every solid obstacle (headless). */
 bool room_occupancy_ok(void);
+void room_shatter_rect(SDL_FRect r, SDL_FColor col, V2 origin); /* the glass burst of a shattering obstacle, for something else */
+void room_draw_cracks(SDL_FRect r, float k, int seed);           /* its cracks before it bursts, k 0..1 */
 void room_shatter_start(V2 origin); /* the room is cleared: crack every obstacle, in a wave from origin */
 void room_obstacles_vanish(void);   /* every obstacle gone at once, no effect (debug clear) */
 void room_crush_grind(SDL_FRect box, bool all); /* the closing walls: obstacles they reach (all: every one) burst into glass */
@@ -1022,7 +1060,7 @@ int mod_by_name(const char *name);
 bool mod_allowed(RoomType type, RewardType reward, int mod); /* any room with a fight but a boss room; WAGER: combat rooms only;
                                                               * difficulty levels: combat rooms giving coins / bombs / keys / hearts */
 unsigned mods_allowed(RoomType type, RewardType reward, unsigned mods); /* the part of a MOD_BIT set that room can have */
-unsigned mod_roll(int depth, RoomType type, RewardType reward); /* a door's MOD_BIT set: usually none, one at most */
+unsigned mod_roll(RoomType type, RewardType reward); /* a door's MOD_BIT set: usually none, one at most; every modifier the room can have has the same chance */
 float room_difficulty_enemies(void);      /* the size of every wave: x1 .. x2.5 */
 int room_difficulty(void);                 /* 0 = none, 1..4 = HARD .. IMPOSSIBLE (the highest set) */
 int difficulty_reward_count(int n);        /* a drop of n coins / bombs / keys / hearts in this room: x1.5 .. x3, one more at least */
@@ -1042,9 +1080,9 @@ V2 room_entry_spot(void);       /* where the ship arrives: just inside the entry
 Side side_opposite(Side s);
 /* The launch bay and secret rooms are the exceptions to "every room starts full of enemies". */
 static inline bool room_type_peaceful(RoomType t) { return t == ROOM_START || t == ROOM_SECRET; }
-/* The doors that cost a key: shops, casinos, upgrade and active rooms - always, and no other. */
+/* The doors that cost a key: shops, casinos, the six machine rooms of special.c, upgrade and active rooms - always, and no other. */
 static inline bool door_needs_key(RoomType t, RewardType rw) {
-    return t == ROOM_SHOP || t == ROOM_CASINO || (t == ROOM_COMBAT && (rw == RW_UPGRADE || rw == RW_ACTIVE));
+    return t == ROOM_SHOP || t == ROOM_CASINO || (t >= ROOM_TRADER && t <= ROOM_INFIRMARY) || (t == ROOM_COMBAT && (rw == RW_UPGRADE || rw == RW_ACTIVE));
 }
 #define SECRET_SHOP_CHANCE 0.10f   /* a secret room holds a shop instead of its bonus item */
 #define SECRET_AMBUSH_CHANCE 0.10f /* a secret room is guarded by enemies before its loot */
@@ -1293,7 +1331,34 @@ void debug_teleport_mod(RoomType type, RewardType reward, int depth, bool with_e
  * augment pads) offer once cleared, and their machines */
 #define CASINO_MACHINES 3
 void workshop_spawn(void);
+/* The six rooms of special.c, each full of enemies first like any other; once cleared (room_reveal) they spawn their machines. */
+void trader_spawn(void);    /* up to TRADER_OFFERS upgrades for sale, each paid with TRADE_COST upgrades of the ship's (random, never twice the same) */
+void purifier_spawn(void);  /* up to PURIFY_OFFERS owned upgrades whose malus can be bought off with coins */
+void vault_spawn(void);     /* with the enemies: a safe in the middle of the floor, to break while they attack (the faster the more coins, paid after the fight) */
+void vault_on_clear(void);  /* the last enemy is dead: a safe still shut vanishes */
+void vault_reveal(void);    /* the room has shattered: the coins the safe paid come out */
+void forge_spawn(void);     /* up to FORGE_OFFERS pairs of owned upgrades to fuse (one of them) */
+void keys_room_spawn(void); /* a locked gate (a key) and an upgrade behind it */
+void infirmary_spawn(void); /* a full heal, or a heart container for coins (one of the two) */
+bool room_type_machines(RoomType t);    /* the rooms whose reward is machines (casino and the six above) */
+int room_type_by_name(const char *name); /* --room NAME: trader, purifier, vault, forge, keys, infirmary (-1: none) */
+const char *room_type_name(RoomType t); /* door label / HUD: "TRADER"... (special rooms only, "" otherwise) */
+bool upgrade_tradable(int u);           /* owned for real, not the ship's own weapon, not part of a fusion */
+bool malus_removable(int u);            /* its malus is not built into its effect (MAL_CUSTOM) */
+bool upgrade_in_fusion(int u);
+void upgrade_remove(int u);             /* the trader takes it back (never the one-time effects it already gave) */
+void machine_damage(int i, float dmg);  /* the safe takes a hit (shots, the blade) */
+bool machine_shot_hit(PBullet *b);      /* a player shot against the safe: true if it stopped there */
+bool machine_in_reach(int i, V2 p, float r); /* a point within r of the machine (the safe's body) */
+V2 machine_safe_pos(void);
+void fused_draw_texts(float cx, float y, float scale, int u); /* a fused upgrade in full: its bonus, its partners' bonuses, its malus */
 void casino_spawn(void);
+void machine_roll_prize(Machine *m);    /* an upgrade not owned, a stat trade once every upgrade is owned, coins if even that is impossible */
+void special_refresh_prize(void);       /* a prize the ship now owns is swapped for a fresh one */
+void special_tick(int i);               /* a machine of the six rooms, each tick */
+void special_use(Machine *m);           /* E on it */
+void special_draw(const Machine *m);
+const char *machine_used_text(const Machine *m); /* what it says once used up */
 void baphomet_spawn(void);
 void baphomet_draw_floor(void); /* the pentagram under the pacts */
 void workshop_refresh_prize(void); /* a prize the player now owns gets replaced */

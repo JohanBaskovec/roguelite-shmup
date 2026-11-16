@@ -216,6 +216,9 @@ void hud_draw(void) {
         draw_text_centered(SCREEN_W * 0.5f, 16.0f, 3.0f, col_hex(COLOR_CASINO, 1), "ROOM %d - CASINO", r->depth);
     } else if (r->type == ROOM_BAPHOMET) {
         draw_text_centered(SCREEN_W * 0.5f, 16.0f, 3.0f, col_hex(COLOR_BAPHOMET, 1), "ROOM %d - BAPHOMET", r->depth);
+    } else if (r->type >= ROOM_TRADER && r->type <= ROOM_INFIRMARY) {
+        static const uint32_t colors[] = {COLOR_TRADER, COLOR_PURIFIER, COLOR_VAULT, COLOR_FORGE, COLOR_KEYS, COLOR_INFIRMARY};
+        draw_text_centered(SCREEN_W * 0.5f, 16.0f, 3.0f, col_hex(colors[r->type - ROOM_TRADER], 1), "ROOM %d - %s", r->depth, room_type_name(r->type));
     } else if (r->type == ROOM_SHOP) {
         draw_text_centered(SCREEN_W * 0.5f, 16.0f, 3.0f, col_hex(COLOR_SHOP, 1), "ROOM %d - SHOP", r->depth);
     } else if (r->type == ROOM_BOSS) {
@@ -243,7 +246,12 @@ void hud_draw(void) {
             draw_text_centered(SCREEN_W * 0.5f, 52.0f, 2.0f, col_hex(COLOR_WORKSHOP, a), "TAKE ONE TRADE - OR SKIP IT");
         else if (r->type == ROOM_CASINO && G.nmc > 0)
             draw_text_centered(SCREEN_W * 0.5f, 52.0f, 2.0f, col_hex(COLOR_CASINO, a), "E ON A MACHINE - SLOTS: %d COINS A SPIN", GAMBLE_COST);
-        else if (offers && r->type == ROOM_BAPHOMET)
+        else if (r->type >= ROOM_TRADER && r->type <= ROOM_INFIRMARY && G.nmc > 0) {
+            static const char *const hints[] = {"E: 2 OF YOUR UPGRADES BUY 1", "E: COINS BUY A MALUS OFF", "SHOOT THE SAFE OPEN IN TIME",
+                                                "E: FUSE - BOTH BONUSES, ONE MALUS", "E ON THE GATE: A KEY OPENS IT", "FULL HEAL, OR A HEART FOR COINS"};
+            static const uint32_t colors[] = {COLOR_TRADER, COLOR_PURIFIER, COLOR_VAULT, COLOR_FORGE, COLOR_KEYS, COLOR_INFIRMARY};
+            draw_text_centered(SCREEN_W * 0.5f, 52.0f, 2.0f, col_hex(colors[r->type - ROOM_TRADER], a), "%s", hints[r->type - ROOM_TRADER]);
+        } else if (offers && r->type == ROOM_BAPHOMET)
             draw_text_centered(SCREEN_W * 0.5f, 52.0f, 2.0f, col_hex(COLOR_BAPHOMET, a), "ONE PACT - PAID IN HEART CONTAINERS");
         else if (offers) draw_text_centered(SCREEN_W * 0.5f, 52.0f, 2.0f, col_hex(0xb57cff, a), 
                                          two_rows ? "PICK ONE PER ROW" : noffers == 2 ? "PICK ONE - THE OTHER VANISHES" : "PICK ONE - THE OTHERS VANISH");

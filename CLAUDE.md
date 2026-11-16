@@ -66,6 +66,22 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   BAPHOMET room its pacts (augment pads, `PK_AUGMENT`) on a pentagram. Exclusive upgrades (`UpgradeDef.tier > 0`)
   are only ever obtained there, through pacts paid with max HP (tier N costs N hearts); `upgrade_roll` never
   offers them. Headless checks each one has exactly its own machines / offers.
+- **Six more machine rooms** (`ROOM_TRADER`, `ROOM_PURIFIER`, `ROOM_VAULT`, `ROOM_FORGE`, `ROOM_KEYS`, `ROOM_INFIRMARY`, `src/special.c`): like
+  every room they start full of enemies; `room_reveal` then spawns their machines (`Machine`, `MC_TRADE .. MC_FORGE`, `G.mc`, used with E through
+  `special_use`, ticked by `special_tick`, drawn by `special_draw`, all called from `workshop_update` / `workshop_draw`). Their doors are
+  always locked and as likely as any other room's (below), whatever the ship has: a room whose machines come out empty (a trader for a ship with
+  nothing to pay with) drops coins. TRADER: up to `TRADER_OFFERS` upgrades for sale, each paid with `TRADE_COST` of the ship's own
+  (`upgrade_tradable`: owned for real, not the starting weapon, not in a fusion; `upgrade_remove`). PURIFIER: `Player.malus_off[u]` (read by
+  `malus()`, `malus_stat_effect()` and the descriptions; never a `MAL_CUSTOM` malus: `malus_removable`). VAULT: a safe (`MC_SAFE`, `SAFE_HP`,
+  `SAFE_TIME`) that stands dead centre from the moment the enemies come (`vault_spawn` in `room_enter`, `blocks.c` bans the middle of the floor for
+  `ROOM_VAULT`) and must be broken, while they attack, by the ship's shots (`machine_shot_hit`, from `update_player_bullets`) and the blade
+  (`sword_sweep`); never with E or coins (`interact_target` skips it); the faster, the more coins, banked in `Room.vault_coins` and dropped by
+  `vault_reveal` once the room is cleared (the reward still comes after the fight); `vault_on_clear` makes a safe still shut vanish. The bot shoots it first. FORGE: `Player.fused_into[b] = a + 1` (b stays owned, its bonus keeps working, its malus is gone, `upgrade_toggle` switches the pair as
+  one, `upgrade_menu_list` lists only a). KEYS: `MC_GATE`, one key, the prize then sits on a free pedestal. INFIRMARY: `MC_HEAL` or `MC_CONTAINER`
+  (one of the two, `Machine.group`). A new one of these: `RoomType` + `MachineType`, its `KINDS` line in `gen_doors`,
+  `room_type_name`, spawn / use / draw in `special.c`, door colour / icon (`room.c`), HUD title and hint (`hud.c`), bot support (`bot.c`: door
+  score + the machine loop), a row in the F4 page, its checks in `check_special_room` (headless), `--room NAME` (`room_type_by_name`) and the
+  `sim_rooms_special_*` / `render_rooms_special_*` CTests.
 - **Enemies never scale with depth**: each type always has the same HP / speed / fire pattern
   (`ENEMIES` table). Difficulty only comes from more enemies, more waves and new, harder types.
   The 60 newest types (`EN_DRIFTER .. EN_SENTINEL`, plus the helpers `EN_EGG` / `EN_MISSILE` / `EN_TURRET` made by
@@ -162,8 +178,8 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   The bot keeps off the closing walls (`crush_hazards`). `--wave-time S` forces every timer (tests:
   `sim_rooms_closing_walls*`); headless checks all of it (inside the box, last wave only, no boss room).
 - **Room modifiers** (`src/mods.c`, `RoomMod`; a room holds a set, `MOD_BIT` mask: `Door.mods` -> `G.entry_mods` ->
-  `Room.mods`, read with `room_has_mod()`): a room with one more rule, rolled with its door (`mod_roll`, `MOD_CHANCE`, a
-  first depth each, one at most per rolled door) and written under the door's reward; the only exception to "what makes
+  `Room.mods`, read with `room_has_mod()`): a room with one more rule, rolled with its door (`mod_roll`: every modifier a room can
+  have has the same chance, `MOD_EACH_CHANCE`, whatever the depth, one at most per rolled door) and written under the door's reward; the only exception to "what makes
   a room special comes after the fight". Any room with a fight but a boss room (`mod_allowed` / `mods_allowed`: combat,
   shop, workshop, casino, Baphomet), WAGER on combat rooms only, the four difficulty levels (HARD, VERY HARD, EXTREME, IMPOSSIBLE) on combat rooms
   whose reward is coins, bombs, keys or hearts only (`mod_allowed(type, reward, mod)`); never two wager doors in a room (a ship on its last heart must
@@ -179,10 +195,13 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   `sim_rooms_mod_<name>` CTests (`--mod NAME` forces it on every room that can have it; `sim_rooms_mod_combo*` mix them),
   a check box on the F4 page comes with the enum.
 - After a room is cleared the player chooses between 3 doors; each door previews what the next
-  room gives. The 3 doors are always different (no reward or special room behind two doors). Special rooms
-  (`SPECIALS` in `gen_doors`: shop, workshop, casino, Baphomet) each take a door of their own, never two of a kind
-  in a row, none from the launch bay, one combat door left at least.
-- **Locked doors** (`door_needs_key`): the doors to a **shop, a casino, an upgrade room or an active room are always
+  room gives. The 3 doors are always different (no reward or special room behind two doors).
+  **Every kind of room has the same chance, whatever the depth, the ship's health or its resources**: `gen_doors` draws the 3 doors out of
+  `KINDS`, 16 kinds (the 6 combat rewards: coins, key, bombs, hearts, upgrade, active; the 10 special rooms: shop, workshop, casino, Baphomet and the
+  six machine rooms of `special.c`), one chance in 16 each. The only rules: none from the launch bay but the 4 free combat rewards, never the special
+  room the ship is in, one door at least that costs no key (else one door, at random, becomes a free kind). Headless checks the kinds and the
+  modifiers are as likely at depth 1 as at depth 33, on a full ship as on its last half heart.
+- **Locked doors** (`door_needs_key`): the doors to a **shop, a casino, one of the six machine rooms, an upgrade room or an active room are always
   locked** (a key each), **no other door ever is**. One door at least asks for neither a key nor a heart (a WAGER comes
   off the only free door), so a ship without keys always goes on; the launch bay has no locked door at all (no
   upgrade / active room behind its doors: the run starts without a key). Headless checks all of it.

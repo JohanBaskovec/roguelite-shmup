@@ -26,6 +26,8 @@ typedef struct {
     bool shop_room;        /* --shop: start in a Shop */
     int coins;             /* --coins N: extra starting coins */
     int bombs;             /* --bombs N: starting bombs (the run starts with none) */
+    int keys;              /* --keys N: starting keys */
+    int start_room;        /* --room NAME: start in one of the six newer special rooms (RoomType + 1, 0 = none) */
     bool debug_rooms;      /* --debug-rooms (with --headless): test the debug menu teleports */
     bool debug_menu;       /* --debug-menu: open the F3 debug menu at startup */
     bool teleport_menu;    /* --teleport-menu: the F4 teleport menu */
@@ -182,6 +184,15 @@ static void parse_args(int argc, char **argv, Options *o) {
         else if (!strcmp(a, "--hp") && more) o->hp = atoi(argv[++i]);
         else if (!strcmp(a, "--coins") && more) o->coins = atoi(argv[++i]);
         else if (!strcmp(a, "--bombs") && more) o->bombs = atoi(argv[++i]);
+        else if (!strcmp(a, "--keys") && more) o->keys = atoi(argv[++i]);
+        else if (!strcmp(a, "--room") && more) {
+            int t = room_type_by_name(argv[++i]);
+            if (t < 0) {
+                fprintf(stderr, "unknown room '%s' (trader, purifier, vault, forge, keys, infirmary)\n", argv[i]);
+                exit(2);
+            }
+            o->start_room = t + 1;
+        }
         else if (!strcmp(a, "--fail-shot") && more) o->fail_shot = argv[++i];
         else if (!strcmp(a, "--ticks") && more) o->ticks = atoi(argv[++i]);
         else if (!strcmp(a, "--runs") && more) o->runs = atoi(argv[++i]);
@@ -340,7 +351,7 @@ int main(int argc, char **argv) {
         HeadlessOptions h = {
             .seed = opt.has_seed ? opt.seed : SDL_GetPerformanceCounter(),
             .runs = opt.runs, .max_ticks = opt.ticks, .depth = opt.depth, .casino_room = opt.casino_room, .baphomet_room = opt.baphomet_room,
-            .shop_room = opt.shop_room, .coins = opt.coins, .bombs = opt.bombs, .debug_rooms = opt.debug_rooms, .secret = opt.secret,
+            .shop_room = opt.shop_room, .coins = opt.coins, .bombs = opt.bombs, .keys = opt.keys, .start_room = opt.start_room, .debug_rooms = opt.debug_rooms, .secret = opt.secret,
             .all_upgrades = opt.all_upgrades, .hp = opt.hp, .character = opt.character, .workshop_room = opt.workshop_room, .boss_room = opt.boss_room,
             .actives = opt.actives, .active_room = opt.active_room, .weapons = opt.weapons, .upgrades = opt.upgrades, .nupgrades = opt.nupgrades, .toggle_upgrades = opt.toggle_upgrades, .god = opt.god, .expect_rooms = opt.expect_rooms, .fail_shot = opt.fail_shot,
             .fx = opt.fx, .save_dir = opt.save_dir, .save_test = opt.save_test, .fresh_profile = opt.fresh_profile, .argc = argc, .argv = (const char *const *)argv,
@@ -408,10 +419,11 @@ int main(int argc, char **argv) {
     G.show_stats = opt.show_stats;
     G.character = opt.character;
     if (opt.casino_room || opt.baphomet_room || opt.shop_room || opt.workshop_room || opt.boss_room || opt.active_room || opt.actives || opt.weapons || opt.nupgrades || opt.cleared || opt.depth > 0 ||
-        opt.coins > 0 || opt.bombs > 0 || opt.debug_menu || opt.all_upgrades || opt.upgrades_menu || opt.pause) {
+        opt.start_room || opt.keys > 0 || opt.coins > 0 || opt.bombs > 0 || opt.debug_menu || opt.all_upgrades || opt.upgrades_menu || opt.pause) {
         game_new_run();
         G.pl.coins += opt.coins;
         G.pl.bombs += opt.bombs;
+        G.pl.keys += opt.keys;
         for (int a = ACT_NONE + 1; a < ACT_COUNT; a++)
             if (opt.actives & (1u << a)) active_give(a);
         for (int u = UPG_W_SCATTER; u <= UPG_W_SWORD; u++)
@@ -421,7 +433,8 @@ int main(int argc, char **argv) {
             for (int u = 0; u < UPG_COUNT; u++)
                 if (!upgrade_capped(u)) upgrade_apply(u);
         int depth = opt.depth > 0 ? opt.depth : 1;
-        if (opt.casino_room) room_enter(ROOM_CASINO, RW_NONE, depth);
+        if (opt.start_room) room_enter((RoomType)(opt.start_room - 1), RW_NONE, depth);
+        else if (opt.casino_room) room_enter(ROOM_CASINO, RW_NONE, depth);
         else if (opt.baphomet_room) room_enter(ROOM_BAPHOMET, RW_NONE, depth);
         else if (opt.shop_room) room_enter(ROOM_SHOP, RW_NONE, depth);
         else if (opt.workshop_room) room_enter(ROOM_WORKSHOP, RW_NONE, depth);

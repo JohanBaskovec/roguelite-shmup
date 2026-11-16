@@ -228,13 +228,14 @@ int malus(MalusKind k) {
     const Player *p = &G.pl;
     int sum = 0;
     for (int u = 0; u < UPG_COUNT; u++)
-        if (MALUSES[u].kind == k && p->upg_count[u] > 0 && !p->upg_off[u]) sum += MALUSES[u].amount;
+        if (MALUSES[u].kind == k && p->upg_count[u] > 0 && !p->upg_off[u] && !p->malus_off[u]) sum += MALUSES[u].amount;
     return sum;
 }
 
 float malus_pct(MalusKind k) { return (float)malus(k) * 0.01f; }
 
 void malus_stat_effect(Stats *s, int u) {
+    if (G.pl.malus_off[u]) return; /* bought off (purifier) or lost in a fusion */
     float a = (float)MALUSES[u].amount * 0.01f;
     switch (MALUSES[u].kind) {
     case MAL_DAMAGE: s->dmg_mult *= 1.0f - a; break;
@@ -297,11 +298,12 @@ const char *upgrade_malus_desc(int u) {
 
 /* Bonus (white) then malus (red) under it; returns the height used. */
 float draw_upgrade_texts(float cx, float y, float scale, float alpha, int u) {
-    const char *desc = upgrade_desc(u), *mal = upgrade_malus_desc(u);
+    bool gone = G.pl.upg_count[u] > 0 && G.pl.malus_off[u]; /* owned, its malus bought off or fused away */
+    const char *desc = upgrade_desc(u), *mal = gone ? "Malus removed" : upgrade_malus_desc(u);
     float line = 11.0f * scale;
     draw_desc(cx, y, scale, col_a(COL_WHITE, 0.8f * alpha), desc);
     float my = y + (SDL_strchr(desc, '|') ? 2.0f : 1.0f) * line + 3.0f * scale;
-    draw_desc(cx, my, scale, col_hex(0xff6a7e, 0.95f * alpha), mal);
+    draw_desc(cx, my, scale, gone ? col_hex(0x7dff9a, 0.95f * alpha) : col_hex(0xff6a7e, 0.95f * alpha), mal);
     return my - y + (SDL_strchr(mal, '|') ? 2.0f : 1.0f) * line;
 }
 

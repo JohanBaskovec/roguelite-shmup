@@ -2,6 +2,9 @@
 #include "draw.h"
 #include "game.h"
 
+#include <stdio.h>
+#include <string.h>
+
 /*
  * Upgrades menu (TAB, from a run or the pause screen): every active item owned, then every
  * upgrade found. Each one can be turned off and back on (active_toggle / upgrade_toggle): a
@@ -26,7 +29,7 @@ static struct {
 int upgrade_menu_list(int *out) {
     int n = 0;
     for (int u = 0; u < UPG_COUNT; u++)
-        if (G.pl.upg_count[u] > 0) out[n++] = u;
+        if (G.pl.upg_count[u] > 0 && G.pl.fused_into[u] == 0) out[n++] = u; /* (a fused upgrade shares its partner's entry) */
     return n;
 }
 
@@ -178,7 +181,15 @@ void upgrade_menu_draw(void) {
             draw_text(x + 54.0f, y + 8.0f, 2.0f, tc, "%s", ACTIVES[a].name);
             draw_text(x + 54.0f, y + 31.0f, 1.0f, col_a(tc, 0.7f), "ACTIVE ITEM - LEVEL %d", p->act[a].level);
         } else {
-            draw_text(x + 54.0f, y + 16.0f, 2.0f, tc, "%s", UPGRADES[u].name);
+            int fused = 0, partner = -1;
+            for (int v = 0; v < UPG_COUNT; v++)
+                if (p->fused_into[v] == u + 1) fused++, partner = v;
+            if (fused) { /* "A + B" (smaller to fit; more than one: "A + 2 MORE") */
+                char name[96];
+                if (fused == 1) snprintf(name, sizeof name, "%s + %s", UPGRADES[u].name, UPGRADES[partner].name);
+                else snprintf(name, sizeof name, "%s + %d MORE", UPGRADES[u].name, fused);
+                draw_text(x + 54.0f, y + 19.0f, strlen(name) > 22 ? 1.25f : 1.5f, tc, "%s", name);
+            } else draw_text(x + 54.0f, y + 16.0f, 2.0f, tc, "%s", UPGRADES[u].name);
         }
         const char *tag = fixed ? "ONE-TIME" : on ? "ON" : "OFF";
         SDL_FColor gc = fixed ? col_hex(0x6a7490, 1) : on ? col_hex(0x7dff9a, 1) : col_hex(0xff5f7e, 1);
@@ -203,11 +214,14 @@ void upgrade_menu_draw(void) {
         draw_text_centered(SCREEN_W * 0.5f, y, 3.0f, col_hex(ACTIVES[a].color, 1), "%s - LEVEL %d", ACTIVES[a].name, p->act[a].level);
         draw_desc(SCREEN_W * 0.5f, y + 42.0f, 2.0f, col_a(COL_WHITE, 0.8f), active_desc(a, p->act[a].level));
     } else {
+        bool fused = false;
+        for (int v = 0; v < UPG_COUNT; v++) fused |= p->fused_into[v] == u + 1;
         draw_text_centered(SCREEN_W * 0.5f, y, 3.0f, col_hex(UPGRADES[u].color, 1), "%s", UPGRADES[u].name);
-        draw_upgrade_texts(SCREEN_W * 0.5f, y + 36.0f, 1.75f, 1.0f, u);
+        if (fused) fused_draw_texts(SCREEN_W * 0.5f, y + 32.0f, 1.25f, u);
+        else draw_upgrade_texts(SCREEN_W * 0.5f, y + 36.0f, 1.75f, 1.0f, u);
     }
     int nupg = n - nact - nsyn;
-    draw_text_centered(SCREEN_W * 0.5f, y + 134.0f, 1.5f, col_a(COL_WHITE, 0.45f),
+    draw_text_centered(SCREEN_W * 0.5f, y + 150.0f, 1.5f, col_a(COL_WHITE, 0.45f),
                        "%d ACTIVE ITEM%s (ALL GO OFF TOGETHER), %d UPGRADE%s, %d TURNED OFF, %d SYNERG%s",
                        nact, nact != 1 ? "S" : "", nupg, nupg != 1 ? "S" : "", off, nsyn, nsyn != 1 ? "IES" : "Y");
 }

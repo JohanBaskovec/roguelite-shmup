@@ -31,20 +31,19 @@ int g_mod_override = -1;
 static const struct {
     const char *name, *desc;
     uint32_t color;
-    int min_depth; /* first room it can be met in */
 } MODS[MOD_COUNT] = {
-    [MOD_NONE] = {"NONE", "", 0xffffff, 999},
-    [MOD_COMPACTOR] = {"COMPACTOR", "the walls are moving", 0xff3b5c, 3},
-    [MOD_BLACKOUT] = {"BLACKOUT", "the lights are out", 0x8090ff, 2},
-    [MOD_POWDER] = {"POWDER KEG", "mind the barrels", 0xff8a2a, 2},
-    [MOD_HORDE] = {"HORDE", "all of them at once", 0xff5f7e, 4},
-    [MOD_ELITE] = {"ELITE", "only one kind", 0xffd23f, 3},
-    [MOD_STORM] = {"STORM", "lightning strikes", 0x8fd8ff, 4},
-    [MOD_WAGER] = {"WAGER", "one heart in, double reward", 0xff4d8a, 2},
-    [MOD_HARD] = {"HARD", "more enemies, loot x1.5", 0xffc23a, 3},
-    [MOD_VERY_HARD] = {"VERY HARD", "many more, loot x2", 0xff8a2a, 6},
-    [MOD_EXTREME] = {"EXTREME", "swarms, loot x2.5", 0xff3b3b, 10},
-    [MOD_IMPOSSIBLE] = {"IMPOSSIBLE", "good luck, loot x3", 0xd23bff, 15},
+    [MOD_NONE] = {"NONE", "", 0xffffff},
+    [MOD_COMPACTOR] = {"COMPACTOR", "the walls are moving", 0xff3b5c},
+    [MOD_BLACKOUT] = {"BLACKOUT", "the lights are out", 0x8090ff},
+    [MOD_POWDER] = {"POWDER KEG", "mind the barrels", 0xff8a2a},
+    [MOD_HORDE] = {"HORDE", "all of them at once", 0xff5f7e},
+    [MOD_ELITE] = {"ELITE", "only one kind", 0xffd23f},
+    [MOD_STORM] = {"STORM", "lightning strikes", 0x8fd8ff},
+    [MOD_WAGER] = {"WAGER", "one heart in, double reward", 0xff4d8a},
+    [MOD_HARD] = {"HARD", "more enemies, loot x1.5", 0xffc23a},
+    [MOD_VERY_HARD] = {"VERY HARD", "many more, loot x2", 0xff8a2a},
+    [MOD_EXTREME] = {"EXTREME", "swarms, loot x2.5", 0xff3b3b},
+    [MOD_IMPOSSIBLE] = {"IMPOSSIBLE", "good luck, loot x3", 0xd23bff},
 };
 
 /* Difficulty levels 1..4 (index 0: none): the size of every wave, the waves added, the loot. */
@@ -67,7 +66,7 @@ int difficulty_reward_count(int n) {
     return more > n + 1 ? more : n + 1;
 }
 
-#define MOD_CHANCE 0.3f /* a combat door with a modifier */
+#define MOD_EACH_CHANCE 0.03f /* every modifier: the chance a door has it (when its room can), whatever the depth */
 
 const char *mod_name(int mod) { return mod > MOD_NONE && mod < MOD_COUNT ? MODS[mod].name : ""; }
 const char *mod_desc(int mod) { return mod > MOD_NONE && mod < MOD_COUNT ? MODS[mod].desc : ""; }
@@ -100,12 +99,18 @@ unsigned mods_allowed(RoomType type, RewardType reward, unsigned mods) {
     return out;
 }
 
-unsigned mod_roll(int depth, RoomType type, RewardType reward) {
-    if (!chance(MOD_CHANCE)) return 0;
+unsigned mod_roll(RoomType type, RewardType reward) {
     int cand[MOD_COUNT], n = 0;
     for (int m = MOD_NONE + 1; m < MOD_COUNT; m++)
-        if (MODS[m].min_depth <= depth && mod_allowed(type, reward, m)) cand[n++] = m;
-    return n ? MOD_BIT(cand[irand(0, n - 1)]) : 0;
+        if (mod_allowed(type, reward, m)) cand[n++] = m;
+    for (int i = n - 1; i > 0; i--) { /* (no modifier always first in line) */
+        int j = irand(0, i), t = cand[i];
+        cand[i] = cand[j];
+        cand[j] = t;
+    }
+    for (int i = 0; i < n; i++)
+        if (chance(MOD_EACH_CHANCE)) return MOD_BIT(cand[i]); /* one at most */
+    return 0;
 }
 
 /* ELITE: a type that can fill a wave on its own at this depth (or one of the --enemy ones). */

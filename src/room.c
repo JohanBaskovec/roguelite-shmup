@@ -363,10 +363,7 @@ V2 room_navigate_ex(V2 from, V2 goal, float margin, bool walls_only, bool *reach
 
 /* A random combat reward, never one of the `used` ones (bit mask of RewardType). */
 static RewardType roll_reward_except(unsigned used) {
-    int weights[RW_COUNT] = {
-        [RW_COINS] = 30, [RW_KEY] = 16, [RW_BOMBS] = 16, [RW_HEART] = 14, [RW_UPGRADE] = 24,
-        [RW_ACTIVE] = 8,
-    };
+    int weights[RW_COUNT] = {[RW_COINS] = 1, [RW_KEY] = 1, [RW_BOMBS] = 1, [RW_HEART] = 1, [RW_UPGRADE] = 1, [RW_ACTIVE] = 1}; /* all alike */
     for (int i = 0; i < RW_COUNT; i++)
         if (used & (1u << i)) weights[i] = 0;
     int total = 0;
@@ -398,47 +395,47 @@ static void gen_doors(void) {
         d->reward = RW_UPGRADE;
         return;
     }
-    /* Special rooms, each on a door of its own, never two of a kind in a row, none from the launch bay. */
-    static const struct { RoomType type; float chance; int from_depth; } SPECIALS[] = {
-        {ROOM_SHOP, 0.18f, 1}, {ROOM_WORKSHOP, 0.22f, 1}, {ROOM_CASINO, 0.12f, 2}, {ROOM_BAPHOMET, 0.10f, 2},
+    /* Every kind of room has the same chance, whatever the depth, the hearts or the keys of the ship: the 3 doors are 3 different
+     * kinds out of the 6 combat rewards and the 10 special rooms (one chance in 16 each), with these rules:
+     * at least one door costs no key (a ship without keys always goes on: else one door, at random, becomes a free kind); no special room and no upgrade / active
+     * room from the launch bay (the run starts without a key); never the special room the ship is in. */
+    typedef struct { RoomType type; RewardType reward; } Kind;
+    static const Kind KINDS[] = {
+        {ROOM_COMBAT, RW_COINS}, {ROOM_COMBAT, RW_KEY}, {ROOM_COMBAT, RW_BOMBS}, {ROOM_COMBAT, RW_HEART}, {ROOM_COMBAT, RW_UPGRADE},
+        {ROOM_COMBAT, RW_ACTIVE}, {ROOM_SHOP, RW_NONE}, {ROOM_WORKSHOP, RW_NONE}, {ROOM_CASINO, RW_NONE}, {ROOM_BAPHOMET, RW_NONE},
+        {ROOM_TRADER, RW_NONE}, {ROOM_PURIFIER, RW_NONE}, {ROOM_VAULT, RW_NONE}, {ROOM_FORGE, RW_NONE}, {ROOM_KEYS, RW_NONE},
+        {ROOM_INFIRMARY, RW_NONE},
     };
+    int pool[ARRAY_LEN(KINDS)], npool = 0;
+    for (int k = 0; k < (int)ARRAY_LEN(KINDS); k++) {
+        bool special = KINDS[k].type != ROOM_COMBAT, locked = door_needs_key(KINDS[k].type, KINDS[k].reward);
+        if (r->type == ROOM_START && (special || locked)) continue;
+        if (special && KINDS[k].type == r->type) continue;
+        pool[npool++] = k;
+    }
+    int pick[MAX_DOORS] = {0}, left[ARRAY_LEN(KINDS)], n = npool;
+    memcpy(left, pool, sizeof left);
+    bool open = false;
+    for (int i = 0; i < MAX_DOORS; i++) { /* a random sample without replacement */
+        int j = irand(0, n - 1);
+        pick[i] = left[j];
+        left[j] = left[--n];
+        open |= !door_needs_key(KINDS[pick[i]].type, KINDS[pick[i]].reward);
+    }
+    if (!open) { /* every door costs a key: one of them (at random) becomes a free kind (at random) */
+        int free[ARRAY_LEN(KINDS)], nfree = 0;
+        for (int j = 0; j < n; j++)
+            if (!door_needs_key(KINDS[left[j]].type, KINDS[left[j]].reward)) free[nfree++] = left[j];
+        pick[irand(0, MAX_DOORS - 1)] = free[irand(0, nfree - 1)];
+    }
     r->ndoors = MAX_DOORS;
     for (int i = 0; i < MAX_DOORS; i++) {
         Door *d = &r->doors[i];
         memset(d, 0, sizeof *d);
         d->side = sides[i];
         d->pos = door_position(sides[i]);
-        d->type = ROOM_COMBAT;
-    }
-    int first = irand(0, (int)ARRAY_LEN(SPECIALS) - 1); /* (no kind always first in line for the doors) */
-    for (int k = 0; k < (int)ARRAY_LEN(SPECIALS); k++) {
-        int s = (first + k) % (int)ARRAY_LEN(SPECIALS);
-        if (r->type == ROOM_START || r->type == SPECIALS[s].type || r->depth < SPECIALS[s].from_depth || !chance(SPECIALS[s].chance))
-            continue;
-        int free[MAX_DOORS], nfree = 0;
-        for (int i = 0; i < MAX_DOORS; i++)
-            if (r->doors[i].type == ROOM_COMBAT) free[nfree++] = i;
-        if (nfree > 1) r->doors[free[irand(0, nfree - 1)]].type = SPECIALS[s].type; /* (one combat door left at least) */
-    }
-    /* Every door is unique: no reward behind two doors. The launch bay has no locked door (the run starts
-     * without a key): no upgrade / active room from there. */
-    unsigned used = 1u << RW_NONE;
-    if (r->type == ROOM_START) used |= 1u << RW_UPGRADE | 1u << RW_ACTIVE;
-    for (int i = 0; i < MAX_DOORS; i++) {
-        Door *d = &r->doors[i];
-        if (d->type != ROOM_COMBAT) continue;
-        d->reward = roll_reward_except(used);
-        used |= 1u << d->reward;
-    }
-    /* Shops, casinos, upgrade and active rooms cost a key, nothing else does; one door at least must open without
-     * one (a ship without keys always has a way on): the first combat door turns into an open reward if needed. */
-    bool open = false;
-    for (int i = 0; i < MAX_DOORS; i++) open |= !door_needs_key(r->doors[i].type, r->doors[i].reward);
-    for (int i = 0; i < MAX_DOORS && !open; i++) {
-        Door *d = &r->doors[i];
-        if (d->type != ROOM_COMBAT) continue;
-        d->reward = roll_reward_except(used | 1u << RW_UPGRADE | 1u << RW_ACTIVE);
-        open = true;
+        d->type = KINDS[pick[i]].type;
+        d->reward = KINDS[pick[i]].reward;
     }
     for (int i = 0; i < MAX_DOORS; i++) r->doors[i].locked = door_needs_key(r->doors[i].type, r->doors[i].reward);
     /* Room modifiers: any room behind a door but the boss's (WAGER: combat rooms only), shown on the door (mods.c).
@@ -446,7 +443,7 @@ static void gen_doors(void) {
     bool wager = false;
     for (int i = 0; i < MAX_DOORS; i++) {
         Door *d = &r->doors[i];
-        d->mods = (uint16_t)(g_mod_override >= 0 ? mods_allowed(d->type, d->reward, (unsigned)g_mod_override) : mod_roll(r->depth + 1, d->type, d->reward));
+        d->mods = (uint16_t)(g_mod_override >= 0 ? mods_allowed(d->type, d->reward, (unsigned)g_mod_override) : mod_roll(d->type, d->reward));
         if (wager) d->mods &= (uint16_t)~MOD_BIT(MOD_WAGER);
         wager |= (d->mods & MOD_BIT(MOD_WAGER)) != 0;
     }
@@ -500,6 +497,12 @@ void room_enter(RoomType type, RewardType reward, int depth) {
     if (type == ROOM_WORKSHOP) r->hue = 80.0f;
     if (type == ROOM_CASINO) r->hue = 48.0f;
     if (type == ROOM_BAPHOMET) r->hue = 0.0f;
+    if (type == ROOM_TRADER) r->hue = 200.0f;
+    if (type == ROOM_PURIFIER) r->hue = 165.0f;
+    if (type == ROOM_VAULT) r->hue = 50.0f;
+    if (type == ROOM_FORGE) r->hue = 20.0f;
+    if (type == ROOM_KEYS) r->hue = 215.0f;
+    if (type == ROOM_INFIRMARY) r->hue = 345.0f;
     if (type == ROOM_BOSS) {
         r->hue = 350.0f;
         r->reward = RW_UPGRADE; /* the boss always leaves a choice of 2 upgrades */
@@ -534,6 +537,7 @@ void room_enter(RoomType type, RewardType reward, int depth) {
         r->nwaves = 2 + (extra > 5 ? 5 : extra);
         r->wave_t = 0.35f;
     }
+    if (type == ROOM_VAULT) vault_spawn(); /* the safe is there from the first enemies on */
     mods_on_room_enter(); /* the horde's single wave, the elite's type, the banner */
     upg_on_room_enter();
     actives_recharge_all();
@@ -686,6 +690,14 @@ static void room_reveal(void) {
     else if (r->type == ROOM_WORKSHOP) workshop_spawn();
     else if (r->type == ROOM_CASINO) casino_spawn();
     else if (r->type == ROOM_BAPHOMET) baphomet_spawn();
+    else if (r->type == ROOM_TRADER) trader_spawn();
+    else if (r->type == ROOM_PURIFIER) purifier_spawn();
+    else if (r->type == ROOM_VAULT) vault_reveal();
+    else if (r->type == ROOM_FORGE) forge_spawn();
+    else if (r->type == ROOM_KEYS) keys_room_spawn();
+    else if (r->type == ROOM_INFIRMARY) infirmary_spawn();
+    if (r->type >= ROOM_TRADER && r->type <= ROOM_INFIRMARY && r->type != ROOM_VAULT && G.nmc == 0) /* the ship cannot use it any more (its door was rolled for another state) */
+        reward_drop(RW_COINS, v2(ARENA_CX, ARENA_CY));
     else if (r->type == ROOM_SECRET) secret_loot(); /* after an ambush */
     else if (room_has_mod(MOD_WAGER) && r->reward != RW_NONE) { /* the reward twice: two choices / twice the loot */
         bool offers = r->reward == RW_UPGRADE || r->reward == RW_ACTIVE;
@@ -703,6 +715,7 @@ static void room_clear(bool instant) {
     r->cleared = true;
     r->clear_t = instant ? 0.0f : -ROOM_REVEAL_T;
     G.rooms_cleared++;
+    vault_on_clear(); /* a safe not broken in time vanishes */
     sfx_play(SFX_ROOM_CLEAR);
     ebullets_clear(true);
     upg_on_room_clear();
@@ -1021,7 +1034,7 @@ void room_draw_floor(void) {
         draw_text_centered(ARENA_CX, y + 30, 2.0f, c, "MOUSE - AIM & SHOOT");
         draw_text_centered(ARENA_CX, y + 60, 2.0f, c, "SHIFT / RIGHT CLICK - ACTIVE ITEMS    SPACE - BOMB");
         draw_text_centered(ARENA_CX, y + 90, 2.0f, c, "E - TAKE / BUY / USE    TAB - UPGRADES (ON / OFF)");
-        draw_text_centered(ARENA_CX, y + 140, 2.0f, col_a(col_hex(0xffe066, 1), 0.5f), "UPGRADES, ACTIVES, SHOPS AND CASINOS ARE LOCKED: A KEY EACH");
+        draw_text_centered(ARENA_CX, y + 140, 2.0f, col_a(col_hex(0xffe066, 1), 0.5f), "UPGRADES, ACTIVES AND MOST SPECIAL ROOMS ARE LOCKED: A KEY EACH");
     }
 }
 
@@ -1059,6 +1072,58 @@ static void draw_baphomet_icon(V2 p, float s) {
     for (int k = 0; k < 5; k++) draw_line(pt[k], pt[(k + 2) % 5], s * 0.14f, c);
 }
 
+/* Two arrows swapping. */
+static void draw_trader_icon(V2 p, float s) {
+    SDL_FColor c = col_hex(COLOR_TRADER, 1);
+    draw_rect(p.x - s * 0.9f, p.y - s * 0.5f, s * 1.5f, s * 0.22f, c);
+    draw_tri(v2(p.x + s * 0.5f, p.y - s * 0.95f), v2(p.x + s * 0.5f, p.y), v2(p.x + s * 1.05f, p.y - s * 0.48f), c);
+    draw_rect(p.x - s * 0.6f, p.y + s * 0.3f, s * 1.5f, s * 0.22f, c);
+    draw_tri(v2(p.x - s * 0.5f, p.y + s * 0.95f), v2(p.x - s * 0.5f, p.y - s * 0.1f), v2(p.x - s * 1.05f, p.y + s * 0.4f), c);
+}
+
+/* A drop with a spark. */
+static void draw_purifier_icon(V2 p, float s) {
+    SDL_FColor c = col_hex(COLOR_PURIFIER, 1);
+    draw_circle(v2(p.x, p.y + s * 0.35f), s * 0.7f, c);
+    draw_tri(v2(p.x - s * 0.62f, p.y + s * 0.15f), v2(p.x + s * 0.62f, p.y + s * 0.15f), v2(p.x, p.y - s * 1.05f), c);
+    draw_circle(v2(p.x - s * 0.2f, p.y + s * 0.4f), s * 0.16f, col_hex(0x0a0c14, 1));
+}
+
+/* A safe: a square with a dial. */
+static void draw_vault_icon(V2 p, float s) {
+    SDL_FColor c = col_hex(COLOR_VAULT, 1), dark = col_hex(0x0a0c14, 1);
+    draw_rect(p.x - s * 0.9f, p.y - s * 0.9f, s * 1.8f, s * 1.8f, c);
+    draw_circle(p, s * 0.55f, dark);
+    draw_ring(p, s * 0.55f, s * 0.12f, c);
+    draw_line(p, v2(p.x + s * 0.35f, p.y - s * 0.25f), s * 0.14f, c);
+}
+
+/* An anvil. */
+static void draw_forge_icon(V2 p, float s) {
+    SDL_FColor c = col_hex(COLOR_FORGE, 1);
+    draw_rect(p.x - s * 1.0f, p.y - s * 0.75f, s * 2.0f, s * 0.6f, c);
+    draw_tri(v2(p.x - s * 1.0f, p.y - s * 0.75f), v2(p.x - s * 1.0f, p.y - s * 0.15f), v2(p.x - s * 1.6f, p.y - s * 0.75f), c);
+    draw_rect(p.x - s * 0.4f, p.y - s * 0.15f, s * 0.8f, s * 0.55f, c);
+    draw_rect(p.x - s * 0.9f, p.y + s * 0.4f, s * 1.8f, s * 0.4f, c);
+}
+
+/* A key. */
+static void draw_keys_icon(V2 p, float s) {
+    SDL_FColor c = col_hex(COLOR_KEYS, 1);
+    draw_ring(v2(p.x - s * 0.5f, p.y), s * 0.45f, s * 0.2f, c);
+    draw_rect(p.x - s * 0.1f, p.y - s * 0.1f, s * 1.2f, s * 0.2f, c);
+    draw_rect(p.x + s * 0.7f, p.y, s * 0.2f, s * 0.45f, c);
+    draw_rect(p.x + s * 0.35f, p.y, s * 0.2f, s * 0.35f, c);
+}
+
+/* A heart with a cross. */
+static void draw_infirmary_icon(V2 p, float s) {
+    SDL_FColor c = col_hex(COLOR_INFIRMARY, 1);
+    draw_heart(p, s * 1.1f, c, false);
+    draw_rect(p.x - s * 0.1f, p.y - s * 0.45f, s * 0.2f, s * 0.9f, col_hex(0x0a0c14, 1));
+    draw_rect(p.x - s * 0.45f, p.y - s * 0.1f, s * 0.9f, s * 0.2f, col_hex(0x0a0c14, 1));
+}
+
 /* A gear. */
 static void draw_workshop_icon(V2 p, float s) {
     SDL_FColor c = col_hex(COLOR_WORKSHOP, 1);
@@ -1085,6 +1150,12 @@ static void draw_door(const Door *d, bool cleared, bool entry) {
     SDL_FColor rc = entry ? col_hex(0x445566, 1)
                   : d->type == ROOM_CASINO ? col_hex(COLOR_CASINO, 1)
                   : d->type == ROOM_BAPHOMET ? col_hex(COLOR_BAPHOMET, 1)
+                  : d->type == ROOM_TRADER ? col_hex(COLOR_TRADER, 1)
+                  : d->type == ROOM_PURIFIER ? col_hex(COLOR_PURIFIER, 1)
+                  : d->type == ROOM_VAULT ? col_hex(COLOR_VAULT, 1)
+                  : d->type == ROOM_FORGE ? col_hex(COLOR_FORGE, 1)
+                  : d->type == ROOM_KEYS ? col_hex(COLOR_KEYS, 1)
+                  : d->type == ROOM_INFIRMARY ? col_hex(COLOR_INFIRMARY, 1)
                   : d->type == ROOM_SHOP ? col_hex(COLOR_SHOP, 1)
                   : d->type == ROOM_SECRET ? col_hex(COLOR_SECRET, 1)
                   : d->type == ROOM_WORKSHOP ? col_hex(COLOR_WORKSHOP, 1)
@@ -1153,6 +1224,12 @@ static void draw_door(const Door *d, bool cleared, bool entry) {
     else if (d->type == ROOM_WORKSHOP) draw_workshop_icon(ip, 11.0f * sc);
     else if (d->type == ROOM_CASINO) draw_casino_icon(ip, 11.0f * sc);
     else if (d->type == ROOM_BAPHOMET) draw_baphomet_icon(ip, 11.0f * sc);
+    else if (d->type == ROOM_TRADER) draw_trader_icon(ip, 11.0f * sc);
+    else if (d->type == ROOM_PURIFIER) draw_purifier_icon(ip, 11.0f * sc);
+    else if (d->type == ROOM_VAULT) draw_vault_icon(ip, 11.0f * sc);
+    else if (d->type == ROOM_FORGE) draw_forge_icon(ip, 11.0f * sc);
+    else if (d->type == ROOM_KEYS) draw_keys_icon(ip, 11.0f * sc);
+    else if (d->type == ROOM_INFIRMARY) draw_infirmary_icon(ip, 11.0f * sc);
     else if (d->type == ROOM_BOSS) draw_boss_icon(ip, 11.0f * sc);
     else if (d->type == ROOM_SECRET) draw_text_centered(ip.x + 1.0f, ip.y - 12.0f * sc, 3.0f * sc, col_hex(COLOR_SECRET, 1), "%s", G.room.type == ROOM_SECRET ? "v" : "?");
     else draw_pickup_icon(reward_icon(d->reward), -1, ip, 11.0f * sc, G.time);
