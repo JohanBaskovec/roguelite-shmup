@@ -193,8 +193,8 @@ Le type de salle `ROOM_TREASURE` est déjà prévu (sur le modèle de `ROOM_STAT
 ## Tests (sans fenêtre)
 
 ```sh
-ctest --preset release      # ~50 s
-ctest --preset asan         # même suite sous AddressSanitizer + UBSan (cmake --preset asan && cmake --build --preset asan)
+ctest --preset release      # ~35 s
+ctest --preset asan         # même suite sous AddressSanitizer + UBSan, simulations raccourcies de moitié (~3 min ; cmake --preset asan && cmake --build --preset asan)
 ```
 
 Aucun test n'ouvre de fenêtre :

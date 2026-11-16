@@ -74,8 +74,11 @@ if(SHMUP_BUILD_TESTS)
                          --fail-shot ${_out}/fail_sim_god_seed${seed}.bmp)
     endforeach()
     # Mortal bot: 10 full runs until death or time limit.
+    # (Long batches of runs are split in parts, run side by side: same seeds, a fraction of the wait.)
     add_test(NAME sim_mortal_runs
-             COMMAND neon_breach --headless --seed 100 --runs 10 --ticks 72000 --fail-shot ${_out}/fail_sim_mortal.bmp)
+             COMMAND neon_breach --headless --seed 100 --runs 5 --ticks 72000 --fail-shot ${_out}/fail_sim_mortal.bmp)
+    add_test(NAME sim_mortal_runs_b
+             COMMAND neon_breach --headless --seed 105 --runs 5 --ticks 72000 --fail-shot ${_out}/fail_sim_mortal_b.bmp)
     # Late-game rooms (dense waves, every enemy type).
     add_test(NAME sim_deep_rooms
              COMMAND neon_breach --headless --god --depth 15 --seed 7 --runs 3 --ticks 36000 --fail-shot ${_out}/fail_sim_deep.bmp)
@@ -96,11 +99,16 @@ if(SHMUP_BUILD_TESTS)
                      --fail-shot ${_out}/fail_sim_secret.bmp)
     # Every upgrade at its max stack: all the bullet effects / auras / triggers at once.
     add_test(NAME sim_all_upgrades
-             COMMAND neon_breach --headless --god --all-upgrades --seed 80 --runs 4 --ticks 36000 --expect-rooms 3
+             COMMAND neon_breach --headless --god --all-upgrades --seed 80 --runs 2 --ticks 36000 --expect-rooms 3
                      --fail-shot ${_out}/fail_sim_all_upgrades.bmp)
-    add_test(NAME sim_all_upgrades_mortal
-             COMMAND neon_breach --headless --all-upgrades --seed 90 --runs 6 --ticks 36000
-                     --fail-shot ${_out}/fail_sim_all_upgrades_mortal.bmp)
+    add_test(NAME sim_all_upgrades_b
+             COMMAND neon_breach --headless --god --all-upgrades --seed 82 --runs 2 --ticks 36000 --expect-rooms 3
+                     --fail-shot ${_out}/fail_sim_all_upgrades_b.bmp)
+    foreach(_s 90 92 94)
+        add_test(NAME sim_all_upgrades_mortal_${_s}
+                 COMMAND neon_breach --headless --all-upgrades --seed ${_s} --runs 2 --ticks 36000
+                         --fail-shot ${_out}/fail_sim_all_upgrades_mortal_${_s}.bmp)
+    endforeach()
     # Characters: every one must be playable by the bot (the Knight fights in melee with its sword).
     add_test(NAME sim_shotgunner
              COMMAND neon_breach --headless --god --char shotgunner --seed 11 --runs 3 --ticks 36000 --expect-rooms 3
@@ -108,8 +116,11 @@ if(SHMUP_BUILD_TESTS)
     add_test(NAME sim_knight
              COMMAND neon_breach --headless --god --char knight --seed 21 --runs 4 --ticks 36000 --expect-rooms 3
                      --fail-shot ${_out}/fail_sim_knight.bmp)
+    add_test(NAME sim_knight_mortal_b
+             COMMAND neon_breach --headless --char knight --seed 35 --runs 5
+                     --fail-shot ${_out}/fail_sim_knight_mortal_b.bmp)
     add_test(NAME sim_knight_mortal
-             COMMAND neon_breach --headless --char knight --seed 30 --runs 10
+             COMMAND neon_breach --headless --char knight --seed 30 --runs 5
                      --fail-shot ${_out}/fail_sim_knight_mortal.bmp)
     # F3 debug menu: teleport into every room type, with and without enemies.
     add_test(NAME sim_workshop
@@ -315,9 +326,14 @@ if(SHMUP_BUILD_TESTS)
              COMMAND neon_breach --shot ${_out}/render.bmp --depth 4 --seed 4 --frames 30)
     add_test(NAME sfx_synthesis COMMAND neon_breach --dump-sfx ${_out}/sfx)
 
-    set_tests_properties(sim_god_seed1 sim_god_seed2 sim_god_seed3 sim_mortal_runs sim_deep_rooms
-                         sim_stats_rooms sim_shop_rooms render_shop_room sim_secret_rooms sim_all_upgrades sim_all_upgrades_mortal
-                         sim_shotgunner sim_knight sim_knight_mortal render_char_select render_knight
+    # The asan preset halves the simulations (NEON_TICK_SCALE=0.5): sanitizers find their bugs early, and
+    # the all-upgrades / dense-blocks stress tests are at their peak from the first room. Long runs that
+    # only reach their extremes by going deep keep their full length.
+    set_tests_properties(sim_mortal_runs sim_mortal_runs_b sim_deep_rooms PROPERTIES ENVIRONMENT "NEON_TICK_SCALE=1")
+    set_tests_properties(sim_god_seed1 sim_god_seed2 sim_god_seed3 sim_mortal_runs sim_mortal_runs_b sim_deep_rooms
+                         sim_stats_rooms sim_shop_rooms render_shop_room sim_secret_rooms sim_all_upgrades sim_all_upgrades_b
+                         sim_all_upgrades_mortal_90 sim_all_upgrades_mortal_92 sim_all_upgrades_mortal_94
+                         sim_shotgunner sim_knight sim_knight_mortal sim_knight_mortal_b render_char_select render_knight
                          sim_workshop render_workshop render_deep_enemies
                          sim_active_shield sim_active_boom sim_active_strength sim_active_chaos sim_active_rooms
                          render_active_room render_chaos

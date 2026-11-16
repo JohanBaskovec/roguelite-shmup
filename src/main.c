@@ -18,6 +18,8 @@ typedef struct {
                               the game's sounds mixed offline (PREFIX.wav) and the ship's position (PREFIX.txt) */
     int record_from;       /* --record-from F: first frame written (sounds too) */
     int record_step;       /* --record-step S: one frame in S (scouting) */
+    int shot_draw_every;   /* --shot-draw-every N: --shot draws one frame in N (and the last ones): the
+                              simulation runs every frame, drawing in software is what costs */
     bool headless;         /* --headless: simulation only, no window / audio (see headless.h) */
     int ticks, runs, expect_rooms;
     bool stats_room;       /* --stats: start in a Stats room */
@@ -57,6 +59,7 @@ typedef struct {
 static void parse_args(int argc, char **argv, Options *o) {
     memset(o, 0, sizeof *o);
     o->frames = 300;
+    o->shot_draw_every = 8;
     o->ticks = 120 * 600;
     o->runs = 1;
     for (int i = 1; i < argc; i++) {
@@ -66,6 +69,7 @@ static void parse_args(int argc, char **argv, Options *o) {
         else if (!strcmp(a, "--record") && more) o->record = argv[++i];
         else if (!strcmp(a, "--record-from") && more) o->record_from = atoi(argv[++i]);
         else if (!strcmp(a, "--record-step") && more) o->record_step = atoi(argv[++i]);
+        else if (!strcmp(a, "--shot-draw-every") && more) o->shot_draw_every = atoi(argv[++i]);
         else if (!strcmp(a, "--frames") && more) { o->frames = atoi(argv[++i]); o->frames_given = true; }
         else if (!strcmp(a, "--depth") && more) o->depth = atoi(argv[++i]);
         else if (!strcmp(a, "--seed") && more) { o->seed = strtoull(argv[++i], NULL, 10); o->has_seed = true; }
@@ -150,6 +154,16 @@ static void parse_args(int argc, char **argv, Options *o) {
         else if (!strcmp(a, "--novsync")) o->novsync = true;
     }
     if (o->record_step < 1) o->record_step = 1;
+    /* NEON_TICK_SCALE (the asan test preset: 0.5): shorter simulations, the expected rooms scaled with them.
+     * Sanitizers find their bugs in the first minutes of play; the release suite runs them in full. */
+    const char *scale = getenv("NEON_TICK_SCALE");
+    if (scale && o->headless && !o->debug_rooms) {
+        double k = atof(scale);
+        if (k > 0.0 && k < 1.0) {
+            o->ticks = (int)(o->ticks * k);
+            o->expect_rooms = (int)(o->expect_rooms * k);
+        }
+    }
     if ((o->shot_path || o->record) && !o->char_select && !o->title && !o->no_bot) o->bot = true; /* the bot would confirm the select screen at once */
 }
 
@@ -393,7 +407,9 @@ int main(int argc, char **argv) {
         if (grab != SDL_GetWindowMouseGrab(win)) SDL_SetWindowMouseGrab(win, grab);
 
         audio_flush();
-        game_render();
+        /* --shot: the game state never depends on drawing (visual randomness has its own generator) */
+        bool draw = !opt.shot_path || opt.shot_draw_every <= 1 || frame % opt.shot_draw_every == 0 || frame >= opt.frames - 4;
+        if (draw) game_render();
         if (opt.record) {
             float mix[800 * 2]; /* one frame of sound: 2 ticks at 48 kHz */
             audio_offline_render(mix, 800);

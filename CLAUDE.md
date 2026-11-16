@@ -139,12 +139,18 @@ the `--debug-rooms` test too.
 
 ```sh
 cmake --preset release && cmake --build --preset release -j
-ctest --preset release            # ~90 s
-cmake --preset asan && cmake --build --preset asan -j && ctest --preset asan   # ASan + UBSan
+ctest --preset release            # ~35 s
+cmake --preset asan && cmake --build --preset asan -j && ctest --preset asan   # ASan + UBSan, ~3 min
 ```
 
 - The build must stay free of compiler warnings (`-Wall -Wextra`).
-- Run both the release and asan test suites before committing gameplay changes.
+- Run both the release and asan test suites before committing gameplay changes. While iterating, run only the
+  release suite (or the tests concerned); the asan suite runs once, before the commit, in the background.
+- Don't pass `-j` to ctest: the presets already use the 8 cores.
+- The asan preset sets `NEON_TICK_SCALE=0.5` (simulations and their expected rooms halved; `sim_mortal_runs*`
+  and `sim_deep_rooms` keep their full length, set in `CMakeLists.txt`). `--shot` draws one frame in 8 plus the
+  last ones (`--shot-draw-every N`; drawing never changes the game state). Long batches of runs are split into
+  several tests with consecutive seeds so they run side by side.
 
 ## Testing: never open a window
 
@@ -154,7 +160,8 @@ Do not launch the game in a real window to test it. Use:
   driven by the autopilot in `src/bot.c`, invariants checked every tick. Add `--fail-shot f.bmp`
   to get an offscreen render of the failing frame. `--toggle-upgrades` makes the bot turn random
   upgrades off / on (the bot also turns a weapon mod off by itself when its shots hit nothing for 10 s).
-- `neon_breach --shot out.bmp --frames N [...]` — offscreen render (SDL offscreen driver).
+- `neon_breach --shot out.bmp --frames N [...]` — offscreen render (SDL offscreen driver; simulates every
+  frame, draws one in 8).
 - `neon_breach --dump-sfx DIR` — writes every synthesized sound as WAV.
 - `neon_breach --record PREFIX --frames N [--record-from F] [--record-step S] [...]` — offscreen 1920x1080 at
   60 fps, the bot playing: raw RGB24 frames (`PREFIX.rgb`), the game's sounds mixed offline on the game clock

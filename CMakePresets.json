@@ -78,6 +78,9 @@
     {
       "name": "asan",
       "configurePreset": "asan",
+      "environment": {
+        "NEON_TICK_SCALE": "0.5"
+      },
       "output": {
         "outputOnFailure": true
       },
