@@ -165,11 +165,14 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   `Room.mods`, read with `room_has_mod()`): a room with one more rule, rolled with its door (`mod_roll`, `MOD_CHANCE`, a
   first depth each, one at most per rolled door) and written under the door's reward; the only exception to "what makes
   a room special comes after the fight". Any room with a fight but a boss room (`mod_allowed` / `mods_allowed`: combat,
-  shop, workshop, casino, Baphomet), WAGER on combat rooms only; never two wager doors in a room (a ship on its last heart must
+  shop, workshop, casino, Baphomet), WAGER on combat rooms only, the four difficulty levels (HARD, VERY HARD, EXTREME, IMPOSSIBLE) on combat rooms
+  whose reward is coins, bombs, keys or hearts only (`mod_allowed(type, reward, mod)`); never two wager doors in a room (a ship on its last heart must
   always have a way out). Any mix must work together (the F4 menu and `--mod`, repeatable, stack them). COMPACTOR: `crush_start(true)` at the first wave
   (`crush_slow`, towards the centre), full speed when the last wave's timer runs out. BLACKOUT: drawing only
   (`mods_draw_over`). POWDER: `theme_kind` / the block budget. HORDE: one wave (`HORDE_BUDGET`), its timer is the
-  last wave's. ELITE: `Room.elite` filters `spawn_wave`. STORM: strikes (`Room.strike_*`, `mods_update`, hazards for
+  last wave's. DIFFICULTY LEVELS (`MOD_HARD .. MOD_IMPOSSIBLE`, `DIFF` table in `mods.c`, `room_difficulty()` = the highest one set): `spawn_wave`
+  multiplies its budget (`room_difficulty_enemies`: x1.3 / 1.6 / 2 / 2.5, never stronger enemies), `mods_on_room_enter` adds waves (+1 .. +4, none to a HORDE,
+  which only grows), `reward_drop` passes coins / bombs / keys through `difficulty_reward_count` (x1.5 / 2 / 2.5 / 3, one more at least; hearts included). ELITE: `Room.elite` filters `spawn_wave`. STORM: strikes (`Room.strike_*`, `mods_update`, hazards for
   the bot, hold under TIME STOP). WAGER: `mod_door_pay` takes `WAGER_COST` hp (refused on the last heart), the reward
   drops twice (`room_reveal`; one-of-N offers have a group, `Pickup.choice` 1 / 2, one taken from each). A new one:
   enum + `MODS` entry, its effect, bot support if needed, invariants, a line in the scripted check and

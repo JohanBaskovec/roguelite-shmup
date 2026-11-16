@@ -55,7 +55,7 @@ static const struct {
 #define PANEL_W 940.0f
 #define PANEL_X ((SCREEN_W - PANEL_W) * 0.5f)
 #define ROWS_Y 226.0f
-#define ROW_H 36.0f
+#define ROW_H 30.0f
 #define BTN_W 240.0f
 #define BTN_X0 (PANEL_X + 410.0f)
 #define BTN_X1 (BTN_X0 + BTN_W + 20.0f)
@@ -122,7 +122,7 @@ void debug_teleport_mod(RoomType type, RewardType reward, int depth, bool with_e
         room_enter_secret();
         G.secret_ambush_override = ambush;
     } else {
-        G.entry_mods = (uint8_t)mods; /* room_enter keeps those the type can have, and uses them up */
+        G.entry_mods = (uint16_t)mods; /* room_enter keeps those the type can have, and uses them up */
         room_enter(type, reward, depth);
     }
     if (!with_enemies) room_debug_clear();
@@ -328,15 +328,16 @@ void debug_menu_draw(void) {
             if (on) draw_text_centered(lx + bs * 0.5f, by + 2.0f, 2.0f, col_hex(0x05060c, 1), "x");
             draw_text(lx + bs + 16.0f, ty, 2.5f, on ? c : col_a(c, sel ? 0.8f : 0.5f), "%s", mod_name(m));
             draw_text(BTN_X0, ty + 4.0f, 1.5f, col_a(COL_WHITE, on ? 0.75f : 0.4f), "%s%s", mod_desc(m),
-                      m == MOD_WAGER ? " (combat only)" : "");
+                      m == MOD_WAGER ? " (combat only)" : m >= MOD_HARD ? " (loot rooms)" : "");
             continue;
         }
         if (is_room_row(r)) {
             SDL_FColor c = col_hex(ROOM_ROWS[r].color, 1);
             draw_text(lx, ty, 2.5f, c, "%s", ROOM_ROWS[r].label);
-            unsigned kept = mods_allowed(ROOM_ROWS[r].type, M.mods); /* the ticked modifiers it leaves out */
+            RewardType shown = M.reward == 0 ? RW_COINS : (RewardType)(RW_COINS + M.reward - 1); /* (random: a loot room) */
+            unsigned kept = mods_allowed(ROOM_ROWS[r].type, shown, M.mods); /* the ticked modifiers it leaves out */
             if (M.mods && kept != M.mods)
-                draw_text(PANEL_X + 282.0f, ty + 5.0f, 1.25f, col_a(COL_WHITE, 0.45f), "%s", kept ? "NO WAGER" : "NO MODIFIERS");
+                draw_text(PANEL_X + 282.0f, ty + 5.0f, 1.25f, col_a(COL_WHITE, 0.45f), "%s", kept ? "SOME LEFT OUT" : "NO MODIFIERS");
             if (peaceful_row(r)) {
                 draw_text_centered(BTN_X0 + BTN_W * 0.5f, ty + 2.0f, 1.5f, col_a(COL_WHITE, 0.3f), "never has enemies");
                 draw_button(BTN_X1, y, BTN_W, "NO ENEMIES", c, sel);

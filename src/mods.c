@@ -12,6 +12,10 @@
  *              blocks alight
  *   WAGER      the door costs a whole heart (WAGER_COST hp, never the last one); the reward comes twice (two
  *              one-of-N groups for an upgrade / active room, twice the loot otherwise)
+ *   HARD, VERY HARD, EXTREME, IMPOSSIBLE   difficulty levels 1..4, only on combat rooms whose reward is coins, bombs, keys or hearts
+ *              (the highest one set counts): the waves are bigger (DIFF.enemies, spawn_wave) and there are more of them
+ *              (DIFF.waves, none more in a HORDE: its single wave only grows), and the loot is multiplied (DIFF.loot:
+ *              x1.5 / x2 / x2.5 / x3, at least one more: reward_drop through difficulty_reward_count)
  * Any room with a fight (combat, shop, workshop, casino, Baphomet) but a boss room; WAGER only on combat rooms (its double
  * reward is a combat room's reward). Never the launch bay or a secret room (no door leads there).
  */
@@ -37,7 +41,31 @@ static const struct {
     [MOD_ELITE] = {"ELITE", "only one kind", 0xffd23f, 3},
     [MOD_STORM] = {"STORM", "lightning strikes", 0x8fd8ff, 4},
     [MOD_WAGER] = {"WAGER", "one heart in, double reward", 0xff4d8a, 2},
+    [MOD_HARD] = {"HARD", "more enemies, loot x1.5", 0xffc23a, 3},
+    [MOD_VERY_HARD] = {"VERY HARD", "many more, loot x2", 0xff8a2a, 6},
+    [MOD_EXTREME] = {"EXTREME", "swarms, loot x2.5", 0xff3b3b, 10},
+    [MOD_IMPOSSIBLE] = {"IMPOSSIBLE", "good luck, loot x3", 0xd23bff, 15},
 };
+
+/* Difficulty levels 1..4 (index 0: none): the size of every wave, the waves added, the loot. */
+static const struct { float enemies; int waves; float loot; } DIFF[5] = {
+    {1.0f, 0, 1.0f}, {1.3f, 1, 1.5f}, {1.6f, 2, 2.0f}, {2.0f, 3, 2.5f}, {2.5f, 4, 3.0f},
+};
+
+int room_difficulty(void) {
+    for (int lv = 4; lv >= 1; lv--)
+        if (room_has_mod(MOD_HARD + lv - 1)) return lv;
+    return 0;
+}
+
+float room_difficulty_enemies(void) { return DIFF[room_difficulty()].enemies; }
+
+int difficulty_reward_count(int n) {
+    int lv = room_difficulty();
+    if (!lv) return n;
+    int more = (int)roundf((float)n * DIFF[lv].loot);
+    return more > n + 1 ? more : n + 1;
+}
 
 #define MOD_CHANCE 0.3f /* a combat door with a modifier */
 
@@ -58,24 +86,25 @@ int mod_by_name(const char *name) {
     return -1;
 }
 
-bool mod_allowed(RoomType type, int mod) {
+bool mod_allowed(RoomType type, RewardType reward, int mod) {
     if (mod <= MOD_NONE || mod >= MOD_COUNT) return false;
     if (type == ROOM_BOSS || room_type_peaceful(type)) return false;
+    if (mod >= MOD_HARD) return type == ROOM_COMBAT && (reward == RW_COINS || reward == RW_BOMBS || reward == RW_KEY || reward == RW_HEART);
     return mod != MOD_WAGER || type == ROOM_COMBAT;
 }
 
-unsigned mods_allowed(RoomType type, unsigned mods) {
+unsigned mods_allowed(RoomType type, RewardType reward, unsigned mods) {
     unsigned out = 0;
     for (int m = MOD_NONE + 1; m < MOD_COUNT; m++)
-        if ((mods & MOD_BIT(m)) && mod_allowed(type, m)) out |= MOD_BIT(m);
+        if ((mods & MOD_BIT(m)) && mod_allowed(type, reward, m)) out |= MOD_BIT(m);
     return out;
 }
 
-unsigned mod_roll(int depth, RoomType type) {
+unsigned mod_roll(int depth, RoomType type, RewardType reward) {
     if (!chance(MOD_CHANCE)) return 0;
     int cand[MOD_COUNT], n = 0;
     for (int m = MOD_NONE + 1; m < MOD_COUNT; m++)
-        if (MODS[m].min_depth <= depth && mod_allowed(type, m)) cand[n++] = m;
+        if (MODS[m].min_depth <= depth && mod_allowed(type, reward, m)) cand[n++] = m;
     return n ? MOD_BIT(cand[irand(0, n - 1)]) : 0;
 }
 
@@ -91,8 +120,10 @@ static int elite_type(int depth) {
 
 void mods_on_room_enter(void) {
     Room *r = &G.room;
-    r->mods = (uint8_t)mods_allowed(r->type, r->mods);
+    r->mods = (uint16_t)mods_allowed(r->type, r->reward, r->mods);
     if (!r->mods) return;
+    int level = room_difficulty();
+    if (level && !room_has_mod(MOD_HORDE)) r->nwaves += DIFF[level].waves; /* a horde stays one wave (bigger, see spawn_wave) */
     /* The banner names them all ("HORDE + STORM"), their lines under it; the colour is the first one's. */
     char title[96] = "", sub[200] = "";
     int first = MOD_NONE;

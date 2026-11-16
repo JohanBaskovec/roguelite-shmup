@@ -365,15 +365,21 @@ typedef enum {
     MOD_ELITE,     /* a single enemy type (Room.elite) */
     MOD_STORM,     /* lightning strikes the floor, on spots shown a moment before (ship and enemies alike) */
     MOD_WAGER,     /* the door costs a whole heart to go through; the room gives its reward twice */
+    /* Difficulty levels (coin / bomb / key / heart combat rooms only): more enemies, more waves, a bigger reward. The highest set wins. */
+    MOD_HARD,
+    MOD_VERY_HARD,
+    MOD_EXTREME,
+    MOD_IMPOSSIBLE,
     MOD_COUNT
 } RoomMod;
 #define MOD_BIT(m) (1u << (m))
+#define MOD_ALL ((1u << MOD_COUNT) - 2u) /* every modifier */
 
 typedef struct {
     Side side;
     RoomType type;       /* room behind the door */
     RewardType reward;   /* reward granted when that room is cleared */
-    uint8_t mods;        /* MOD_BIT set of RoomMods of the room behind it (none behind the boss door) */
+    uint16_t mods;       /* MOD_BIT set of RoomMods of the room behind it (none behind the boss door) */
     bool locked;
     V2 pos;
     float anim;
@@ -481,7 +487,7 @@ typedef struct {
     V2 graves[8];           /* NECRO: where the last enemies died (and what they were), to raise them */
     uint8_t grave_type[8];
     int ngraves;
-    uint8_t mods;           /* MOD_BIT set of RoomMods (mods.c) */
+    uint16_t mods;          /* MOD_BIT set of RoomMods (mods.c) */
     int elite;              /* MOD_ELITE: the only enemy type of the waves + 1 (0 = none) */
     bool crush_slow;        /* MOD_COMPACTOR: the walls crawl until the last wave's timer runs out */
     /* MOD_STORM: strikes shown at `pos` STORM_WARN before they land (t counts down to 0, live down to -STORM_LIVE). */
@@ -690,7 +696,7 @@ typedef struct {
     Rng rng;
     Input in;
     Side entry_side; /* entry door of the next room_enter (opposite the door taken) */
-    uint8_t entry_mods; /* MOD_BIT set of the next room_enter (the door taken), used up by it */
+    uint16_t entry_mods; /* MOD_BIT set of the next room_enter (the door taken), used up by it */
     /* Main menu (title.c): a demo run played by the bot behind it, on its own generator. */
     bool demo;
     Rng demo_rng;
@@ -1013,9 +1019,13 @@ const char *mod_name(int mod);
 const char *mod_desc(int mod);
 uint32_t mod_color(int mod);
 int mod_by_name(const char *name);
-bool mod_allowed(RoomType type, int mod); /* any room with a fight but a boss room; WAGER: combat rooms only */
-unsigned mods_allowed(RoomType type, unsigned mods); /* the part of a MOD_BIT set that type can have */
-unsigned mod_roll(int depth, RoomType type); /* a door's MOD_BIT set: usually none, one at most */
+bool mod_allowed(RoomType type, RewardType reward, int mod); /* any room with a fight but a boss room; WAGER: combat rooms only;
+                                                              * difficulty levels: combat rooms giving coins / bombs / keys / hearts */
+unsigned mods_allowed(RoomType type, RewardType reward, unsigned mods); /* the part of a MOD_BIT set that room can have */
+unsigned mod_roll(int depth, RoomType type, RewardType reward); /* a door's MOD_BIT set: usually none, one at most */
+float room_difficulty_enemies(void);      /* the size of every wave: x1 .. x2.5 */
+int room_difficulty(void);                 /* 0 = none, 1..4 = HARD .. IMPOSSIBLE (the highest set) */
+int difficulty_reward_count(int n);        /* a drop of n coins / bombs / keys / hearts in this room: x1.5 .. x3, one more at least */
 void mods_on_room_enter(void); /* after the room is set up (banner, elite type, horde) */
 void mods_update(void);        /* the storm (room_update, while fighting) */
 int mods_hazards(BossHazard *out, int max); /* the strikes, for the bot */

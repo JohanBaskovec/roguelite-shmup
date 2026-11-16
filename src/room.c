@@ -446,15 +446,15 @@ static void gen_doors(void) {
     bool wager = false;
     for (int i = 0; i < MAX_DOORS; i++) {
         Door *d = &r->doors[i];
-        d->mods = (uint8_t)(g_mod_override >= 0 ? mods_allowed(d->type, (unsigned)g_mod_override) : mod_roll(r->depth + 1, d->type));
-        if (wager) d->mods &= (uint8_t)~MOD_BIT(MOD_WAGER);
+        d->mods = (uint16_t)(g_mod_override >= 0 ? mods_allowed(d->type, d->reward, (unsigned)g_mod_override) : mod_roll(r->depth + 1, d->type, d->reward));
+        if (wager) d->mods &= (uint16_t)~MOD_BIT(MOD_WAGER);
         wager |= (d->mods & MOD_BIT(MOD_WAGER)) != 0;
     }
     /* ...and one door at least asks for neither a key nor a heart: the wager comes off the open doors otherwise. */
     bool free_way = false;
     for (int i = 0; i < r->ndoors; i++) free_way |= !r->doors[i].locked && !(r->doors[i].mods & MOD_BIT(MOD_WAGER));
     for (int i = 0; i < r->ndoors && !free_way; i++)
-        if (!r->doors[i].locked) r->doors[i].mods &= (uint8_t)~MOD_BIT(MOD_WAGER);
+        if (!r->doors[i].locked) r->doors[i].mods &= (uint16_t)~MOD_BIT(MOD_WAGER);
 }
 
 static void spawn_shop_items(void);
@@ -477,7 +477,7 @@ void room_enter(RoomType type, RewardType reward, int depth) {
     static int layouts;
     r->layout_id = ++layouts;
     r->entry = G.entry_side;
-    r->mods = (uint8_t)mods_allowed(type, g_mod_override >= 0 ? (unsigned)g_mod_override : G.entry_mods);
+    r->mods = (uint16_t)mods_allowed(type, reward, g_mod_override >= 0 ? (unsigned)g_mod_override : G.entry_mods);
     G.entry_mods = 0; /* used up */
     unlocks_on_room(depth); /* ships unlocked by depth (not in the demo) */
     bool can_hide = type == ROOM_COMBAT || type == ROOM_SHOP;
@@ -592,6 +592,7 @@ static void spawn_wave(void) {
     float budget = WAVE_BUDGET_BASE + WAVE_BUDGET_SCALE * powf((float)depth, WAVE_BUDGET_EXP) +
                    (float)r->wave * WAVE_BUDGET_PER_WAVE;
     budget *= 1.0f + malus_pct(MAL_CROWD); /* CROWD malus: bigger waves (more enemies, never stronger ones) */
+    budget *= room_difficulty_enemies();   /* HARD .. IMPOSSIBLE: more enemies, never stronger ones */
     bool horde = room_has_mod(MOD_HORDE);
     if (horde) budget *= HORDE_BUDGET; /* the waves of a room all at once (a bit less) */
     int cap = (int)((horde ? 40.0f : 20.0f) + 2.0f * (float)depth);

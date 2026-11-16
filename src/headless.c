@@ -130,16 +130,17 @@ static const char *check_invariants(float room_time) {
         { /* Room modifiers: any room with a fight but a boss room, WAGER on combat rooms only, on their doors too
            * (never the boss door, one modifier at most on a rolled door); each one's rule. */
             const Room *r = &G.room;
-            if (mods_allowed(r->type, r->mods) != r->mods) return "room modifier on a room type that cannot have it (boss room, wager off combat)";
+            if (mods_allowed(r->type, r->reward, r->mods) != r->mods) return "room modifier on a room that cannot have it (boss room, wager off combat, difficulty off coin / bomb / key rooms)";
             int wagers = 0;
             for (int i = 0; i < r->ndoors; i++) wagers += (r->doors[i].mods & MOD_BIT(MOD_WAGER)) != 0;
             if (wagers > 1) return "more than one wager door (a ship on its last heart could not leave)";
             for (int i = 0; i < r->ndoors; i++) {
                 unsigned dm = r->doors[i].mods;
-                if (mods_allowed(r->doors[i].type, dm) != dm) return "door with a modifier its room type cannot have";
+                if (mods_allowed(r->doors[i].type, r->doors[i].reward, dm) != dm) return "door with a modifier its room type cannot have";
                 if (g_mod_override < 0 && (dm & (dm - 1))) return "a rolled door with more than one modifier";
             }
             if (room_has_mod(MOD_HORDE) && r->nwaves != 1) return "horde room with more than one wave";
+            if (room_difficulty() && (r->nwaves < 3 || r->nwaves > 2 + 5 + 4) && !room_has_mod(MOD_HORDE)) return "difficulty room with a wrong number of waves";
             if ((r->elite != 0) != room_has_mod(MOD_ELITE)) return "elite type without the elite modifier (or none with it)";
             if (r->nstrikes && !room_has_mod(MOD_STORM)) return "lightning strikes outside a storm room";
         }
@@ -782,16 +783,20 @@ static int debug_rooms_run(const HeadlessOptions *o) {
     }
     /* The teleport page's modifiers (mods.c), with and without their enemies: each one on its own in a room type it can
      * have (in turn: combat, casino, shop, workshop, baphomet), then all of them at once (each room type keeps what it can have). */
-    const struct { RoomType type; unsigned mods; } MOD_CASES[] = {
+    const struct { RoomType type; unsigned mods; RewardType reward; } MOD_CASES[] = { /* (no reward given: an upgrade room) */
         {ROOM_COMBAT, MOD_BIT(MOD_COMPACTOR)}, {ROOM_CASINO, MOD_BIT(MOD_BLACKOUT)}, {ROOM_SHOP, MOD_BIT(MOD_POWDER)},
         {ROOM_WORKSHOP, MOD_BIT(MOD_HORDE)}, {ROOM_BAPHOMET, MOD_BIT(MOD_ELITE)}, {ROOM_CASINO, MOD_BIT(MOD_STORM)},
         {ROOM_COMBAT, MOD_BIT(MOD_WAGER)}, {ROOM_SHOP, MOD_BIT(MOD_WAGER)}, /* (wager: combat rooms only) */
-        {ROOM_COMBAT, 0xfe}, {ROOM_WORKSHOP, 0xfe}, {ROOM_BOSS, 0xfe},
+        {ROOM_COMBAT, MOD_BIT(MOD_HARD), RW_COINS}, {ROOM_COMBAT, MOD_BIT(MOD_VERY_HARD), RW_BOMBS},
+        {ROOM_COMBAT, MOD_BIT(MOD_EXTREME), RW_KEY}, {ROOM_COMBAT, MOD_BIT(MOD_IMPOSSIBLE), RW_COINS},
+        {ROOM_COMBAT, MOD_BIT(MOD_HARD) | MOD_BIT(MOD_IMPOSSIBLE) | MOD_BIT(MOD_HORDE), RW_BOMBS}, {ROOM_SHOP, MOD_BIT(MOD_HARD)}, /* (difficulty: loot rooms only) */
+        {ROOM_COMBAT, MOD_ALL, RW_COINS}, {ROOM_COMBAT, MOD_ALL}, {ROOM_WORKSHOP, MOD_ALL}, {ROOM_BOSS, MOD_ALL},
     };
     static const char *type_names[ROOM_TYPE_COUNT] = {"launch bay", "combat", "shop", "boss", "secret", "workshop", "casino", "baphomet"};
     for (int k = 0; k < (int)ARRAY_LEN(MOD_CASES); k++) {
         RoomType mtype = MOD_CASES[k].type;
-        unsigned want = mods_allowed(mtype, MOD_CASES[k].mods);
+        RewardType mreward = MOD_CASES[k].reward ? MOD_CASES[k].reward : RW_UPGRADE;
+        unsigned want = mods_allowed(mtype, mtype == ROOM_COMBAT ? mreward : RW_NONE, MOD_CASES[k].mods);
         for (int with = mtype == ROOM_BOSS ? 0 : 1; with >= 0; with--) {
             game_init(o->seed + 100 + (uint64_t)k);
             G.god = true;
@@ -800,7 +805,7 @@ static int debug_rooms_run(const HeadlessOptions *o) {
             G.pl.hp = 12;
             player_recompute();
             debug_menu_open(1);
-            debug_teleport_mod(mtype, RW_UPGRADE, o->depth > 0 ? o->depth : 4, with, MOD_CASES[k].mods);
+            debug_teleport_mod(mtype, mreward, o->depth > 0 ? o->depth : 4, with, MOD_CASES[k].mods);
             G.state = GS_PLAYING;
             const char *err = NULL;
             if (G.room.type != mtype || G.room.mods != want) err = "teleported into the wrong room / modifiers";
@@ -809,7 +814,7 @@ static int debug_rooms_run(const HeadlessOptions *o) {
             else if (!with && (err = check_room_reward()) != NULL) {}
             int id = G.room.id, tick = 0;
             float room_time = 0.0f;
-            for (; !err && tick < o->max_ticks && G.room.id == id; tick++) {
+            for (; !err && tick < o->max_ticks * ((want >> MOD_HARD) ? 2 : 1) && G.room.id == id; tick++) { /* (a difficulty level: twice the time, more waves) */
                 bot_input();
                 game_update();
                 clear_edges();
@@ -822,8 +827,8 @@ static int debug_rooms_run(const HeadlessOptions *o) {
                 size_t l = strlen(what);
                 if (MOD_CASES[k].mods & MOD_BIT(m)) snprintf(what + l, sizeof what - l, "%s%s", l ? "+" : "", mod_name(m));
             }
-            if (MOD_CASES[k].mods == 0xfe) snprintf(what, sizeof what, "ALL");
-            printf("debug teleport %-9s + %-10s (kept %02x) %-14s -> %s (%.1f s)\n", type_names[mtype], what, want,
+            if (MOD_CASES[k].mods == MOD_ALL) snprintf(what, sizeof what, "ALL");
+            printf("debug teleport %-9s + %-10s (kept %03x) %-14s -> %s (%.1f s)\n", type_names[mtype], what, want,
                    with ? "with enemies" : "no enemies", err ? err : "OK", (double)tick / TICK_RATE);
             if (err) {
                 if (o->fail_shot && failures == 0) save_failure_shot(o->fail_shot);
@@ -831,13 +836,13 @@ static int debug_rooms_run(const HeadlessOptions *o) {
             }
         }
     }
-    /* Drive the menu like a player: F4 (on the combat room), up x3 (the STORM check box), Enter (ticked), down x4
-     * (STORM -> WAGER -> LAUNCH BAY -> COMBAT -> SHOP), right (NO ENEMIES), Enter. */
+    /* Drive the menu like a player: F4 (on the combat room), up x7 (the STORM check box), Enter (ticked), down x8
+     * (STORM -> WAGER -> HARD -> VERY HARD -> EXTREME -> IMPOSSIBLE -> LAUNCH BAY -> COMBAT -> SHOP), right (NO ENEMIES), Enter. */
     game_init(o->seed);
     game_new_run();
     Input *in = &G.in;
     in->mouse = v2(0, 0);
-    const char *steps = "F..U.U.U.E.D.D.D.D.R.E";
+    const char *steps = "F..U.U.U.U.U.U.U.E.D.D.D.D.D.D.D.D.R.E";
     for (const char *c = steps; *c; c++) {
         in->teleport_pressed = *c == 'F';
         in->up = *c == 'U';
@@ -858,7 +863,7 @@ static int debug_rooms_run(const HeadlessOptions *o) {
     game_update();
     clear_edges();
     ok = ok && G.state == GS_DEBUG && debug_menu_page() == 1;
-    for (const char *c = "U.U.U.E"; *c; c++) { /* STORM unticked again */
+    for (const char *c = "U.U.U.U.U.U.U.E"; *c; c++) { /* STORM unticked again */
         in->up = *c == 'U';
         in->confirm_pressed = *c == 'E';
         game_update();
@@ -2894,19 +2899,20 @@ static int debug_rooms_run(const HeadlessOptions *o) {
             for (int k = 0; k < 400; k++) {
                 game_init(o->seed + (uint64_t)k);
                 game_new_run();
-                room_enter(ROOM_COMBAT, RW_COINS, k % 8 == 0 ? BOSS_EVERY - 1 : 10);
+                room_enter(ROOM_COMBAT, RW_COINS, k % 8 == 0 ? BOSS_EVERY - 1 : 16);
                 int wagers = 0;
                 for (int i = 0; i < G.room.ndoors; i++) {
                     const Door *d = &G.room.doors[i];
                     if (d->type == ROOM_COMBAT) seen |= d->mods;
                     else seen_other |= d->mods;
                     wagers += (d->mods & MOD_BIT(MOD_WAGER)) != 0;
-                    bad_doors += mods_allowed(d->type, d->mods) != d->mods || (d->mods & (d->mods - 1u)) != 0;
+                    bad_doors += mods_allowed(d->type, d->reward, d->mods) != d->mods || (d->mods & (d->mods - 1u)) != 0;
                     bad_doors += d->type == ROOM_BOSS && d->mods != 0;
                 }
                 bad_doors += wagers > 1;
             }
-            unsigned all = (1u << MOD_COUNT) - 2u, no_wager = all & ~MOD_BIT(MOD_WAGER);
+            const unsigned levels = MOD_BIT(MOD_HARD) | MOD_BIT(MOD_VERY_HARD) | MOD_BIT(MOD_EXTREME) | MOD_BIT(MOD_IMPOSSIBLE);
+            unsigned all = MOD_ALL, no_wager = all & ~MOD_BIT(MOD_WAGER) & ~levels; /* (a shop's: no difficulty level either) */
             bool doors_mod_ok = seen == all && seen_other == no_wager && bad_doors == 0;
             /* Forced (--mod, the F4 menu): any mix, kept where the room type allows it. */
             g_mod_override = (int)all;
@@ -2915,6 +2921,12 @@ static int debug_rooms_run(const HeadlessOptions *o) {
             room_enter(ROOM_SHOP, RW_NONE, 6);
             doors_mod_ok = doors_mod_ok && G.room.mods == no_wager && G.room.nwaves == 1 && G.room.elite > 0;
             g_mod_override = -1;
+            /* Difficulty levels: coin / bomb / key / heart combat rooms only. */
+            doors_mod_ok = doors_mod_ok && mods_allowed(ROOM_COMBAT, RW_COINS, levels) == levels &&
+                           mods_allowed(ROOM_COMBAT, RW_BOMBS, levels) == levels && mods_allowed(ROOM_COMBAT, RW_KEY, levels) == levels &&
+                           mods_allowed(ROOM_COMBAT, RW_HEART, levels) == levels && mods_allowed(ROOM_COMBAT, RW_UPGRADE, levels) == 0 &&
+                           mods_allowed(ROOM_COMBAT, RW_ACTIVE, levels) == 0 && mods_allowed(ROOM_CASINO, RW_NONE, levels) == 0 &&
+                           mods_allowed(ROOM_BOSS, RW_COINS, levels) == 0;
 
             /* Wager: a whole heart through the door, refused on the last one; two rows of offers. */
             game_init(o->seed);
@@ -2976,6 +2988,45 @@ static int debug_rooms_run(const HeadlessOptions *o) {
             for (int i = 0; i < G.nsp; i++) elite_ok = elite_ok && G.sp[i].type == (EnemyType)(G.room.elite - 1);
             for (int i = 0; i < G.nen; i++) elite_ok = elite_ok && G.en[i].type == (EnemyType)(G.room.elite - 1);
 
+            /* Difficulty: the highest level counts; each one adds waves (none to a horde) and makes the waves bigger; the loot is
+             * x1.5 / x2 / x2.5 / x3, one more at least (2 bombs: 3 / 4 / 5 / 6). */
+            bool diff_ok = true;
+            for (int lv = 1; lv <= 4; lv++) {
+                FIRST_WAVE(MOD_BIT(MOD_HARD + lv - 1));
+                diff_ok = diff_ok && room_difficulty() == lv && G.room.nwaves == normal_waves + lv && G.room.last_wave_size >= normal;
+                if (lv == 4) diff_ok = diff_ok && G.room.last_wave_size * 10 >= normal * 16;
+                G.npk = 0;
+                reward_drop(RW_BOMBS, v2(ARENA_CX, ARENA_CY));
+                int bombs = 0;
+                for (int i = 0; i < G.npk; i++) bombs += G.pk[i].type == PK_BOMB;
+                diff_ok = diff_ok && bombs == (lv == 1 ? 3 : lv == 2 ? 4 : lv == 3 ? 5 : 6);
+                G.npk = 0;
+                reward_drop(RW_HEART, v2(ARENA_CX, ARENA_CY));
+                int hearts = 0;
+                for (int i = 0; i < G.npk; i++) hearts += G.pk[i].type == PK_HEART;
+                diff_ok = diff_ok && hearts == bombs; /* (2 of each to start with: the same count) */
+                G.npk = 0;
+                reward_drop(RW_KEY, v2(ARENA_CX, ARENA_CY));
+                int keys = 0;
+                for (int i = 0; i < G.npk; i++) keys += G.pk[i].type == PK_KEY;
+                diff_ok = diff_ok && keys >= 2;
+                G.npk = 0;
+                reward_drop(RW_COINS, v2(ARENA_CX, ARENA_CY));
+                int coins = 0;
+                for (int i = 0; i < G.npk; i++) coins += G.pk[i].type == PK_COIN;
+                diff_ok = diff_ok && coins >= (int)(17.0f * (lv == 1 ? 1.5f : lv == 2 ? 2.0f : lv == 3 ? 2.5f : 3.0f));
+                G.npk = 0;
+            }
+            FIRST_WAVE(MOD_BIT(MOD_IMPOSSIBLE) | MOD_BIT(MOD_HARD)); /* the highest one counts */
+            diff_ok = diff_ok && room_difficulty() == 4 && G.room.nwaves == normal_waves + 4;
+            FIRST_WAVE(MOD_BIT(MOD_IMPOSSIBLE) | MOD_BIT(MOD_HORDE)); /* a horde stays one wave, a bigger one */
+            diff_ok = diff_ok && G.room.nwaves == 1 && G.room.last_wave_size * 10 >= normal * 16;
+            FIRST_WAVE(0);
+            G.npk = 0;
+            reward_drop(RW_BOMBS, v2(ARENA_CX, ARENA_CY));
+            diff_ok = diff_ok && G.npk == 2; /* (no modifier: the plain 2 bombs) */
+            G.npk = 0;
+
             /* Powder keg: barrels and oil drums (a few crates), many of them. */
             game_init(o->seed);
             game_new_run();
@@ -3034,10 +3085,10 @@ static int debug_rooms_run(const HeadlessOptions *o) {
 #undef FIRST_WAVE
             G.god = false;
             printf("scripted room modifiers: on doors (all met, wager on combat rooms only, one at most, none on the boss's; mixes kept where allowed) -> %s, wager: a heart in, refused on the last one, "
-                   "two rows -> %s, horde -> %s, elite -> %s, powder keg -> %s, storm -> %s, compactor -> %s\n",
+                   "two rows -> %s, horde -> %s, elite -> %s, powder keg -> %s, storm -> %s, compactor -> %s, difficulty levels: waves, size, loot -> %s\n",
                    doors_mod_ok ? "OK" : "FAILED", wager_ok ? "OK" : "FAILED", horde_ok ? "OK" : "FAILED", elite_ok ? "OK" : "FAILED",
-                   powder_ok ? "OK" : "FAILED", storm_ok ? "OK" : "FAILED", comp_ok ? "OK" : "FAILED");
-            failures += !doors_mod_ok + !wager_ok + !horde_ok + !elite_ok + !powder_ok + !storm_ok + !comp_ok;
+                   powder_ok ? "OK" : "FAILED", storm_ok ? "OK" : "FAILED", comp_ok ? "OK" : "FAILED", diff_ok ? "OK" : "FAILED");
+            failures += !doors_mod_ok + !wager_ok + !horde_ok + !elite_ok + !powder_ok + !storm_ok + !comp_ok + !diff_ok;
         }
 
         /* R held RESTART_HOLD_T in a run: a new run with the same ship; a short press does nothing; holding on

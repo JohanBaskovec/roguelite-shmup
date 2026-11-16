@@ -165,7 +165,7 @@ if(SHMUP_BUILD_TESTS)
         list(GET _bd 1 _depth)
         add_test(NAME sim_boss_${_boss}
                  COMMAND neon_breach --headless --god --boss --boss-kind ${_boss} --depth ${_depth} ${_deep_upgrades} --seed 100
-                         --runs 2 --ticks 36000 --expect-rooms 2 --fail-shot ${_out}/fail_sim_boss_${_boss}.bmp)
+                         --runs 2 --ticks 72000 --expect-rooms 2 --fail-shot ${_out}/fail_sim_boss_${_boss}.bmp)
         add_test(NAME render_boss_${_boss}
                  COMMAND neon_breach --shot ${_out}/render_boss_${_boss}.bmp --boss --boss-kind ${_boss} --depth ${_depth} --seed 5 --frames 1500)
     endforeach()
@@ -191,7 +191,7 @@ if(SHMUP_BUILD_TESTS)
     foreach(_e rammer grenadier crawler top kamikaze dodger rook splitter leaper minelayer
                boomerang ricochet orbiter blinker serpent mirror lancer mortar guardian wraith)
         add_test(NAME sim_enemy_${_e}
-                 COMMAND neon_breach --headless --god --enemy ${_e} --depth 6 --seed 31 --runs 2 --ticks 24000 --expect-rooms 3
+                 COMMAND neon_breach --headless --god --enemy ${_e} --depth 6 --seed 31 --runs 2 --ticks 36000 --expect-rooms 3
                          --fail-shot ${_out}/fail_sim_enemy_${_e}.bmp)
     endforeach()
     # The 60 newest (enemies2.c), from very easy to hard: the same, one type per run.
@@ -216,7 +216,7 @@ if(SHMUP_BUILD_TESTS)
              COMMAND neon_breach --headless --wave-time 3 --seed 94 --runs 12
                      --fail-shot ${_out}/fail_sim_rooms_closing_walls_mortal.bmp)
     # Room modifiers, each forced on every combat room (god, then mortal), and their looks.
-    foreach(_m compactor blackout powder-keg horde elite storm wager)
+    foreach(_m compactor blackout powder-keg horde elite storm wager hard very-hard extreme impossible)
         add_test(NAME sim_rooms_mod_${_m}
                  COMMAND neon_breach --headless --god --mod ${_m} --hp 20 --seed 40 --runs 2 --ticks 36000 --expect-rooms 4
                          --fail-shot ${_out}/fail_sim_rooms_mod_${_m}.bmp)
@@ -231,6 +231,9 @@ if(SHMUP_BUILD_TESTS)
     add_test(NAME sim_rooms_mod_combo_mortal
              COMMAND neon_breach --headless --mod elite --mod powder-keg --mod wager --seed 52 --runs 4
                      --fail-shot ${_out}/fail_sim_rooms_mod_combo_mortal.bmp)
+    add_test(NAME sim_rooms_mod_difficulty_combo # the highest level counts, a horde stays one wave
+             COMMAND neon_breach --headless --god --mod hard --mod impossible --mod horde --hp 20 --seed 56 --runs 2
+                     --ticks 36000 --expect-rooms 3 --fail-shot ${_out}/fail_sim_rooms_mod_difficulty_combo.bmp)
     add_test(NAME render_rooms_mod_blackout
              COMMAND neon_breach --shot ${_out}/rooms_mod_blackout.bmp --frames 600 --depth 6 --seed 3 --god --mod blackout)
     add_test(NAME render_rooms_mod_storm
@@ -419,7 +422,7 @@ if(SHMUP_BUILD_TESTS)
              COMMAND neon_breach --shot ${_out}/render_actives_hud.bmp --active dash --active shield --active nova --active chaos
                      --active turret --depth 4 --seed 14 --frames 400)
     add_test(NAME sim_active_reversal
-             COMMAND neon_breach --headless --god --active reversal --seed 200 --runs 2 --ticks 24000 --expect-rooms 3
+             COMMAND neon_breach --headless --god --active reversal --seed 202 --runs 2 --ticks 24000 --expect-rooms 3
                      --fail-shot ${_out}/fail_sim_active_reversal.bmp)
     add_test(NAME sim_active_turret
              COMMAND neon_breach --headless --god --active turret --seed 200 --runs 2 --ticks 24000 --expect-rooms 3

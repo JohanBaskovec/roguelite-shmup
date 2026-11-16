@@ -187,22 +187,23 @@ void reward_drop(RewardType r, V2 pos) {
         /* Coins only come from rewards, so a coin room pays roughly one shop item. */
         float base = (float)irand(13, 18) + (float)G.room.depth * 0.55f;
         if (upg_has(UPG_MAGNET)) base *= 1.5f; /* COIN MAGNET */
-        int n = (int)roundf(base * luck_factor());
+        int n = difficulty_reward_count((int)roundf(base * luck_factor()));
         for (int i = 0; i < n; i++) pickup_spawn(PK_COIN, 1, pos, random_vel(100.0f, 450.0f));
     } break;
     case RW_KEY: {
         /* Usually one key, rarely two, even more rarely three. */
         float roll = frand(0.0f, 1.0f);
-        int n = luck_adjust(roll < KEY_REWARD_3_CHANCE ? 3 : roll < KEY_REWARD_3_CHANCE + KEY_REWARD_2_CHANCE ? 2 : 1);
+        int n = difficulty_reward_count(luck_adjust(roll < KEY_REWARD_3_CHANCE ? 3 : roll < KEY_REWARD_3_CHANCE + KEY_REWARD_2_CHANCE ? 2 : 1));
         for (int i = 0; i < n; i++) pickup_spawn(PK_KEY, 0, pos, random_vel(50.0f, 160.0f));
     } break;
     case RW_BOMBS: {
-        int n = luck_adjust(2);
+        int n = difficulty_reward_count(luck_adjust(2));
         for (int i = 0; i < n; i++) pickup_spawn(PK_BOMB, 0, pos, random_vel(100.0f, 250.0f));
     } break;
     case RW_HEART: {
         int n = luck_adjust(2) - malus(MAL_HEAL); /* HEAL malus: fewer hearts, at least one */
         if (n < 1) n = 1;
+        n = difficulty_reward_count(n);
         for (int i = 0; i < n; i++) pickup_spawn(PK_HEART, 0, pos, random_vel(100.0f, 250.0f));
     } break;
     case RW_UPGRADE: spawn_item_choices(pos); break;
