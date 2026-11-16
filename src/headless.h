@@ -33,6 +33,8 @@ typedef struct {
     bool toggle_upgrades; /* the bot keeps turning random upgrades off and on; fail if it never does */
     int expect_rooms;  /* fail if a run clears fewer rooms than this */
     const char *fail_shot; /* if set, render the failing frame offscreen into this BMP */
+    int argc;          /* the command line, to print the command replaying a failed run alone */
+    const char *const *argv;
 } HeadlessOptions;
 
 int headless_run(const HeadlessOptions *o);

@@ -76,6 +76,25 @@
       }
     },
     {
+      "name": "quick",
+      "displayName": "Quick check (release, label quick)",
+      "configurePreset": "release",
+      "environment": {
+        "NEON_TICK_SCALE": "0.4"
+      },
+      "filter": {
+        "include": {
+          "label": "quick"
+        }
+      },
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "jobs": 8
+      }
+    },
+    {
       "name": "asan",
       "configurePreset": "asan",
       "environment": {

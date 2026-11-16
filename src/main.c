@@ -150,6 +150,7 @@ static void parse_args(int argc, char **argv, Options *o) {
         else if (!strcmp(a, "--runs") && more) o->runs = atoi(argv[++i]);
         else if (!strcmp(a, "--expect-rooms") && more) o->expect_rooms = atoi(argv[++i]);
         else if (!strcmp(a, "--bot")) o->bot = true;
+        else if (!strcmp(a, "--trace-bot") && more) bot_trace_from(atoi(argv[++i])); /* per tick, from tick N of each run */
         else if (!strcmp(a, "--god")) o->god = true;
         else if (!strcmp(a, "--novsync")) o->novsync = true;
     }
@@ -285,6 +286,7 @@ int main(int argc, char **argv) {
             .shop_room = opt.shop_room, .coins = opt.coins, .debug_rooms = opt.debug_rooms, .secret = opt.secret,
             .all_upgrades = opt.all_upgrades, .hp = opt.hp, .character = opt.character, .workshop_room = opt.workshop_room, .boss_room = opt.boss_room,
             .actives = opt.actives, .active_room = opt.active_room, .weapons = opt.weapons, .upgrades = opt.upgrades, .nupgrades = opt.nupgrades, .toggle_upgrades = opt.toggle_upgrades, .god = opt.god, .expect_rooms = opt.expect_rooms, .fail_shot = opt.fail_shot,
+            .argc = argc, .argv = (const char *const *)argv,
         };
         return headless_run(&h);
     }

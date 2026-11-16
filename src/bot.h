@@ -8,5 +8,9 @@
  * room reward and walks through the first door it can open.
  */
 void bot_input(void);
+/* Forgets everything carried over from earlier ticks (call at the start of every run). */
+void bot_reset(void);
+/* --trace-bot TICK: prints what the bot sees and decides on every tick from TICK on (-1: off). */
+void bot_trace_from(int tick);
 
 #endif

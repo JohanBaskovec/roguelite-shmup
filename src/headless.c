@@ -1988,6 +1988,26 @@ static int debug_rooms_run(const HeadlessOptions *o) {
     return failures ? 1 : 0;
 }
 
+/* The command replaying only this run: same options, its own seed, one run (the bot starts afresh
+ * every run, so it plays the same), plus a bot trace over the last 2 s before the failure. */
+static void print_repro(const HeadlessOptions *o, uint64_t seed, int fail_tick) {
+    if (!o->argv) return;
+    printf("  replay it alone:");
+    const char *scale = getenv("NEON_TICK_SCALE");
+    if (scale && atof(scale) > 0.0 && atof(scale) < 1.0) printf(" NEON_TICK_SCALE=%s", scale);
+    for (int i = 0; i < o->argc; i++) {
+        const char *a = o->argv[i];
+        if (i > 0 && (!strcmp(a, "--seed") || !strcmp(a, "--runs") || !strcmp(a, "--trace-bot")) && i + 1 < o->argc) {
+            i++;
+            continue;
+        }
+        printf(" %s", a);
+    }
+    printf(" --seed %llu", (unsigned long long)seed);
+    if (fail_tick >= 0) printf(" --trace-bot %d", fail_tick > 240 ? fail_tick - 240 : 0);
+    printf("\n");
+}
+
 int headless_run(const HeadlessOptions *o) {
 
     if (o->debug_rooms) return debug_rooms_run(o);
@@ -1999,6 +2019,7 @@ int headless_run(const HeadlessOptions *o) {
 
     for (int run = 0; run < runs; run++) {
         uint64_t seed = o->seed + (uint64_t)run;
+        int failures_before = failures;
         game_init(seed);
         G.god = o->god;
         G.force_secret = o->secret;
@@ -2166,7 +2187,8 @@ int headless_run(const HeadlessOptions *o) {
             printf("  invariant violated at tick %d: %s\n", tick, err);
             if (o->fail_shot && failures == 0) save_failure_shot(o->fail_shot);
             failures++;
-        } else if (o->shop_room && o->coins >= 30 && G.items_bought == 0) {
+        }
+ else if (o->shop_room && o->coins >= 30 && G.items_bought == 0) {
             printf("  started in a shop with %d coins but never bought anything\n", G.pl.coins);
             failures++;
         } else if (o->boss_room && bosses_beaten == 0) {
@@ -2191,6 +2213,7 @@ int headless_run(const HeadlessOptions *o) {
             printf("  expected at least %d cleared rooms\n", o->expect_rooms);
             failures++;
         }
+        if (failures > failures_before) print_repro(o, seed, err ? tick : -1);
         best = G.rooms_cleared > best ? G.rooms_cleared : best;
         sum_rooms += G.rooms_cleared;
     }

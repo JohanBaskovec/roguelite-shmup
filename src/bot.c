@@ -2,8 +2,41 @@
 
 #include "game.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #define THREAT_RADIUS 150.0f
 #define NAV_MARGIN (PLAYER_BODY_R + 22.0f)
+
+/* Everything the bot remembers from one tick to the next (caches, commitments, timers). Wiped by
+ * bot_reset() at the start of every run, so a run plays the same alone or inside a batch. */
+static struct {
+    struct { V2 cached, at; int uid, room; float t; } vp;                    /* vantage_point */
+    struct { V2 cached, from; int room, nobs, idx; bool found; } hs;         /* hazard_spot */
+    struct { V2 ref; float t, last_clear_t; int room, give_ups; } door;     /* door given up */
+    struct { V2 at; float t; } roam;                                          /* roaming */
+    struct { V2 next, goal; float since; int room, nobs; bool reach; } nav; /* path finder */
+    struct { V2 spot; float t; int h, room; } commit;                         /* barrel shot */
+    struct { int h, room; } last_h;                                           /* drum picked */
+    struct { V2 ref, side; float still, slip; int room; } slip;              /* unstick */
+    int trace_from;                                                           /* --trace-bot */
+} B = {.trace_from = -1};
+
+void bot_reset(void) {
+    int trace_from = B.trace_from;
+    memset(&B, 0, sizeof B);
+    B.trace_from = trace_from;
+    B.vp.uid = B.vp.room = -1;
+    B.hs.room = B.hs.nobs = B.hs.idx = -1;
+    B.door.room = -1;
+    B.roam.t = -1.0f;
+    B.nav.room = B.nav.nobs = -1;
+    B.commit.h = B.commit.room = -1;
+    B.last_h.h = B.last_h.room = -1;
+    B.slip.room = -1;
+}
+
+void bot_trace_from(int tick) { B.trace_from = tick; }
 
 /* Obstacles only (not the arena walls, which the bot must walk into to take a door). */
 static bool hits_obstacle(V2 p, float r) {
@@ -65,14 +98,10 @@ static bool shot_clear(V2 from, const Enemy *e) {
 /* Somewhere to shoot e from: free floor with a clear line of fire (and no barrel / oil drum close
  * in the way), not too close nor too far, as near the ship as possible. e->pos if none. */
 static V2 vantage_point(const Enemy *e, V2 ship) {
-    static V2 cached;
-    static int uid = -1;
-    static int room = -1;
-    static float t;
-    static V2 at;
-    if (e->uid == uid && G.room.id == room && G.time - t < 0.5f && G.time >= t && v2_dist2(e->pos, at) < 80.0f * 80.0f) return cached;
-    uid = e->uid, room = G.room.id, t = G.time, at = e->pos;
-    cached = e->pos;
+    if (e->uid == B.vp.uid && G.room.id == B.vp.room && G.time - B.vp.t < 0.5f && G.time >= B.vp.t && v2_dist2(e->pos, B.vp.at) < 80.0f * 80.0f)
+        return B.vp.cached;
+    B.vp.uid = e->uid, B.vp.room = G.room.id, B.vp.t = G.time, B.vp.at = e->pos;
+    V2 cached = e->pos;
     float best = 1e30f;
     for (float y = ARENA_Y0 + GRID * 0.5f; y < ARENA_Y1; y += GRID)
         for (float x = ARENA_X0 + GRID * 0.5f; x < ARENA_X1; x += GRID) {
@@ -86,25 +115,23 @@ static V2 vantage_point(const Enemy *e, V2 ship) {
                 cached = c;
             }
         }
-    return cached;
+    return B.vp.cached = cached;
 }
 
 /* Where to shoot barrel / oil drum `h` from: free floor out of its reach, with a clear shot at it
  * (nothing else in the way), as close to the ship as possible. False if none within reach of the
  * ship (a tight pocket). */
 static bool hazard_spot(int h, V2 ship, V2 *out) {
-    static int room = -1, nobs = -1, idx = -1;
-    static bool found;
-    static V2 cached, from;
-    if (G.room.id == room && G.room.nobs == nobs && h == idx && v2_dist2(ship, from) < 40.0f * 40.0f) {
-        *out = cached;
-        return found;
+    if (G.room.id == B.hs.room && G.room.nobs == B.hs.nobs && h == B.hs.idx && v2_dist2(ship, B.hs.from) < 40.0f * 40.0f) {
+        *out = B.hs.cached;
+        return B.hs.found;
     }
-    room = G.room.id, nobs = G.room.nobs, idx = h, from = ship;
+    B.hs.room = G.room.id, B.hs.nobs = G.room.nobs, B.hs.idx = h, B.hs.from = ship;
+    V2 cached = ship;
+    bool found = false;
     const Obstacle *o = &G.room.obs[h];
     V2 hc = v2(o->r.x + o->r.w * 0.5f, o->r.y + o->r.h * 0.5f);
     float reach = hazard_reach(o) + 15.0f, best = 1e30f;
-    found = false;
     for (float y = ARENA_Y0 + GRID * 0.5f; y < ARENA_Y1; y += GRID)
         for (float x = ARENA_X0 + GRID * 0.5f; x < ARENA_X1; x += GRID) {
             V2 c = v2(x, y);
@@ -128,8 +155,9 @@ static bool hazard_spot(int h, V2 ship, V2 *out) {
             cached = c;
             found = true;
         }
+    B.hs.cached = cached;
     *out = cached;
-    return found;
+    return B.hs.found = found;
 }
 
 void bot_input(void) {
@@ -279,23 +307,19 @@ void bot_input(void) {
     } else if (G.room.cleared) {
         /* Pick the most valuable door it can open. A door it cannot reach (no progress for
          * 3 s, e.g. a path that flips back and forth through a tight gap) is given up. */
-        static int stuck_room = -1;
-        static float stuck_t, last_clear_t;
-        static V2 stuck_ref;
-        static int give_ups;
-        if (G.room.id != stuck_room || G.room.clear_t < last_clear_t) {
-            stuck_room = G.room.id;
-            stuck_t = 0.0f;
-            stuck_ref = pl->pos;
-            give_ups = 0;
+        if (G.room.id != B.door.room || G.room.clear_t < B.door.last_clear_t) {
+            B.door.room = G.room.id;
+            B.door.t = 0.0f;
+            B.door.ref = pl->pos;
+            B.door.give_ups = 0;
         }
-        last_clear_t = G.room.clear_t;
-        if (v2_dist2(pl->pos, stuck_ref) > 60.0f * 60.0f) {
-            stuck_ref = pl->pos;
-            stuck_t = 0.0f;
-        } else if (G.room.clear_t > DOORS_AT + 0.6f && (stuck_t += DT) > 3.0f) {
-            stuck_t = 0.0f;
-            give_ups++; /* next best door */
+        B.door.last_clear_t = G.room.clear_t;
+        if (v2_dist2(pl->pos, B.door.ref) > 60.0f * 60.0f) {
+            B.door.ref = pl->pos;
+            B.door.t = 0.0f;
+        } else if (G.room.clear_t > DOORS_AT + 0.6f && (B.door.t += DT) > 3.0f) {
+            B.door.t = 0.0f;
+            B.door.give_ups++; /* next best door */
         }
         int pick = 0, scores[MAX_DOORS];
         for (int i = 0; i < G.room.ndoors; i++) {
@@ -315,7 +339,7 @@ void bot_input(void) {
         /* The (give_ups)-th best door it can open. */
         int eligible = 0;
         for (int i = 0; i < G.room.ndoors; i++) eligible += scores[i] >= 0;
-        for (int rank = 0, skip = eligible ? give_ups % eligible : 0, taken = 0; rank <= skip; rank++) {
+        for (int rank = 0, skip = eligible ? B.door.give_ups % eligible : 0, taken = 0; rank <= skip; rank++) {
             int best = -1;
             for (int i = 0; i < G.room.ndoors; i++)
                 if (scores[i] >= 0 && !(taken & (1 << i)) && (best < 0 || scores[i] > scores[best])) best = i;
@@ -347,19 +371,17 @@ void bot_input(void) {
     }
     /* Its shots have hit nothing for a long while (an odd corner of the layout): roam somewhere else. */
     if (!G.room.cleared && G.nen > 0 && G.time - G.last_enemy_damage_t > 15.0f && !melee) {
-        static V2 roam;
-        static float roam_t = -1.0f;
-        if (G.time - roam_t > 3.0f || G.time < roam_t) {
-            roam_t = G.time;
+        if (G.time - B.roam.t > 3.0f || G.time < B.roam.t) {
+            B.roam.t = G.time;
             /* a spot to shoot one of them (each in turn) from, or just somewhere it can get to */
             const Enemy *e = &G.en[irand(0, G.nen - 1)];
-            roam = vantage_point(e, pl->pos);
-            for (int k = 0; k < 20 && v2_dist2(roam, e->pos) < 1.0f; k++) {
+            B.roam.at = vantage_point(e, pl->pos);
+            for (int k = 0; k < 20 && v2_dist2(B.roam.at, e->pos) < 1.0f; k++) {
                 V2 p = v2(frand(ARENA_X0 + 100.0f, ARENA_X1 - 100.0f), frand(ARENA_Y0 + 100.0f, ARENA_Y1 - 100.0f));
-                if (!hits_obstacle(p, NAV_MARGIN + 10.0f)) roam = p;
+                if (!hits_obstacle(p, NAV_MARGIN + 10.0f)) B.roam.at = p;
             }
         }
-        goal = roam;
+        goal = B.roam.at;
         masked_by = -1;
     }
     /* Nothing to shoot but behind a barrel / oil drum close by: somewhere it can be shot from
@@ -378,47 +400,40 @@ void bot_input(void) {
     /* The way is blocked: plan through the breakable blocks and shoot (or slash) the first one on it. */
     /* Worked out again every few ticks, or when the goal moved / the waypoint is reached (rooms
      * full of blocks make the path finder costly). */
-    static V2 nav_next, nav_goal;
-    static bool nav_reach;
-    static int nav_room = -1, nav_nobs = -1;
-    if (G.room.id != nav_room || G.room.nobs != nav_nobs || G.ticks % 4 == 0 || v2_dist2(goal, nav_goal) > 30.0f * 30.0f ||
-        v2_dist2(pl->pos, nav_next) < 10.0f * 10.0f) {
-        bool was_reach = nav_reach, same = G.room.id == nav_room && G.room.nobs == nav_nobs && v2_dist2(goal, nav_goal) < 30.0f * 30.0f;
-        V2 old = nav_next;
-        nav_reach = true;
-        nav_next = room_navigate_ex(pl->pos, goal, NAV_MARGIN, false, &nav_reach);
-        if (!nav_reach) nav_next = room_navigate_ex(pl->pos, goal, NAV_MARGIN, true, NULL);
+    if (G.room.id != B.nav.room || G.room.nobs != B.nav.nobs || G.ticks % 4 == 0 || v2_dist2(goal, B.nav.goal) > 30.0f * 30.0f ||
+        v2_dist2(pl->pos, B.nav.next) < 10.0f * 10.0f) {
+        bool was_reach = B.nav.reach, same = G.room.id == B.nav.room && G.room.nobs == B.nav.nobs && v2_dist2(goal, B.nav.goal) < 30.0f * 30.0f;
+        V2 old = B.nav.next;
+        B.nav.reach = true;
+        B.nav.next = room_navigate_ex(pl->pos, goal, NAV_MARGIN, false, &B.nav.reach);
+        if (!B.nav.reach) B.nav.next = room_navigate_ex(pl->pos, goal, NAV_MARGIN, true, NULL);
         /* Two ways round of about the same length: the best one can flip as the ship moves (narrow
          * corridors), leaving it dithering. Stick to the waypoint taken while it is still in sight. */
-        static float nav_since;
-        if (same && was_reach && nav_reach && v2_dist2(old, nav_next) > 60.0f * 60.0f && v2_dist2(pl->pos, old) > 10.0f * 10.0f &&
-            G.time - nav_since < 3.0f && G.time >= nav_since && room_line_clear(pl->pos, old, PLAYER_BODY_R + 2.0f))
-            nav_next = old;
-        else if (v2_dist2(old, nav_next) > 1.0f)
-            nav_since = G.time;
-        nav_goal = goal;
-        nav_room = G.room.id;
-        nav_nobs = G.room.nobs;
+        if (same && was_reach && B.nav.reach && v2_dist2(old, B.nav.next) > 60.0f * 60.0f && v2_dist2(pl->pos, old) > 10.0f * 10.0f &&
+            G.time - B.nav.since < 3.0f && G.time >= B.nav.since && room_line_clear(pl->pos, old, PLAYER_BODY_R + 2.0f))
+            B.nav.next = old;
+        else if (v2_dist2(old, B.nav.next) > 1.0f)
+            B.nav.since = G.time;
+        B.nav.goal = goal;
+        B.nav.room = G.room.id;
+        B.nav.nobs = G.room.nobs;
     }
-    V2 next = nav_next;
-    int dig = nav_reach ? -1 : room_block_between(pl->pos, next, NAV_MARGIN);
+    V2 next = B.nav.next;
+    int dig = B.nav.reach ? -1 : room_block_between(pl->pos, next, NAV_MARGIN);
     bool edge_shot = false; /* cornered: shooting a barrel / drum from just outside its reach */
     V2 dir = v2_norm(v2_sub(next, pl->pos));
     /* Committed to shooting a barrel / oil drum from a safe spot: go there, then shoot it (the way
      * round changes as the ship moves, it would otherwise dither in and out of its reach). */
-    static int commit_h = -1, commit_room = -1;
-    static V2 commit_spot;
-    static float commit_t;
-    if (commit_h >= 0 && (commit_room != G.room.id || commit_h >= G.room.nobs || !obstacle_solid(&G.room.obs[commit_h]) ||
-                          (G.room.obs[commit_h].kind != OB_BARREL && G.room.obs[commit_h].kind != OB_OIL) ||
-                          G.time - commit_t > 5.0f || G.time < commit_t || melee || (t && !G.room.cleared)))
-        commit_h = -1;
-    if (commit_h >= 0) {
-        const Obstacle *o = &G.room.obs[commit_h];
+    if (B.commit.h >= 0 && (B.commit.room != G.room.id || B.commit.h >= G.room.nobs || !obstacle_solid(&G.room.obs[B.commit.h]) ||
+                          (G.room.obs[B.commit.h].kind != OB_BARREL && G.room.obs[B.commit.h].kind != OB_OIL) ||
+                          G.time - B.commit.t > 5.0f || G.time < B.commit.t || melee || (t && !G.room.cleared)))
+        B.commit.h = -1;
+    if (B.commit.h >= 0) {
+        const Obstacle *o = &G.room.obs[B.commit.h];
         V2 hc = v2(o->r.x + o->r.w * 0.5f, o->r.y + o->r.h * 0.5f);
         in->mouse = hc;
-        if (v2_dist2(pl->pos, commit_spot) > 20.0f * 20.0f) {
-            dir = v2_norm(v2_sub(room_navigate_ex(pl->pos, commit_spot, PLAYER_BODY_R + 4.0f, false, NULL), pl->pos));
+        if (v2_dist2(pl->pos, B.commit.spot) > 20.0f * 20.0f) {
+            dir = v2_norm(v2_sub(room_navigate_ex(pl->pos, B.commit.spot, PLAYER_BODY_R + 4.0f, false, NULL), pl->pos));
             in->fire = false;
         } else {
             in->fire = true;
@@ -431,13 +446,12 @@ void bot_input(void) {
         SDL_FRect br = G.room.obs[dig].r;
         int h = melee ? -1 : hazard_in_aim(pl->pos, v2(br.x + br.w * 0.5f, br.y + br.h * 0.5f));
         /* Between two drums side by side the nearest one flips: keep the one picked. */
-        static int last_h = -1, last_h_room = -1;
-        if (h >= 0 && last_h >= 0 && last_h != h && last_h_room == G.room.id && last_h < G.room.nobs &&
-            obstacle_solid(&G.room.obs[last_h]) && (G.room.obs[last_h].kind == OB_BARREL || G.room.obs[last_h].kind == OB_OIL)) {
-            const Obstacle *lo = &G.room.obs[last_h];
-            if (v2_dist(pl->pos, v2(lo->r.x + lo->r.w * 0.5f, lo->r.y + lo->r.h * 0.5f)) < hazard_reach(lo) + 80.0f) h = last_h;
+        if (h >= 0 && B.last_h.h >= 0 && B.last_h.h != h && B.last_h.room == G.room.id && B.last_h.h < G.room.nobs &&
+            obstacle_solid(&G.room.obs[B.last_h.h]) && (G.room.obs[B.last_h.h].kind == OB_BARREL || G.room.obs[B.last_h.h].kind == OB_OIL)) {
+            const Obstacle *lo = &G.room.obs[B.last_h.h];
+            if (v2_dist(pl->pos, v2(lo->r.x + lo->r.w * 0.5f, lo->r.y + lo->r.h * 0.5f)) < hazard_reach(lo) + 80.0f) h = B.last_h.h;
         }
-        if (h >= 0) dig = h, last_h = h, last_h_room = G.room.id;
+        if (h >= 0) dig = h, B.last_h.h = h, B.last_h.room = G.room.id;
         const Obstacle *bo = &G.room.obs[dig];
         br = bo->r;
         V2 bc = v2(br.x + br.w * 0.5f, br.y + br.h * 0.5f);
@@ -454,7 +468,7 @@ void bot_input(void) {
                     V2 to = v2_sub(spot, pl->pos);
                     dir = v2_len2(to) > 1.0f ? v2_norm(v2_sub(room_navigate_ex(pl->pos, spot, PLAYER_BODY_R + 4.0f, false, NULL), pl->pos)) : dir;
                     in->fire = false;
-                    commit_h = dig, commit_room = G.room.id, commit_spot = spot, commit_t = G.time;
+                    B.commit.h = dig, B.commit.room = G.room.id, B.commit.spot = spot, B.commit.t = G.time;
                 } else if (pl->bombs > 0 && bd < hazard_reach(bo)) {
                     in->bomb_pressed = true;
                     in->fire = false;
@@ -605,20 +619,17 @@ void bot_input(void) {
 
     /* Not moving at all while trying to (pinned in a corner, pushed back): slip sideways a moment. */
     {
-        static V2 ref, side;
-        static float still, slip;
-        static int room = -1;
-        if (G.room.id != room) room = G.room.id, ref = pl->pos, still = slip = 0.0f;
+        if (G.room.id != B.slip.room) B.slip.room = G.room.id, B.slip.ref = pl->pos, B.slip.still = B.slip.slip = 0.0f;
         bool trying = v2_len2(dir) > 0.25f && v2_dist2(pl->pos, next) > 24.0f * 24.0f && !G.transitioning;
-        if (!trying || v2_dist2(pl->pos, ref) > 24.0f * 24.0f) ref = pl->pos, still = 0.0f;
-        else if ((still += DT) > 1.2f) {
-            still = 0.0f;
-            slip = 0.6f;
-            side = v2_scale(v2_perp(v2_norm(dir)), chance(0.5f) ? 1.0f : -1.0f);
+        if (!trying || v2_dist2(pl->pos, B.slip.ref) > 24.0f * 24.0f) B.slip.ref = pl->pos, B.slip.still = 0.0f;
+        else if ((B.slip.still += DT) > 1.2f) {
+            B.slip.still = 0.0f;
+            B.slip.slip = 0.6f;
+            B.slip.side = v2_scale(v2_perp(v2_norm(dir)), chance(0.5f) ? 1.0f : -1.0f);
         }
-        if (slip > 0.0f) {
-            slip -= DT;
-            dir = side;
+        if (B.slip.slip > 0.0f) {
+            B.slip.slip -= DT;
+            dir = B.slip.side;
         }
     }
     /* Keys only give 8 directions. Take the one closest to dir that does not run into an
@@ -638,4 +649,27 @@ void bot_input(void) {
     in->left = q.x < -0.38f;
     in->down = q.y > 0.38f;
     in->up = q.y < -0.38f;
+
+    /* --trace-bot: one line per tick of what it sees and decides (G.ticks = ticks already simulated). */
+    if (B.trace_from >= 0 && (int)G.ticks >= B.trace_from) {
+        printf("bot %d room=%d/%d%s pos=%.0f,%.0f hp=%d/%d goal=%.0f,%.0f next=%.0f,%.0f%s", (int)G.ticks, G.room.id,
+               G.room.depth, G.room.cleared ? "C" : "", (double)pl->pos.x, (double)pl->pos.y, pl->hp, pl->max_hp, (double)goal.x,
+               (double)goal.y, (double)next.x, (double)next.y, B.nav.reach ? "" : " NOPATH");
+        if (dig >= 0) printf(" dig=%d", dig);
+        if (B.commit.h >= 0) printf(" commit=%d@%.0f,%.0f", B.commit.h, (double)B.commit.spot.x, (double)B.commit.spot.y);
+        printf(" dir=%.2f,%.2f key=%s%s%s%s", (double)dir.x, (double)dir.y, in->up ? "U" : "", in->down ? "D" : "", in->left ? "L" : "",
+               in->right ? "R" : "");
+        printf(" fire=%d aim=%.0f,%.0f", in->fire, (double)in->mouse.x, (double)in->mouse.y);
+        if (t) printf(" tgt=%s@%.0f,%.0f", ENEMIES[t->type].name, (double)t->pos.x, (double)t->pos.y);
+        if (hidden) printf(" hid=%s@%.0f,%.0f", ENEMIES[hidden->type].name, (double)hidden->pos.x, (double)hidden->pos.y);
+        if (masked_by >= 0) printf(" masked_by=%d", masked_by);
+        if (overlapped) printf(" OVERLAP");
+        if (edge_shot) printf(" edge_shot");
+        if (B.slip.slip > 0.0f) printf(" slip");
+        if (threats) printf(" threats=%d%s avoid=%.2f,%.2f", threats, imminent ? "!" : "", (double)avoid.x, (double)avoid.y);
+        if (in->active_pressed) printf(" ACTIVE");
+        if (in->bomb_pressed) printf(" BOMB");
+        if (in->interact_pressed) printf(" E");
+        printf(" en=%d eb=%d\n", G.nen, G.neb);
+    }
 }

@@ -54,7 +54,8 @@ endif()
 
 option(SHMUP_SANITIZERS "Build with AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 if(SHMUP_SANITIZERS AND NOT MSVC)
-    target_compile_options(neon_breach PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+    # -O1: the speed ASan is meant to run at (the Debug build type keeps asserts and debug info)
+    target_compile_options(neon_breach PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer -O1)
     target_link_options(neon_breach PRIVATE -fsanitize=address,undefined)
 endif()
 
@@ -343,4 +344,11 @@ if(SHMUP_BUILD_TESTS)
                          render_chakram sim_weapon_scatter sim_weapon_needler sim_weapon_seeker sim_weapon_bouncer
                          sim_toggle_upgrades sim_toggle_all_upgrades render_upgrades_menu
                          sim_debug_teleports render_debug_menu render_stats_room render_stats_overlay render_offscreen sfx_synthesis PROPERTIES TIMEOUT 600)
+    # "quick": one test per area (rooms, characters, boss, workshop, actives, weapon mods, layouts,
+    # rendering, sound), ~5 s with the quick test preset (NEON_TICK_SCALE=0.4). For small edits only: the full suite stays
+    # the step before a commit.
+    set_tests_properties(sim_debug_teleports sim_god_seed1 sim_knight_mortal sim_all_upgrades sim_stats_rooms sim_shop_rooms
+                         sim_secret_rooms sim_workshop sim_boss sim_active_rooms sim_active_multi sim_knight sim_shotgunner
+                         sim_toggle_upgrades sim_dense_blocks sim_enemies_knight sim_weapon_laser render_offscreen
+                         render_stats_room sfx_synthesis PROPERTIES LABELS quick)
 endif()

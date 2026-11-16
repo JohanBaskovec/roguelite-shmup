@@ -139,13 +139,15 @@ the `--debug-rooms` test too.
 
 ```sh
 cmake --preset release && cmake --build --preset release -j
+ctest --preset quick              # ~4 s: label "quick", one test per area, simulations at 40%
 ctest --preset release            # ~35 s
-cmake --preset asan && cmake --build --preset asan -j && ctest --preset asan   # ASan + UBSan, ~3 min
+cmake --preset asan && cmake --build --preset asan -j && ctest --preset asan   # ASan + UBSan, ~1 min
 ```
 
 - The build must stay free of compiler warnings (`-Wall -Wextra`).
-- Run both the release and asan test suites before committing gameplay changes. While iterating, run only the
-  release suite (or the tests concerned); the asan suite runs once, before the commit, in the background.
+- Run both the release and asan test suites before committing gameplay changes. While iterating, run the quick
+  preset, the release suite or the tests concerned; the asan suite runs once, before the commit, in the background.
+  The asan build is `-O1` (Debug keeps asserts and debug info).
 - Don't pass `-j` to ctest: the presets already use the 8 cores.
 - The asan preset sets `NEON_TICK_SCALE=0.5` (simulations and their expected rooms halved; `sim_mortal_runs*`
   and `sim_deep_rooms` keep their full length, set in `CMakeLists.txt`). `--shot` draws one frame in 8 plus the
@@ -160,6 +162,10 @@ Do not launch the game in a real window to test it. Use:
   driven by the autopilot in `src/bot.c`, invariants checked every tick. Add `--fail-shot f.bmp`
   to get an offscreen render of the failing frame. `--toggle-upgrades` makes the bot turn random
   upgrades off / on (the bot also turns a weapon mod off by itself when its shots hit nothing for 10 s).
+  Every run is reproducible on its own: the bot keeps its state in `B` (`bot.c`), wiped by `bot_reset()` at each
+  `game_init` / `game_new_run` - any new bot memory goes there, never in a `static` local. A failed run prints
+  the command replaying it alone (`replay it alone: ... --seed S --trace-bot T`). `--trace-bot TICK` prints one
+  line per tick from TICK on (position, goal, path waypoint, digging, keys, fire / aim, target, threats...).
 - `neon_breach --shot out.bmp --frames N [...]` — offscreen render (SDL offscreen driver; simulates every
   frame, draws one in 8).
 - `neon_breach --dump-sfx DIR` — writes every synthesized sound as WAV.

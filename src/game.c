@@ -1,6 +1,7 @@
 #include "game.h"
 
 #include "audio.h"
+#include "bot.h"
 #include "draw.h"
 
 #include <string.h>
@@ -26,6 +27,7 @@ void game_init(uint64_t seed) {
     player_init();
     G.entry_side = SIDE_BOTTOM;
     room_enter(ROOM_START, RW_NONE, 0);
+    bot_reset();
 }
 
 void game_new_run(void) {
@@ -41,6 +43,7 @@ void game_new_run(void) {
     G.transitioning = false;
     G.gameover_t = 0.0f;
     G.demo = false; /* the menu's demo run is wiped */
+    bot_reset();     /* the autopilot too (headless, --shot): a run plays the same alone or in a batch */
     G.entry_side = SIDE_BOTTOM; /* the launch bay: in from the bottom */
     room_enter(ROOM_START, RW_NONE, 0);
     G.state = GS_PLAYING;
