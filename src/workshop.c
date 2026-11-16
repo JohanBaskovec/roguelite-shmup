@@ -5,15 +5,18 @@
 #include <string.h>
 
 /*
- * Workshop: like every room it starts full of enemies; once cleared it offers
- *  - the SUPPLY PRESS: half a heart of damage for coins, a bomb or a key (a few uses),
- *  - the AUGMENT pads: exclusive upgrades paid with 1, 2 or 3 heart containers
- *    (the more hearts, the stronger; take one, the others vanish - PK_AUGMENT pickups),
- *  - the SLOT MACHINE: bet GAMBLE_COST coins for a chance to win the item it shows.
+ * Three rooms whose reward is machines or pacts; like every room they start full of enemies, and once cleared:
+ *  WORKSHOP  a row of WORKSHOP_TRADES stat trades (take one, the others vanish - PK_STAT one-of-N),
+ *  CASINO    CASINO_MACHINES SLOT MACHINES (bet GAMBLE_COST coins for a chance to win the item each one shows, one
+ *            prize per machine) and the SUPPLY PRESS (half a heart of damage for coins, a bomb or a key, a few uses),
+ *  BAPHOMET  the pacts (augment pads, PK_AUGMENT one-of-N): exclusive upgrades paid with 1, 2 or 3 heart
+ *            containers (the more hearts, the stronger), on a pentagram.
  * A machine is used with E (interact_target: the nearest item or machine in reach).
  */
 
-#define PAD_SPACING 400.0f /* augment pads: a row through the middle of the room */
+#define PAD_SPACING 400.0f /* pacts: a row through the middle of the room */
+#define TRADE_SPACING 410.0f /* workshop trades: a row through the middle */
+#define CASINO_SPACING 440.0f /* a row of machines: the supply press, then the slot machines */
 #define TRIGGER_R 62.0f
 #define SPIN_TIME 0.7f
 
@@ -23,9 +26,6 @@
 float gamble_win_chance(void) { return clampf(0.3f + 0.03f * (float)G.pl.luck, 0.15f, 0.5f); }
 
 static V2 centre(void) { return v2(ARENA_CX, ARENA_CY - 60.0f); }
-
-/* Machines: a lower row, either side of the entry (room.c keeps obstacles off these spots). */
-V2 workshop_machine_spot(int i) { return v2(ARENA_CX + (i == 0 ? -WORKSHOP_MACHINE_X : WORKSHOP_MACHINE_X), ARENA_CY + WORKSHOP_MACHINE_DY); }
 
 /* The slot machine's prize: an upgrade not owned, a stat trade once every upgrade is owned,
  * 10 coins if even that is impossible. */
@@ -46,22 +46,47 @@ void workshop_refresh_prize(void) {
     }
 }
 
+static Machine *machine_add(MachineType type, V2 pos) {
+    Machine *m = &G.mc[G.nmc++];
+    memset(m, 0, sizeof *m);
+    m->type = type;
+    m->pos = pos;
+    fx_particle(pos, v2(0, 0), 0.5f, 200.0f, col_hex(type == MC_SUPPLY ? SUPPLY_COLOR : COLOR_CASINO, 1), 0.0f, PT_RING);
+    return m;
+}
+
+/* Workshop: a row of stat trades through the middle. */
 void workshop_spawn(void) {
+    G.nmc = 0;
+    int offers[WORKSHOP_TRADES];
+    int n = stats_roll_offers(offers, WORKSHOP_TRADES);
+    for (int i = 0; i < n; i++) {
+        V2 p = v2(ARENA_CX + ((float)i - (float)(n - 1) * 0.5f) * TRADE_SPACING, ARENA_CY - 20.0f);
+        pickup_spawn_choice(PK_STAT, offers[i], p);
+        fx_particle(p, v2(0, 0), 0.5f, 160.0f, col_hex(COLOR_STATS, 1), 0.0f, PT_RING);
+    }
+}
+
+/* Casino: a row of machines, the supply press first, then the slot machines, each with its own prize (never the
+ * same upgrade twice: upgrade_fresh skips the prizes already shown). */
+void casino_spawn(void) {
+    G.nmc = 0;
+    const int n = CASINO_MACHINES + 1;
+    for (int i = 0; i < n; i++) {
+        V2 p = v2(ARENA_CX + ((float)i - (float)(n - 1) * 0.5f) * CASINO_SPACING, ARENA_CY + 110.0f);
+        if (i == 0) {
+            machine_add(MC_SUPPLY, p)->uses = irand(SUPPLY_USES_MIN, SUPPLY_USES_MAX);
+        } else {
+            Machine *g = machine_add(MC_GAMBLE, p);
+            roll_prize(g);
+        }
+    }
+}
+
+/* Baphomet: one pact per tier the player can pay for (never the last heart container), centred. */
+void baphomet_spawn(void) {
     V2 c = centre();
     G.nmc = 0;
-    Machine *s = &G.mc[G.nmc++];
-    memset(s, 0, sizeof *s);
-    s->type = MC_SUPPLY;
-    s->pos = workshop_machine_spot(0);
-    s->uses = irand(SUPPLY_USES_MIN, SUPPLY_USES_MAX);
-
-    Machine *g = &G.mc[G.nmc++];
-    memset(g, 0, sizeof *g);
-    g->type = MC_GAMBLE;
-    g->pos = workshop_machine_spot(1);
-    roll_prize(g);
-
-    /* One pad per tier the player can pay for (never the last heart container), centred. */
     int pads[3], npads = 0;
     for (int tier = 1; tier <= 3; tier++) {
         if (G.pl.max_hp - 2 * tier < 2) continue;
@@ -71,10 +96,26 @@ void workshop_spawn(void) {
     for (int i = 0; i < npads; i++) {
         V2 p = v2(c.x + ((float)i - (float)(npads - 1) * 0.5f) * PAD_SPACING, c.y);
         pickup_spawn_choice(PK_AUGMENT, pads[i], p);
-        fx_particle(p, v2(0, 0), 0.5f, 160.0f, col_hex(0xff3355, 1), 0.0f, PT_RING);
+        fx_particle(p, v2(0, 0), 0.5f, 160.0f, col_hex(COLOR_BAPHOMET, 1), 0.0f, PT_RING);
     }
-    for (int i = 0; i < G.nmc; i++)
-        fx_particle(G.mc[i].pos, v2(0, 0), 0.5f, 200.0f, col_hex(COLOR_WORKSHOP, 1), 0.0f, PT_RING);
+}
+
+/* The pentagram the pacts stand on (point down), fading in with the reward. */
+void baphomet_draw_floor(void) {
+    const Room *r = &G.room;
+    if (r->type != ROOM_BAPHOMET || !r->cleared || r->clear_t < 0.0f) return;
+    float a = clampf(r->clear_t / 0.8f, 0.0f, 1.0f) * (0.8f + 0.2f * sinf(G.time * 2.0f));
+    V2 c = centre();
+    const float R = 330.0f;
+    SDL_FColor col = col_hex(COLOR_BAPHOMET, 0.35f * a), dim = col_hex(COLOR_BAPHOMET, 0.12f * a);
+    draw_blend_add();
+    draw_glow(c, R * 1.2f, col_hex(COLOR_BAPHOMET, 0.08f * a));
+    draw_ring(c, R, 3.0f, col);
+    draw_ring(c, R + 18.0f, 1.5f, dim);
+    V2 pt[5];
+    for (int k = 0; k < 5; k++) pt[k] = v2_add(c, v2_scale(v2_angle(PI_F * 0.5f + TAU_F * (float)k / 5.0f), R));
+    for (int k = 0; k < 5; k++) draw_line(pt[k], pt[(k + 2) % 5], 3.0f, col);
+    draw_blend_alpha();
 }
 
 static void deny(const Machine *m, const char *msg) {
@@ -216,6 +257,8 @@ void workshop_draw(void) {
         /* Labels: what it does, exactly. */
         float ty = p.y + 86.0f;
         draw_text_centered(p.x, p.y - 150.0f - (supply ? 0.0f : 20.0f), 2.0f, c, "%s", supply ? "SUPPLY PRESS" : "SLOT MACHINE");
+        if (!supply && !m->broken) /* the odds, under its name (the prize's description takes the space below) */
+            draw_text_centered(p.x, p.y - 144.0f, 1.5f, col_a(c, 0.85f), "%d%% TO WIN", (int)roundf(gamble_win_chance() * 100.0f));
         if (supply) {
             draw_text_centered(p.x, ty, 1.25f, col_a(COL_WHITE, 0.75f), "1/2 HEART OF DAMAGE");
             draw_text_centered(p.x, ty + 16.0f, 1.25f, col_a(COL_WHITE, 0.75f), "-> COINS, A BOMB OR A KEY");
@@ -234,7 +277,6 @@ void workshop_draw(void) {
             } else {
                 draw_text_centered(p.x, ty - 4.0f, 1.75f, col_hex(0xffd23f, 1), "WIN: %d COINS", m->prize_sub);
             }
-            draw_text_centered(p.x, ty + 52.0f, 1.5f, c, "%d COINS - %d%% TO WIN", GAMBLE_COST, (int)roundf(gamble_win_chance() * 100.0f));
         }
     }
 }

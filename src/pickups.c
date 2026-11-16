@@ -50,8 +50,10 @@ static V2 random_vel(float lo, float hi) { return v2_scale(v2_angle(frand(0.0f, 
 const char *door_label(const Door *d) {
     if (d->type == ROOM_SECRET) return G.room.type == ROOM_SECRET ? "EXIT" : "SECRET";
     if (d->type == ROOM_WORKSHOP) return "WORKSHOP";
+    if (d->type == ROOM_CASINO) return "CASINO";
+    if (d->type == ROOM_BAPHOMET) return "BAPHOMET";
     if (d->type == ROOM_BOSS) return "BOSS";
-    return d->type == ROOM_STATS ? "STATS" : d->type == ROOM_SHOP ? "SHOP" : reward_name(d->reward);
+    return d->type == ROOM_SHOP ? "SHOP" : reward_name(d->reward);
 }
 
 int shop_price(PickupType type, int sub) {
@@ -249,6 +251,7 @@ static bool collect(const Pickup *k) {
         break;
     case PK_STAT:
         stat_offer_take(k->sub);
+        G.trades++;
         fx_shake(0.3f);
         break;
     case PK_ACTIVE:
@@ -297,7 +300,7 @@ static void deny_take(const Pickup *k, const char *msg) {
     fx_popup(v2(k->pos.x, k->pos.y - 90.0f), col_hex(0xff4d6a, 1), "%s", msg);
 }
 
-/* What E acts on: the nearest item on a pedestal / shop counter, or workshop machine, within
+/* What E acts on: the nearest item on a pedestal / shop counter, or casino machine, within
  * reach (nothing is ever taken by walking over it). */
 void interact_target(int *pk, int *mc) {
     *pk = *mc = -1;

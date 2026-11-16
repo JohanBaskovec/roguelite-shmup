@@ -69,7 +69,7 @@ typedef enum {
     UPG_W_SCATTER, UPG_W_NEEDLER, UPG_W_SEEKER, UPG_W_BOUNCER, UPG_W_RAILGUN, UPG_W_FLAMER, UPG_W_ROCKETS,
     UPG_W_CHAKRAM, UPG_W_CLUSTER, UPG_W_ARC, UPG_W_VULCAN, UPG_W_WAVE,
     UPG_W_LASER, UPG_W_SPIRAL, UPG_W_PRISM, UPG_W_GRAVITON, UPG_W_SWORD,
-    /* workshop exclusives (UpgradeDef.tier = max hearts paid), never offered anywhere else */
+    /* Baphomet exclusives (UpgradeDef.tier = max hearts paid), never offered anywhere else */
     UPG_X_BLOOD_ROUNDS, UPG_X_OVERDRIVE, UPG_X_HELLFIRE, UPG_X_STORM, UPG_X_DEMON, UPG_X_GOD_CANNON,
     /* the 16 newer exclusives (upgrades2.c): six of tier 1, six of tier 2, four of tier 3 */
     UPG_X_ARSENAL, UPG_X_PHOENIX, UPG_X_GHOST_HULL, UPG_X_SUPERCHARGER, UPG_X_VOID_ROUNDS, UPG_X_OVERSHIELD,
@@ -110,7 +110,7 @@ typedef struct {
     const char *name;
     const char *desc;
     uint32_t color;
-    int tier;       /* > 0: workshop exclusive, costs this many heart containers */
+    int tier;       /* > 0: Baphomet exclusive, costs this many heart containers */
 } UpgradeDef;
 /* Every upgrade is taken at most once: one owned (even turned off) is never offered again. */
 
@@ -311,7 +311,7 @@ typedef struct {
 
 /* PK_UPGRADE: any upgrade, weapon mods included (upgrade_is_weapon). */
 /* PK_ACTIVE: an active item (sub = ActiveId), added to the ones owned (or levels one up). */
-/* PK_AUGMENT: workshop pad, a tier-N exclusive upgrade paid with N heart containers. */
+/* PK_AUGMENT: a Baphomet pact, a tier-N exclusive upgrade paid with N heart containers. */
 typedef enum { PK_COIN, PK_KEY, PK_BOMB, PK_HEART, PK_UPGRADE, PK_STAT, PK_AUGMENT, PK_ACTIVE } PickupType;
 
 typedef struct {
@@ -323,7 +323,7 @@ typedef struct {
     float t;
 } Pickup;
 
-/* ---- Workshop machines ---------------------------------------------------- */
+/* ---- Machines (workshop, casino) ---------------------------------------------------- */
 
 typedef enum { MC_SUPPLY, MC_GAMBLE } MachineType;
 
@@ -339,14 +339,18 @@ typedef struct {
     int plays;
 } Machine;
 
-#define MAX_MACHINES 4
+#define MAX_MACHINES 4 /* a casino: the supply press + CASINO_MACHINES slot machines */
 #define GAMBLE_COST 5
 #define SUPPLY_USES_MIN 3
 #define SUPPLY_USES_MAX 5
 
 /* ---- Rooms --------------------------------------------------------------- */
 
-typedef enum { ROOM_START, ROOM_COMBAT, ROOM_STATS, ROOM_TREASURE, ROOM_SHOP, ROOM_BOSS, ROOM_SECRET, ROOM_WORKSHOP } RoomType;
+/* WORKSHOP: a row of stat trades; CASINO: slot machines + supply press; BAPHOMET: pacts (exclusive upgrades paid with
+ * heart containers). Every one of them starts with its fight. */
+typedef enum {
+    ROOM_START, ROOM_COMBAT, ROOM_SHOP, ROOM_BOSS, ROOM_SECRET, ROOM_WORKSHOP, ROOM_CASINO, ROOM_BAPHOMET, ROOM_TYPE_COUNT
+} RoomType;
 /* RW_UPGRADE: a choice of UPGRADE_CHOICES (2) upgrades not owned (any of them, those reshaping the shots included). */
 typedef enum { RW_NONE, RW_COINS, RW_KEY, RW_BOMBS, RW_HEART, RW_UPGRADE, RW_ACTIVE, RW_COUNT } RewardType;
 typedef enum { SIDE_LEFT, SIDE_TOP, SIDE_RIGHT, SIDE_BOTTOM } Side;
@@ -712,7 +716,7 @@ typedef struct {
     Particle pt[MAX_PARTICLES]; int npt;
     Pickup pk[MAX_PICKUPS]; int npk;
     Popup pop[MAX_POPUPS]; int npop;
-    Machine mc[MAX_MACHINES]; int nmc; /* workshop machines (only once a workshop is cleared) */
+    Machine mc[MAX_MACHINES]; int nmc; /* machines (only once a casino is cleared) */
     int next_uid;
 
     float time, run_time;
@@ -729,7 +733,7 @@ typedef struct {
     int active_uses;  /* active items used this run */
     bool bot_toggles; /* dev (--toggle-upgrades): the bot keeps turning random upgrades off and on */
     int toggles;      /* upgrades turned on / off this run */
-    int machine_uses, augments; /* workshop: supply press / slot machine uses, augments taken */
+    int machine_uses, augments, trades; /* supply press / slot machine uses, pacts taken, stat trades taken */
     int room_counter; /* source of Room.id */
     Room parent;      /* room the current secret room was found in, restored on exit */
     Pickup parent_pk[MAX_PICKUPS]; int parent_npk;
@@ -764,7 +768,7 @@ static inline float frand(float lo, float hi) { return rng_range(&G.rng, lo, hi)
 static inline int irand(int lo, int hi) { return rng_int(&G.rng, lo, hi); }
 static inline bool chance(float p) { return rng_chance(&G.rng, p); }
 
-/* ---- Stats (trades offered in Stats rooms) ------------------------------ */
+/* ---- Stats (trades offered in workshops and shops) ------------------------------ */
 
 typedef enum {
     ST_DAMAGE, ST_FIRE_RATE, ST_RANGE, ST_MAX_HP, ST_MOVE_SPEED, ST_DASH,
@@ -781,7 +785,7 @@ typedef struct {
 
 extern const StatDef STATS[ST_COUNT];
 
-#define STATS_ROOM_OFFERS 4
+#define WORKSHOP_TRADES 4
 #define SHOP_ITEMS 5 /* a shop always sells exactly this many items (upgrades, stat trades) */
 #define SHOP_SUPPLIES 3 /* ...plus a supply counter: a heart, a bomb, a key (shop_supply_spot) */
 V2 shop_supply_spot(int i);
@@ -791,13 +795,15 @@ V2 shop_supply_spot(int i);
 #define COLOR_SHOP 0xff6bd6
 #define COLOR_SECRET 0xffb347
 #define COLOR_WORKSHOP 0xc8ff4d
+#define COLOR_CASINO 0xffd23f
+#define COLOR_BAPHOMET 0xff2a2a
 #define COLOR_BOSS 0xff3d5a
 static inline int stat_offer_encode(int up, int down) { return up * ST_COUNT + down; }
 static inline int stat_offer_up(int offer) { return offer / ST_COUNT; }
 static inline int stat_offer_down(int offer) { return offer % ST_COUNT; }
 
 /* upgrades.c - passive upgrades and their effects (hooks called by the systems they modify) */
-int upgrade_roll(void);               /* not owned, never a weapon mod nor a workshop exclusive; -1: none left */
+int upgrade_roll(void);               /* not owned, never a weapon mod nor a Baphomet exclusive; -1: none left */
 void upgrade_apply(int u);            /* take it (with its banner); does nothing if already owned */
 void upgrade_grant(int u);            /* same, silently (starting weapon mod) */
 bool upgrade_capped(int u);           /* cannot be offered: owned, or useless right now */
@@ -879,7 +885,7 @@ const char *upgrade_desc_at(int u, int n);
 /* What taking it now would give (current stacks + 1). */
 const char *upgrade_desc(int u);
 int upgrade_by_name(const char *name);
-/* Workshop: a random exclusive upgrade of this tier not owned yet, or -1. */
+/* Baphomet: a random exclusive upgrade of this tier not owned yet, or -1. */
 int upgrade_roll_exclusive(int tier);
 /* DEFLECTOR SHELLS: a big player bullet turns the enemy bullets it touches. */
 void upg_reflect(PBullet *b);
@@ -1026,6 +1032,10 @@ V2 room_entry_spot(void);       /* where the ship arrives: just inside the entry
 Side side_opposite(Side s);
 /* The launch bay and secret rooms are the exceptions to "every room starts full of enemies". */
 static inline bool room_type_peaceful(RoomType t) { return t == ROOM_START || t == ROOM_SECRET; }
+/* The doors that cost a key: shops, casinos, upgrade and active rooms - always, and no other. */
+static inline bool door_needs_key(RoomType t, RewardType rw) {
+    return t == ROOM_SHOP || t == ROOM_CASINO || (t == ROOM_COMBAT && (rw == RW_UPGRADE || rw == RW_ACTIVE));
+}
 #define SECRET_SHOP_CHANCE 0.10f   /* a secret room holds a shop instead of its bonus item */
 #define SECRET_AMBUSH_CHANCE 0.10f /* a secret room is guarded by enemies before its loot */
 /* A bomb went off at pos: opens the secret passage if pos is next to the bottom door of a room hiding one. */
@@ -1219,7 +1229,7 @@ void pickup_spawn(PickupType type, int sub, V2 pos, V2 vel);
 void pickups_update(void);
 void pickups_draw(void);
 #define INTERACT_R 80.0f          /* E reaches an item this close */
-#define INTERACT_R_MACHINE 100.0f /* ...or a workshop machine */
+#define INTERACT_R_MACHINE 100.0f /* ...or a machine */
 void interact_target(int *pk, int *mc); /* what E would act on (-1: none) */
 void interact_draw(void);
 void reward_drop(RewardType r, V2 pos);
@@ -1269,11 +1279,13 @@ void debug_menu_draw(void);
 void debug_teleport(RoomType type, RewardType reward, int depth, bool with_enemies);
 void debug_teleport_mod(RoomType type, RewardType reward, int depth, bool with_enemies, unsigned mods); /* with a MOD_BIT set */
 
-/* workshop.c - machines that appear once a workshop is cleared */
-#define WORKSHOP_MACHINE_X 470.0f
-#define WORKSHOP_MACHINE_DY 250.0f
-V2 workshop_machine_spot(int i); /* 0 = supply press, 1 = slot machine */
+/* workshop.c - what a workshop (stat trades), a casino (slot machines + supply press) and a Baphomet room (pacts:
+ * augment pads) offer once cleared, and their machines */
+#define CASINO_MACHINES 3
 void workshop_spawn(void);
+void casino_spawn(void);
+void baphomet_spawn(void);
+void baphomet_draw_floor(void); /* the pentagram under the pacts */
 void workshop_refresh_prize(void); /* a prize the player now owns gets replaced */
 void workshop_update(void);
 void workshop_draw(void);

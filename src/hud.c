@@ -208,12 +208,14 @@ void hud_draw(void) {
 
     if (r->type == ROOM_START) {
         draw_text_centered(SCREEN_W * 0.5f, 16.0f, 3.0f, COL_WHITE, "LAUNCH BAY");
-    } else if (r->type == ROOM_STATS) {
-        draw_text_centered(SCREEN_W * 0.5f, 16.0f, 3.0f, col_hex(COLOR_STATS, 1), "ROOM %d - STATS", r->depth);
     } else if (r->type == ROOM_SECRET) {
         draw_text_centered(SCREEN_W * 0.5f, 16.0f, 3.0f, col_hex(COLOR_SECRET, 1), "%s", r->secret_shop ? "SECRET SHOP" : "SECRET ROOM");
     } else if (r->type == ROOM_WORKSHOP) {
         draw_text_centered(SCREEN_W * 0.5f, 16.0f, 3.0f, col_hex(COLOR_WORKSHOP, 1), "ROOM %d - WORKSHOP", r->depth);
+    } else if (r->type == ROOM_CASINO) {
+        draw_text_centered(SCREEN_W * 0.5f, 16.0f, 3.0f, col_hex(COLOR_CASINO, 1), "ROOM %d - CASINO", r->depth);
+    } else if (r->type == ROOM_BAPHOMET) {
+        draw_text_centered(SCREEN_W * 0.5f, 16.0f, 3.0f, col_hex(COLOR_BAPHOMET, 1), "ROOM %d - BAPHOMET", r->depth);
     } else if (r->type == ROOM_SHOP) {
         draw_text_centered(SCREEN_W * 0.5f, 16.0f, 3.0f, col_hex(COLOR_SHOP, 1), "ROOM %d - SHOP", r->depth);
     } else if (r->type == ROOM_BOSS) {
@@ -237,8 +239,12 @@ void hud_draw(void) {
             items |= G.pk[i].price > 0;
         }
         float a = 0.55f + 0.45f * sinf(G.time * 5.0f);
-        if (r->type == ROOM_WORKSHOP && G.nmc > 0) draw_text_centered(SCREEN_W * 0.5f, 52.0f, 2.0f, col_hex(COLOR_WORKSHOP, a), "STEP ON A MACHINE TO USE IT");
-        else if (offers && r->type == ROOM_STATS) draw_text_centered(SCREEN_W * 0.5f, 52.0f, 2.0f, col_hex(COLOR_STATS, a), "TAKE ONE TRADE - OR SKIP IT");
+        if (offers && r->type == ROOM_WORKSHOP)
+            draw_text_centered(SCREEN_W * 0.5f, 52.0f, 2.0f, col_hex(COLOR_WORKSHOP, a), "TAKE ONE TRADE - OR SKIP IT");
+        else if (r->type == ROOM_CASINO && G.nmc > 0)
+            draw_text_centered(SCREEN_W * 0.5f, 52.0f, 2.0f, col_hex(COLOR_CASINO, a), "E ON A MACHINE - SLOTS: %d COINS A SPIN", GAMBLE_COST);
+        else if (offers && r->type == ROOM_BAPHOMET)
+            draw_text_centered(SCREEN_W * 0.5f, 52.0f, 2.0f, col_hex(COLOR_BAPHOMET, a), "ONE PACT - PAID IN HEART CONTAINERS");
         else if (offers) draw_text_centered(SCREEN_W * 0.5f, 52.0f, 2.0f, col_hex(0xb57cff, a), 
                                          two_rows ? "PICK ONE PER ROW" : noffers == 2 ? "PICK ONE - THE OTHER VANISHES" : "PICK ONE - THE OTHERS VANISH");
         else if (r->type == ROOM_SECRET && !items) draw_text_centered(SCREEN_W * 0.5f, 52.0f, 2.0f, col_hex(COLOR_SECRET, a), "GRAB THE LOOT - EXIT AT THE BOTTOM");

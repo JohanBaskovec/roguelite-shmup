@@ -169,9 +169,9 @@ static const char *check_invariants(float room_time) {
         if (k->type == PK_AUGMENT && p->upg_count[k->sub] > 0) return "augment offered that the player already owns";
         for (int j = i + 1; j < G.npk; j++)
             if (k->type == PK_UPGRADE && G.pk[j].type == PK_UPGRADE && G.pk[j].sub == k->sub) return "the same upgrade offered twice";
-        if (k->type == PK_UPGRADE && UPGRADES[k->sub].tier > 0) return "workshop-exclusive upgrade offered outside the augment machine";
-        if (k->type == PK_AUGMENT && (G.room.type != ROOM_WORKSHOP || UPGRADES[k->sub].tier == 0 || !k->choice))
-            return "augment pad outside a workshop (or not an exclusive one-of-N choice)";
+        if (k->type == PK_UPGRADE && UPGRADES[k->sub].tier > 0) return "exclusive upgrade offered outside a Baphomet pact";
+        if (k->type == PK_AUGMENT && (G.room.type != ROOM_BAPHOMET || UPGRADES[k->sub].tier == 0 || !k->choice))
+            return "pact (augment pad) outside a Baphomet room (or not an exclusive one-of-N choice)";
     }
     for (int i = 0; i < G.nmc; i++)
         if (G.mc[i].type == MC_GAMBLE && !G.mc[i].broken && G.mc[i].prize == PK_UPGRADE &&
@@ -217,6 +217,19 @@ static const char *check_invariants(float room_time) {
                 return msg;
             }
         }
+    /* Locks: shops, casinos, upgrade and active rooms always cost a key, nothing else ever does; one door at least
+     * opens without one (none locked from the launch bay: the run starts without a key). */
+    if (G.room.type != ROOM_SECRET && G.room.ndoors > 0) {
+        bool open = false;
+        for (int i = 0; i < G.room.ndoors; i++) {
+            const Door *d = &G.room.doors[i];
+            if (d->locked && G.room.type == ROOM_START) return "locked door in the launch bay";
+            /* (a door unlocked with a key stays open) */
+            if (d->locked && !door_needs_key(d->type, d->reward)) return "locked door to a room that never costs a key";
+            open |= !d->locked && !(d->mods & MOD_BIT(MOD_WAGER));
+        }
+        if (!open) return "every door costs a key or a heart (a ship without a key, low on hearts, could not go on)";
+    }
     /* Boss rooms: every BOSS_EVERY rooms, reached through the single door of the room before. */
     if (G.room.type != ROOM_SECRET) {
         bool before_boss = is_boss_depth(G.room.depth + 1);
@@ -250,7 +263,7 @@ static const char *check_invariants(float room_time) {
         if (bosses > 1) return "more than one boss";
     }
     if (G.nmc < 0 || G.nmc > MAX_MACHINES) return "machine count out of range";
-    if (G.nmc > 0 && (G.room.type != ROOM_WORKSHOP || !G.room.cleared)) return "workshop machines outside a cleared workshop";
+    if (G.nmc > 0 && (G.room.type != ROOM_CASINO || !G.room.cleared)) return "machines outside a cleared casino";
     if (!(p->spread_mult >= SPREAD_MIN * 0.99f) || !(p->spread_mult <= SPREAD_MAX * 1.01f)) return "spread out of range";
     if (p->max_hp < 2 || p->max_hp > 24 || (p->max_hp & 1)) return "max hp out of range";
     if (!(p->dmg_mult >= 0.3f * 0.99f) || !(p->rate_mult >= 0.3f * 0.99f) || !(p->range_mult >= 0.35f * 0.99f) ||
@@ -415,19 +428,37 @@ static const char *check_room_reward(void) {
             seen |= 1 << k->sub;
         }
     }
-    if (G.room.type == ROOM_STATS && count_choices() == 0) return "stats room cleared without any trade";
     if (G.room.type == ROOM_WORKSHOP) {
-        int supply = 0, gamble = 0, pads = 0, tier1_left = 0;
-        for (int i = 0; i < G.nmc; i++) {
-            supply += G.mc[i].type == MC_SUPPLY && G.mc[i].uses >= SUPPLY_USES_MIN && !G.mc[i].broken;
-            gamble += G.mc[i].type == MC_GAMBLE && !G.mc[i].broken;
+        int trades = 0;
+        for (int i = 0; i < G.npk; i++) {
+            trades += G.pk[i].type == PK_STAT && G.pk[i].choice;
+            if (G.pk[i].type != PK_STAT) return "workshop offers something else than stat trades";
         }
-        for (int i = 0; i < G.npk; i++) pads += G.pk[i].type == PK_AUGMENT;
+        if (trades == 0) return "workshop cleared without any stat trade";
+    }
+    if (G.room.type == ROOM_CASINO) {
+        int gamble = 0, supply = 0;
+        for (int i = 0; i < G.nmc; i++) {
+            gamble += G.mc[i].type == MC_GAMBLE && !G.mc[i].broken;
+            supply += G.mc[i].type == MC_SUPPLY && G.mc[i].uses >= SUPPLY_USES_MIN && !G.mc[i].broken;
+        }
+        if (gamble != CASINO_MACHINES || supply != 1 || G.nmc != CASINO_MACHINES + 1)
+            return "casino cleared without its slot machines and supply press";
+        if (G.npk > 0) return "casino offers something else than its slot machines";
+        for (int i = 0; i < G.nmc; i++)
+            for (int j = i + 1; j < G.nmc; j++)
+                if (G.mc[i].prize == PK_UPGRADE && G.mc[j].prize == PK_UPGRADE && G.mc[i].prize_sub == G.mc[j].prize_sub)
+                    return "two slot machines show the same upgrade";
+    }
+    if (G.room.type == ROOM_BAPHOMET) {
+        int pads = 0, tier1_left = 0;
+        for (int i = 0; i < G.npk; i++) {
+            pads += G.pk[i].type == PK_AUGMENT;
+            if (G.pk[i].type != PK_AUGMENT) return "Baphomet room offers something else than pacts";
+        }
         for (int u = 0; u < UPG_COUNT; u++) tier1_left += UPGRADES[u].tier == 1 && !upgrade_capped(u) && upgrade_unlocked(u);
-        if (supply != 1 || gamble != 1) return "workshop cleared without its supply press and slot machine";
-        if (pads > 3) return "workshop offers more than 3 augments";
-        if (pads == 0 && G.pl.max_hp >= 4 && tier1_left > 0) return "workshop offers no augment although the player can pay one";
-        if (G.mc[1].prize == PK_UPGRADE && UPGRADES[G.mc[1].prize_sub].tier > 0) return "slot machine offers a workshop exclusive";
+        if (pads > 3) return "Baphomet room offers more than 3 pacts";
+        if (pads == 0 && G.pl.max_hp >= 4 && tier1_left > 0) return "Baphomet room offers no pact although the player can pay one";
     }
     if (G.room.type == ROOM_SECRET) {
         int items = 0, resources = 0;
@@ -704,10 +735,11 @@ static int count_ebullets(int kind) {
 }
 
 static int debug_rooms_run(const HeadlessOptions *o) {
-    static const RoomType types[] = {ROOM_START, ROOM_COMBAT, ROOM_COMBAT, ROOM_COMBAT, ROOM_STATS, ROOM_SHOP, ROOM_WORKSHOP, ROOM_BOSS, ROOM_SECRET, ROOM_SECRET};
-    static const RewardType rewards[] = {RW_NONE, RW_NONE, RW_UPGRADE, RW_ACTIVE, RW_NONE, RW_NONE, RW_NONE, RW_NONE, RW_NONE, RW_NONE};
-    static const int secret_shop[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
-    static const char *names[] = {"launch bay", "combat", "upgrade", "active", "stats", "shop", "workshop", "boss", "secret", "secret shop"};
+    static const RoomType types[] = {ROOM_START, ROOM_COMBAT, ROOM_COMBAT, ROOM_COMBAT, ROOM_SHOP, ROOM_WORKSHOP, ROOM_CASINO, ROOM_BAPHOMET,
+                                     ROOM_BOSS, ROOM_SECRET, ROOM_SECRET};
+    static const RewardType rewards[] = {RW_NONE, RW_NONE, RW_UPGRADE, RW_ACTIVE, RW_NONE, RW_NONE, RW_NONE, RW_NONE, RW_NONE, RW_NONE, RW_NONE};
+    static const int secret_shop[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
+    static const char *names[] = {"launch bay", "combat", "upgrade", "active", "shop", "workshop", "casino", "baphomet", "boss", "secret", "secret shop"};
     int failures = 0;
     for (int t = 0; t < ARRAY_LEN(types); t++) {
         for (int with = types[t] == ROOM_START ? 0 : 1; with >= 0; with--) {
@@ -749,14 +781,14 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         }
     }
     /* The teleport page's modifiers (mods.c), with and without their enemies: each one on its own in a room type it can
-     * have (in turn: combat, stats, shop, workshop), then all of them at once (each room type keeps what it can have). */
+     * have (in turn: combat, casino, shop, workshop, baphomet), then all of them at once (each room type keeps what it can have). */
     const struct { RoomType type; unsigned mods; } MOD_CASES[] = {
-        {ROOM_COMBAT, MOD_BIT(MOD_COMPACTOR)}, {ROOM_STATS, MOD_BIT(MOD_BLACKOUT)}, {ROOM_SHOP, MOD_BIT(MOD_POWDER)},
-        {ROOM_WORKSHOP, MOD_BIT(MOD_HORDE)}, {ROOM_COMBAT, MOD_BIT(MOD_ELITE)}, {ROOM_STATS, MOD_BIT(MOD_STORM)},
+        {ROOM_COMBAT, MOD_BIT(MOD_COMPACTOR)}, {ROOM_CASINO, MOD_BIT(MOD_BLACKOUT)}, {ROOM_SHOP, MOD_BIT(MOD_POWDER)},
+        {ROOM_WORKSHOP, MOD_BIT(MOD_HORDE)}, {ROOM_BAPHOMET, MOD_BIT(MOD_ELITE)}, {ROOM_CASINO, MOD_BIT(MOD_STORM)},
         {ROOM_COMBAT, MOD_BIT(MOD_WAGER)}, {ROOM_SHOP, MOD_BIT(MOD_WAGER)}, /* (wager: combat rooms only) */
         {ROOM_COMBAT, 0xfe}, {ROOM_WORKSHOP, 0xfe}, {ROOM_BOSS, 0xfe},
     };
-    static const char *type_names[] = {"launch bay", "combat", "stats", "treasure", "shop", "boss", "secret", "workshop"};
+    static const char *type_names[ROOM_TYPE_COUNT] = {"launch bay", "combat", "shop", "boss", "secret", "workshop", "casino", "baphomet"};
     for (int k = 0; k < (int)ARRAY_LEN(MOD_CASES); k++) {
         RoomType mtype = MOD_CASES[k].type;
         unsigned want = mods_allowed(mtype, MOD_CASES[k].mods);
@@ -799,13 +831,13 @@ static int debug_rooms_run(const HeadlessOptions *o) {
             }
         }
     }
-    /* Drive the menu like a player: F4 (on the combat room), up x3 (the STORM check box), Enter (ticked), down x5
-     * (combat -> shop), right (NO ENEMIES), Enter. */
+    /* Drive the menu like a player: F4 (on the combat room), up x3 (the STORM check box), Enter (ticked), down x4
+     * (STORM -> WAGER -> LAUNCH BAY -> COMBAT -> SHOP), right (NO ENEMIES), Enter. */
     game_init(o->seed);
     game_new_run();
     Input *in = &G.in;
     in->mouse = v2(0, 0);
-    const char *steps = "F..U.U.U.E.D.D.D.D.D.R.E";
+    const char *steps = "F..U.U.U.E.D.D.D.D.R.E";
     for (const char *c = steps; *c; c++) {
         in->teleport_pressed = *c == 'F';
         in->up = *c == 'U';
@@ -1592,7 +1624,7 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         in->fire = true;
         for (int t = 0; t < 60; t++) { G.hitstop = 0.0f; TICK(); }
         in->fire = false;
-        prism_ok = prism_ok && G.nen == 2 && G.en[0].hp < 5000.0f && G.en[1].hp < 5000.0f && G.npb > 8;
+        prism_ok = prism_ok && G.nen == 2 && G.en[0].hp < 5000.0f && G.en[1].hp < 5000.0f && G.npb > 5; /* a stream: twice the blaster's rate and more */
         G.nen = G.npb = 0;
         names[nres] = "prism splits, laser pierces", oks[nres++] = prism_ok;
 
@@ -1675,7 +1707,7 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         in->fire = true;
         TICK();
         play_ok = play_ok && G.npb == 1 && fabsf(G.pb[0].damage - d0 * 6.0f) < 0.01f && pl->charge == 0.0f;
-        for (int t = 0; t < 12; t++) TICK();
+        for (int t = 0; t < 20; t++) TICK(); /* the next volley (0.12 s) */
         in->fire = false;
         play_ok = play_ok && G.npb >= 2 && fabsf(G.pb[G.npb - 1].damage - d0) < 0.01f;
         FRESH();
@@ -2690,7 +2722,7 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         int rooms = 0, bad = 0, walls = 0, blocks = 0, kinds = 0;
         game_init(o->seed);
         game_new_run();
-        const RoomType types[] = {ROOM_COMBAT, ROOM_COMBAT, ROOM_STATS, ROOM_SHOP, ROOM_WORKSHOP};
+        const RoomType types[] = {ROOM_COMBAT, ROOM_COMBAT, ROOM_SHOP, ROOM_WORKSHOP, ROOM_CASINO, ROOM_BAPHOMET};
         for (int k = 0; k < 400; k++) {
             G.entry_side = (Side)irand(SIDE_LEFT, SIDE_BOTTOM);
             G.force_secret = k % 3 == 0;
@@ -2798,8 +2830,10 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         float in0 = G.room.crush_in[0];
         crush_ok = crush_ok && in0 >= 2.0f * GRID && G.room.nobs == 1; /* the corner crate is gone, not the middle one */
         active_give(ACT_TIME_STOP);
-        in->active_pressed = true;
-        BTICK();
+        for (int t = 0; t < 10 && !active_time_stop_on(); t++) { /* (a hit stop holds the world, and the press, a tick or two) */
+            in->active_pressed = true;
+            BTICK();
+        }
         for (int t = 0; t < 100; t++) BTICK();
         bool hold_ok = active_time_stop_on() && G.room.crush_in[0] <= in0 + GRID;
         float held = G.room.crush_in[0];
@@ -3293,6 +3327,11 @@ static int save_test_run(const HeadlessOptions *o) {
 
     /* A boss beaten: the next upgrades and the Knight at once, written at once (the run part stays
      * the start of the boss room), and they survive loading that room again. */
+    for (int t = 0; G.transitioning && t < 600; t++) { /* never mid-door: the transition would leave the boss room */
+        bot_input();
+        game_update();
+        clear_edges();
+    }
     G.entry_side = SIDE_BOTTOM;
     room_enter(ROOM_BOSS, RW_UPGRADE, BOSS_EVERY);
     save_autosave();
@@ -3732,7 +3771,8 @@ int headless_run(const HeadlessOptions *o) {
             G.pl.hp = o->hp < G.pl.max_hp ? o->hp : G.pl.max_hp;
         }
         int start_revives = G.pl.revives;
-        if (o->stats_room) room_enter(ROOM_STATS, RW_NONE, o->depth > 0 ? o->depth : 1);
+        if (o->casino_room) room_enter(ROOM_CASINO, RW_NONE, o->depth > 0 ? o->depth : 3);
+        else if (o->baphomet_room) room_enter(ROOM_BAPHOMET, RW_NONE, o->depth > 0 ? o->depth : 3);
         else if (o->shop_room) room_enter(ROOM_SHOP, RW_NONE, o->depth > 0 ? o->depth : 1);
         else if (o->workshop_room) room_enter(ROOM_WORKSHOP, RW_NONE, o->depth > 0 ? o->depth : 3);
         else if (o->boss_room) room_enter(ROOM_BOSS, RW_UPGRADE, o->depth > 0 ? o->depth : BOSS_EVERY);
@@ -3742,8 +3782,9 @@ int headless_run(const HeadlessOptions *o) {
         int room_id = G.room.id, secret_parent = -1;
         int run_slot = G.save_slot, saves_seen = save_writes(); /* --save-dir: one save per room entered */
         const char *save_err = save_enabled() && run_slot <= 0 ? "saving on but the run got no save file" : NULL;
-        int stats_rooms = G.room.type == ROOM_STATS, shops = G.room.type == ROOM_SHOP, secrets = 0;
-        int workshops = G.room.type == ROOM_WORKSHOP;
+        int shops = G.room.type == ROOM_SHOP, secrets = 0;
+        int workshops = G.room.type == ROOM_WORKSHOP, casinos = G.room.type == ROOM_CASINO, baphomets = G.room.type == ROOM_BAPHOMET;
+        int locked_in = 0; /* doors opened with a key */
         int bosses = G.room.type == ROOM_BOSS, bosses_beaten = 0, boss_hits = 0, hits_at_entry = 0;
         float boss_time = 0.0f;
         bool was_cleared = G.room.cleared;
@@ -3817,7 +3858,9 @@ int headless_run(const HeadlessOptions *o) {
                             break;
                         }
                     }
-                    stats_rooms += G.room.type == ROOM_STATS;
+                    casinos += G.room.type == ROOM_CASINO;
+                    baphomets += G.room.type == ROOM_BAPHOMET;
+                    locked_in += door_needs_key(G.room.type, G.room.reward);
                     shops += G.room.type == ROOM_SHOP;
                     workshops += G.room.type == ROOM_WORKSHOP;
                     bosses += G.room.type == ROOM_BOSS;
@@ -3906,17 +3949,20 @@ int headless_run(const HeadlessOptions *o) {
         for (int u = UPG_W_SCATTER; u <= UPG_W_SWORD; u++)
             if (upg_has(u)) printf("%.4s+", UPGRADES[u].name);
         printf("%s upgrades=%d off=%d toggles=%d ", gun_main_mod() < 0 ? "BLAS" : "", owned, off, G.toggles);
-        printf("hits=%d coins=%d shops=%d bought=%d secrets=%d stats_rooms=%d", hits, p->coins, shops, G.items_bought, secrets, stats_rooms);
+        printf("hits=%d coins=%d keys=%d shops=%d bought=%d secrets=%d keyed_rooms=%d", hits, p->coins, p->keys, shops, G.items_bought, secrets,
+               locked_in);
         int acts[ACT_COUNT], na = actives_owned(acts);
         printf(" actives=");
         for (int i = 0; i < na; i++) printf("%s%d%s", active_option_name(acts[i]), p->act[acts[i]].level, i + 1 < na ? "+" : "");
         printf("%s uses=%d", na ? "" : "none", G.active_uses);
         if (bosses) printf(" bosses=%d/%d (%.0fs, %d hits)", bosses_beaten, bosses, (double)boss_time, boss_hits);
-        if (workshops) printf(" workshops=%d machine_uses=%d augments=%d", workshops, G.machine_uses, G.augments);
+        if (workshops + casinos + baphomets)
+            printf(" workshops=%d casinos=%d baphomets=%d trades=%d machine_uses=%d pacts=%d", workshops, casinos, baphomets, G.trades,
+                   G.machine_uses, G.augments);
         if (start_revives > p->revives) printf(" second_winds=%d", start_revives - p->revives);
         if (o->fresh_profile)
             printf(" unlocked=%d/%d ships=%d%d%d", profile_upgrades_unlocked(&G.prof), UPG_COUNT, G.prof.chr[0], G.prof.chr[1], G.prof.chr[2]);
-        if (stats_rooms)
+        if (workshops)
             printf(" [dmg x%.2f rate x%.2f range x%.2f speed x%.2f recharge x%.2f hitbox %.1f luck %+d]", (double)p->dmg_mult,
                    (double)p->rate_mult, (double)p->range_mult, (double)(p->speed / 540.0f), (double)(p->dash_cooldown / DASH_BASE_CD),
                    (double)p->hit_radius, p->luck);
@@ -3932,8 +3978,14 @@ int headless_run(const HeadlessOptions *o) {
         } else if (o->boss_room && bosses_beaten == 0) {
             printf("  started in a boss room but never beat the boss\n");
             failures++;
-        } else if (o->workshop_room && (G.machine_uses == 0 || G.augments == 0)) {
-            printf("  started in a workshop but never used a machine (%d) or took an augment (%d)\n", G.machine_uses, G.augments);
+        } else if (o->workshop_room && G.trades == 0) {
+            printf("  started in a workshop but never took a stat trade\n");
+            failures++;
+        } else if (o->casino_room && G.machine_uses == 0) {
+            printf("  started in a casino but never used a machine\n");
+            failures++;
+        } else if (o->baphomet_room && G.augments == 0) {
+            printf("  started in a Baphomet room but never took a pact\n");
             failures++;
         } else if ((o->actives || o->active_room) && G.active_uses == 0) {
             printf("  had an active item but never used it\n");

@@ -51,7 +51,7 @@ bool weapon_trigger(void) {
 #define LOOK(col, st, snd, pt) (g->color = (col), g->style = (st), g->sfx = (snd), g->pitch = (pt))
 
 static void gun_profile(Gun *g) {
-    *g = (Gun){.cooldown = 0.08f, .count = 1, .mult = 1, .spread_per = 0.03f, .jitter = 0.03f, .parallel = 10.0f,
+    *g = (Gun){.cooldown = 0.12f, .count = 1, .mult = 1, .spread_per = 0.03f, .jitter = 0.03f, .parallel = 10.0f,
                .damage = 7.0f, .speed = 1500.0f, .life = 1.1f, .radius = 5.0f, .knockback = 50.0f,
                .style = BS_BOLT, .color = 0x66f0ff, .sfx = SFX_SHOT_BLASTER, .pitch = 1.0f};
     if (upg_has(UPG_W_BOUNCER)) { /* big orbs, many bounces */

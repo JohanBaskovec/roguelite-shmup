@@ -398,59 +398,49 @@ static void gen_doors(void) {
         d->reward = RW_UPGRADE;
         return;
     }
-    /* Never in the launch bay: the run starts without a key, and all its doors are open. */
-    int locked = r->type != ROOM_START && chance(0.5f) ? irand(0, MAX_DOORS - 1) : -1;
-    /* Occasionally one door leads to a Stats room (never two in a row). */
-    int stats_door = r->type == ROOM_COMBAT && chance(0.2f) ? irand(0, MAX_DOORS - 1) : -1;
-    /* ...or to a Shop (from room 2 on, never two in a row), on another door. */
-    int shop_door = r->type != ROOM_START && r->type != ROOM_SHOP && chance(0.18f) ? irand(0, MAX_DOORS - 1) : -1;
-    if (shop_door >= 0 && shop_door == stats_door) shop_door = (stats_door + irand(1, MAX_DOORS - 1)) % MAX_DOORS;
-    /* ...or to a Workshop (from room 3 on, never two in a row), on a door of its own. */
-    int workshop_door = -1;
-    if (r->depth >= 2 && r->type != ROOM_WORKSHOP && chance(0.14f)) {
-        workshop_door = irand(0, MAX_DOORS - 1);
-        for (int k = 0; k < MAX_DOORS && (workshop_door == stats_door || workshop_door == shop_door); k++)
-            workshop_door = (workshop_door + 1) % MAX_DOORS;
-        if (workshop_door == stats_door || workshop_door == shop_door) workshop_door = -1;
-    }
+    /* Special rooms, each on a door of its own, never two of a kind in a row, none from the launch bay. */
+    static const struct { RoomType type; float chance; int from_depth; } SPECIALS[] = {
+        {ROOM_SHOP, 0.18f, 1}, {ROOM_WORKSHOP, 0.22f, 1}, {ROOM_CASINO, 0.12f, 2}, {ROOM_BAPHOMET, 0.10f, 2},
+    };
     r->ndoors = MAX_DOORS;
-    /* Every door is unique: special rooms appear once, and no reward is behind two doors
-     * (locked or not). Special and locked doors first, then the others from what is left. */
-    unsigned used = 1u << RW_NONE;
     for (int i = 0; i < MAX_DOORS; i++) {
         Door *d = &r->doors[i];
         memset(d, 0, sizeof *d);
         d->side = sides[i];
         d->pos = door_position(sides[i]);
-        d->type = ROOM_COMBAT; /* later: treasure rooms, bosses... */
-        d->locked = (i == locked);
-        if (!d->locked && stats_door == i) {
-            d->type = ROOM_STATS;
-            d->reward = RW_NONE;
-            continue;
-        }
-        if (!d->locked && shop_door == i) {
-            d->type = ROOM_SHOP;
-            d->reward = RW_NONE;
-            continue;
-        }
-        if (!d->locked && workshop_door == i) {
-            d->type = ROOM_WORKSHOP;
-            d->reward = RW_NONE;
-            continue;
-        }
-        if (d->locked) {
-            /* Locked doors always hide something good. */
-            d->reward = RW_UPGRADE;
-            used |= 1u << d->reward;
-        }
+        d->type = ROOM_COMBAT;
     }
+    int first = irand(0, (int)ARRAY_LEN(SPECIALS) - 1); /* (no kind always first in line for the doors) */
+    for (int k = 0; k < (int)ARRAY_LEN(SPECIALS); k++) {
+        int s = (first + k) % (int)ARRAY_LEN(SPECIALS);
+        if (r->type == ROOM_START || r->type == SPECIALS[s].type || r->depth < SPECIALS[s].from_depth || !chance(SPECIALS[s].chance))
+            continue;
+        int free[MAX_DOORS], nfree = 0;
+        for (int i = 0; i < MAX_DOORS; i++)
+            if (r->doors[i].type == ROOM_COMBAT) free[nfree++] = i;
+        if (nfree > 1) r->doors[free[irand(0, nfree - 1)]].type = SPECIALS[s].type; /* (one combat door left at least) */
+    }
+    /* Every door is unique: no reward behind two doors. The launch bay has no locked door (the run starts
+     * without a key): no upgrade / active room from there. */
+    unsigned used = 1u << RW_NONE;
+    if (r->type == ROOM_START) used |= 1u << RW_UPGRADE | 1u << RW_ACTIVE;
     for (int i = 0; i < MAX_DOORS; i++) {
         Door *d = &r->doors[i];
-        if (d->type != ROOM_COMBAT || d->locked) continue;
+        if (d->type != ROOM_COMBAT) continue;
         d->reward = roll_reward_except(used);
         used |= 1u << d->reward;
     }
+    /* Shops, casinos, upgrade and active rooms cost a key, nothing else does; one door at least must open without
+     * one (a ship without keys always has a way on): the first combat door turns into an open reward if needed. */
+    bool open = false;
+    for (int i = 0; i < MAX_DOORS; i++) open |= !door_needs_key(r->doors[i].type, r->doors[i].reward);
+    for (int i = 0; i < MAX_DOORS && !open; i++) {
+        Door *d = &r->doors[i];
+        if (d->type != ROOM_COMBAT) continue;
+        d->reward = roll_reward_except(used | 1u << RW_UPGRADE | 1u << RW_ACTIVE);
+        open = true;
+    }
+    for (int i = 0; i < MAX_DOORS; i++) r->doors[i].locked = door_needs_key(r->doors[i].type, r->doors[i].reward);
     /* Room modifiers: any room behind a door but the boss's (WAGER: combat rooms only), shown on the door (mods.c).
      * One wager door at most: a ship down to its last heart can always leave by another one. */
     bool wager = false;
@@ -460,6 +450,11 @@ static void gen_doors(void) {
         if (wager) d->mods &= (uint8_t)~MOD_BIT(MOD_WAGER);
         wager |= (d->mods & MOD_BIT(MOD_WAGER)) != 0;
     }
+    /* ...and one door at least asks for neither a key nor a heart: the wager comes off the open doors otherwise. */
+    bool free_way = false;
+    for (int i = 0; i < r->ndoors; i++) free_way |= !r->doors[i].locked && !(r->doors[i].mods & MOD_BIT(MOD_WAGER));
+    for (int i = 0; i < r->ndoors && !free_way; i++)
+        if (!r->doors[i].locked) r->doors[i].mods &= (uint8_t)~MOD_BIT(MOD_WAGER);
 }
 
 static void spawn_shop_items(void);
@@ -485,7 +480,7 @@ void room_enter(RoomType type, RewardType reward, int depth) {
     r->mods = (uint8_t)mods_allowed(type, g_mod_override >= 0 ? (unsigned)g_mod_override : G.entry_mods);
     G.entry_mods = 0; /* used up */
     unlocks_on_room(depth); /* ships unlocked by depth (not in the demo) */
-    bool can_hide = type == ROOM_COMBAT || type == ROOM_STATS || type == ROOM_SHOP;
+    bool can_hide = type == ROOM_COMBAT || type == ROOM_SHOP;
     if (can_hide && (G.force_secret || chance(SECRET_CHANCE))) {
         r->has_secret = true;
         r->ghost_cd = frand(2.0f, 5.0f);
@@ -500,10 +495,11 @@ void room_enter(RoomType type, RewardType reward, int depth) {
 
     /* Every room starts full of enemies, except the launch bay and secret rooms. What
      * makes a room special is what appears once it is cleared (see room_clear). */
-    if (type == ROOM_STATS) r->hue = 165.0f;
     if (type == ROOM_SHOP) r->hue = 315.0f;
     if (type == ROOM_SECRET) r->hue = 32.0f;
     if (type == ROOM_WORKSHOP) r->hue = 80.0f;
+    if (type == ROOM_CASINO) r->hue = 48.0f;
+    if (type == ROOM_BAPHOMET) r->hue = 0.0f;
     if (type == ROOM_BOSS) {
         r->hue = 350.0f;
         r->reward = RW_UPGRADE; /* the boss always leaves a choice of 2 upgrades */
@@ -633,17 +629,6 @@ static void spawn_wave(void) {
     if (room_has_mod(MOD_COMPACTOR) && r->wave == 1) crush_start(true); /* the walls start to crawl */
 }
 
-/* Stats room reward: a row of trades, take one and the others vanish. */
-static void spawn_stat_offers(void) {
-    int offers[STATS_ROOM_OFFERS];
-    int n = stats_roll_offers(offers, STATS_ROOM_OFFERS);
-    for (int i = 0; i < n; i++) {
-        V2 p = v2(ARENA_CX + ((float)i - (float)(n - 1) * 0.5f) * 410.0f, ARENA_CY - 20.0f);
-        pickup_spawn_choice(PK_STAT, offers[i], p);
-        fx_particle(p, v2(0, 0), 0.5f, 160.0f, col_hex(COLOR_STATS, 1), 0.0f, PT_RING);
-    }
-}
-
 /* Shop: always SHOP_ITEMS priced items (upgrades, stat trades) + the supply counter. */
 static void spawn_shop_items(void) {
     /* One of each category, plus two random slots so shops vary. Sorted left to right. */
@@ -696,9 +681,10 @@ V2 shop_supply_spot(int i) { return v2(ARENA_CX + 330.0f + 230.0f * (float)i, AR
 /* What the cleared room gives, once the obstacles are gone (clear_t reaching 0). */
 static void room_reveal(void) {
     Room *r = &G.room;
-    if (r->type == ROOM_STATS) spawn_stat_offers();
-    else if (r->type == ROOM_SHOP) spawn_shop_items();
+    if (r->type == ROOM_SHOP) spawn_shop_items();
     else if (r->type == ROOM_WORKSHOP) workshop_spawn();
+    else if (r->type == ROOM_CASINO) casino_spawn();
+    else if (r->type == ROOM_BAPHOMET) baphomet_spawn();
     else if (r->type == ROOM_SECRET) secret_loot(); /* after an ambush */
     else if (room_has_mod(MOD_WAGER) && r->reward != RW_NONE) { /* the reward twice: two choices / twice the loot */
         bool offers = r->reward == RW_UPGRADE || r->reward == RW_ACTIVE;
@@ -986,14 +972,7 @@ void room_draw_floor(void) {
     draw_quad_grad(v2(ARENA_X0, ARENA_Y0), v2(ARENA_X0 + s, ARENA_Y0), v2(ARENA_X0 + s, ARENA_Y1), v2(ARENA_X0, ARENA_Y1), dark, clear, clear, dark);
     draw_quad_grad(v2(ARENA_X1 - s, ARENA_Y0), v2(ARENA_X1, ARENA_Y0), v2(ARENA_X1, ARENA_Y1), v2(ARENA_X1 - s, ARENA_Y1), clear, dark, dark, clear);
 
-    if (r->type == ROOM_STATS) {
-        bool offers = false;
-        for (int i = 0; i < G.npk; i++) offers |= G.pk[i].type == PK_STAT;
-        if (offers) {
-            draw_text_centered(ARENA_CX, ARENA_CY - 190.0f, 3.0f, col_hex(0x4dffd2, 0.8f), "CHOOSE ONE TRADE");
-            draw_text_centered(ARENA_CX, ARENA_CY - 150.0f, 2.0f, col_a(COL_WHITE, 0.4f), "every gain has a price");
-        }
-    }
+    baphomet_draw_floor();
     fires_draw();
     if (r->has_secret && !r->secret_used) {
         V2 c = room_secret_spot();
@@ -1007,8 +986,25 @@ void room_draw_floor(void) {
             draw_text_centered(c.x, c.y - 50.0f, 2.0f, sc, "SECRET");
         }
     }
-    if (r->type == ROOM_WORKSHOP && G.nmc > 0)
-        draw_text_centered(ARENA_CX, ARENA_CY - 200.0f, 3.0f, col_hex(COLOR_WORKSHOP, 0.8f), "WORKSHOP");
+    if (r->type == ROOM_WORKSHOP) {
+        bool trades = false;
+        for (int i = 0; i < G.npk; i++) trades |= G.pk[i].type == PK_STAT;
+        if (trades) {
+            draw_text_centered(ARENA_CX, ARENA_CY - 200.0f, 3.0f, col_hex(COLOR_WORKSHOP, 0.8f), "WORKSHOP");
+            draw_text_centered(ARENA_CX, ARENA_CY - 160.0f, 2.0f, col_a(COL_WHITE, 0.4f), "one trade - every gain has a price");
+        }
+    }
+    if (r->type == ROOM_CASINO && G.nmc > 0) {
+        draw_text_centered(ARENA_CX, ARENA_CY - 200.0f, 3.0f, col_hex(COLOR_CASINO, 0.8f), "CASINO");
+        draw_text_centered(ARENA_CX, ARENA_CY - 160.0f, 2.0f, col_a(COL_WHITE, 0.4f), "one prize per machine");
+    }
+    if (r->type == ROOM_BAPHOMET && r->cleared && r->clear_t >= 0.0f) {
+        bool pacts = false;
+        for (int i = 0; i < G.npk; i++) pacts |= G.pk[i].type == PK_AUGMENT;
+        draw_text_centered(ARENA_CX, ARENA_CY + 300.0f, 3.0f, col_hex(COLOR_BAPHOMET, 0.85f), "BAPHOMET");
+        draw_text_centered(ARENA_CX, ARENA_CY + 340.0f, 2.0f, col_a(COL_WHITE, 0.4f),
+                           pacts ? "one pact - paid in heart containers" : "no pact you could pay for");
+    }
     if (r->type == ROOM_SHOP || r->secret_shop) {
         bool items = false;
         for (int i = 0; i < G.npk; i++) items |= G.pk[i].price > 0;
@@ -1024,7 +1020,7 @@ void room_draw_floor(void) {
         draw_text_centered(ARENA_CX, y + 30, 2.0f, c, "MOUSE - AIM & SHOOT");
         draw_text_centered(ARENA_CX, y + 60, 2.0f, c, "SHIFT / RIGHT CLICK - ACTIVE ITEMS    SPACE - BOMB");
         draw_text_centered(ARENA_CX, y + 90, 2.0f, c, "E - TAKE / BUY / USE    TAB - UPGRADES (ON / OFF)");
-        draw_text_centered(ARENA_CX, y + 140, 2.0f, col_a(col_hex(0xffe066, 1), 0.5f), "LOCKED DOORS COST A KEY BUT HIDE BETTER LOOT");
+        draw_text_centered(ARENA_CX, y + 140, 2.0f, col_a(col_hex(0xffe066, 1), 0.5f), "UPGRADES, ACTIVES, SHOPS AND CASINOS ARE LOCKED: A KEY EACH");
     }
 }
 
@@ -1041,6 +1037,25 @@ static void draw_shop_icon(V2 p, float s) {
     draw_arc(v2(p.x, p.y - s * 0.45f), s * 0.45f, s * 0.18f, PI_F, TAU_F, c);
     draw_rect(p.x - s * 0.9f, p.y - s * 0.5f, s * 1.8f, s * 1.45f, c);
     draw_pickup_icon(PK_COIN, 1, v2(p.x, p.y + s * 0.22f), s * 0.5f, 0.0f);
+}
+
+/* A die showing five. */
+static void draw_casino_icon(V2 p, float s) {
+    SDL_FColor c = col_hex(COLOR_CASINO, 1), dot = col_hex(0x0a0c14, 1);
+    draw_rect(p.x - s * 0.85f, p.y - s * 0.85f, s * 1.7f, s * 1.7f, c);
+    for (int k = 0; k < 5; k++) {
+        float dx = k == 4 ? 0.0f : (k & 1 ? 0.45f : -0.45f), dy = k == 4 ? 0.0f : (k & 2 ? 0.45f : -0.45f);
+        draw_circle(v2(p.x + dx * s, p.y + dy * s), s * 0.17f, dot);
+    }
+}
+
+/* A pentagram, point down, in its circle. */
+static void draw_baphomet_icon(V2 p, float s) {
+    SDL_FColor c = col_hex(COLOR_BAPHOMET, 1);
+    draw_ring(p, s * 1.0f, s * 0.14f, c);
+    V2 pt[5];
+    for (int k = 0; k < 5; k++) pt[k] = v2_add(p, v2_scale(v2_angle(PI_F * 0.5f + TAU_F * (float)k / 5.0f), s * 0.92f));
+    for (int k = 0; k < 5; k++) draw_line(pt[k], pt[(k + 2) % 5], s * 0.14f, c);
 }
 
 /* A gear. */
@@ -1067,7 +1082,8 @@ static void draw_door(const Door *d, bool cleared, bool entry) {
         gx = side == SIDE_LEFT ? p.x - WALL_T : p.x; gw = WALL_T;
     }
     SDL_FColor rc = entry ? col_hex(0x445566, 1)
-                  : d->type == ROOM_STATS ? col_hex(COLOR_STATS, 1)
+                  : d->type == ROOM_CASINO ? col_hex(COLOR_CASINO, 1)
+                  : d->type == ROOM_BAPHOMET ? col_hex(COLOR_BAPHOMET, 1)
                   : d->type == ROOM_SHOP ? col_hex(COLOR_SHOP, 1)
                   : d->type == ROOM_SECRET ? col_hex(COLOR_SECRET, 1)
                   : d->type == ROOM_WORKSHOP ? col_hex(COLOR_WORKSHOP, 1)
@@ -1134,9 +1150,11 @@ static void draw_door(const Door *d, bool cleared, bool entry) {
     draw_ngon_outline(ip, 24.0f * sc, 6, PI_F / 6.0f, 2.0f, col_a(rc, 0.8f));
     if (d->type == ROOM_SHOP) draw_shop_icon(ip, 11.0f * sc);
     else if (d->type == ROOM_WORKSHOP) draw_workshop_icon(ip, 11.0f * sc);
+    else if (d->type == ROOM_CASINO) draw_casino_icon(ip, 11.0f * sc);
+    else if (d->type == ROOM_BAPHOMET) draw_baphomet_icon(ip, 11.0f * sc);
     else if (d->type == ROOM_BOSS) draw_boss_icon(ip, 11.0f * sc);
     else if (d->type == ROOM_SECRET) draw_text_centered(ip.x + 1.0f, ip.y - 12.0f * sc, 3.0f * sc, col_hex(COLOR_SECRET, 1), "%s", G.room.type == ROOM_SECRET ? "v" : "?");
-    else draw_pickup_icon(d->type == ROOM_STATS ? PK_STAT : reward_icon(d->reward), -1, ip, 11.0f * sc, G.time);
+    else draw_pickup_icon(reward_icon(d->reward), -1, ip, 11.0f * sc, G.time);
     if (pop >= 1.0f) draw_text_centered(ip.x, ip.y + 34.0f, 1.5f, col_a(rc, 0.9f), "%s", door_label(d));
     if (pop >= 1.0f) { /* the room's modifiers, under its reward */
         float y = ip.y + 50.0f;

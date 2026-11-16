@@ -14,7 +14,8 @@ typedef struct {
     int runs;          /* consecutive runs, seeds seed .. seed + runs - 1 */
     int max_ticks;     /* per run (120 ticks = 1 s of game time) */
     int depth;         /* start in a combat room of this depth (0 = normal start) */
-    bool stats_room;   /* start in a Stats room instead */
+    bool casino_room;  /* start in a Casino instead */
+    bool baphomet_room; /* start in a Baphomet room instead */
     bool shop_room;    /* start in a Shop instead */
     bool workshop_room; /* start in a Workshop instead */
     bool boss_room;    /* start in a boss room (depth BOSS_EVERY unless depth is set); fail if the boss is not beaten */

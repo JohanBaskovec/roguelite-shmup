@@ -14,7 +14,7 @@
 typedef enum {
     ROW_DEPTH, ROW_REWARD, ROW_SECRET_CONTENT, ROW_BOSS_KIND,
     ROW_MODS,                             /* the check box of modifier MOD_NONE + 1 + (row - ROW_MODS) */
-    ROW_START = ROW_MODS + MOD_COUNT - 1, ROW_COMBAT, ROW_STATS, ROW_SHOP, ROW_WORKSHOP, ROW_BOSS, ROW_SECRET,
+    ROW_START = ROW_MODS + MOD_COUNT - 1, ROW_COMBAT, ROW_SHOP, ROW_WORKSHOP, ROW_CASINO, ROW_BAPHOMET, ROW_BOSS, ROW_SECRET,
     ROW_GOD, ROW_FPS, ROW_ALWAYS_SECRET, ROW_REVEAL, ROW_COINS, ROW_BOMBS, ROW_KEYS, ROW_UPGRADE,
     ROW_ACTIVE, ROW_CLOSE,
     ROW_COUNT
@@ -39,9 +39,10 @@ static const struct {
 } ROOM_ROWS[] = {
     [ROW_START] = {"LAUNCH BAY", ROOM_START, 0xffffff},
     [ROW_COMBAT] = {"COMBAT ROOM", ROOM_COMBAT, 0x66f0ff},
-    [ROW_STATS] = {"STATS ROOM", ROOM_STATS, COLOR_STATS},
     [ROW_SHOP] = {"SHOP", ROOM_SHOP, COLOR_SHOP},
     [ROW_WORKSHOP] = {"WORKSHOP", ROOM_WORKSHOP, COLOR_WORKSHOP},
+    [ROW_CASINO] = {"CASINO", ROOM_CASINO, COLOR_CASINO},
+    [ROW_BAPHOMET] = {"BAPHOMET", ROOM_BAPHOMET, COLOR_BAPHOMET},
     [ROW_BOSS] = {"BOSS ROOM", ROOM_BOSS, COLOR_BOSS},
     [ROW_SECRET] = {"SECRET ROOM", ROOM_SECRET, COLOR_SECRET},
 };
@@ -402,7 +403,7 @@ void debug_menu_draw(void) {
         }
     }
 
-    const char *names[] = {"LAUNCH BAY", "COMBAT", "STATS", "TREASURE", "SHOP", "BOSS", "SECRET", "WORKSHOP"};
+    const char *names[ROOM_TYPE_COUNT] = {"LAUNCH BAY", "COMBAT", "SHOP", "BOSS", "SECRET", "WORKSHOP", "CASINO", "BAPHOMET"};
     bool in_run = G.debug_prev == GS_PLAYING || G.debug_prev == GS_PAUSED || G.debug_prev == GS_UPGRADES;
     if (in_run)
         draw_text_centered(SCREEN_W * 0.5f, bottom - 46.0f, 1.5f, col_a(COL_WHITE, 0.5f),

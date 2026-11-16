@@ -12,7 +12,7 @@
  *              blocks alight
  *   WAGER      the door costs a whole heart (WAGER_COST hp, never the last one); the reward comes twice (two
  *              one-of-N groups for an upgrade / active room, twice the loot otherwise)
- * Any room with a fight (combat, stats, shop, workshop) but a boss room; WAGER only on combat rooms (its double
+ * Any room with a fight (combat, shop, workshop, casino, Baphomet) but a boss room; WAGER only on combat rooms (its double
  * reward is a combat room's reward). Never the launch bay or a secret room (no door leads there).
  */
 #include "audio.h"

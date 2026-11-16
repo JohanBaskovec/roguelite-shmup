@@ -91,10 +91,6 @@ if(SHMUP_BUILD_TESTS)
     # Late-game rooms (dense waves, every enemy type).
     add_test(NAME sim_deep_rooms
              COMMAND neon_breach --headless --god --depth 15 --seed 7 --runs 3 --ticks 36000 --fail-shot ${_out}/fail_sim_deep.bmp)
-    # Stats rooms: the bot takes a trade on every run, then keeps playing.
-    add_test(NAME sim_stats_rooms
-             COMMAND neon_breach --headless --god --stats --seed 50 --runs 12 --ticks 36000 --expect-rooms 2
-                     --fail-shot ${_out}/fail_sim_stats.bmp)
     # Starts in a shop with 60 coins: the bot must buy items; a shop must always offer 5.
     add_test(NAME sim_shop_rooms
              COMMAND neon_breach --headless --god --shop --coins 60 --seed 60 --runs 8 --ticks 36000 --expect-rooms 2
@@ -137,6 +133,17 @@ if(SHMUP_BUILD_TESTS)
                      --fail-shot ${_out}/fail_sim_workshop.bmp)
     add_test(NAME render_workshop
              COMMAND neon_breach --shot ${_out}/render_workshop.bmp --workshop --cleared --no-bot --depth 4 --seed 5 --frames 60)
+    # Casino (slot machines) and Baphomet room (pacts paid with heart containers).
+    add_test(NAME sim_casino
+             COMMAND neon_breach --headless --god --casino --coins 30 --seed 13 --runs 4 --ticks 20000 --expect-rooms 3
+                     --fail-shot ${_out}/fail_sim_casino.bmp)
+    add_test(NAME render_casino
+             COMMAND neon_breach --shot ${_out}/render_casino.bmp --casino --cleared --no-bot --depth 4 --seed 5 --frames 60)
+    add_test(NAME sim_baphomet
+             COMMAND neon_breach --headless --god --baphomet --hp 10 --seed 17 --runs 4 --ticks 20000 --expect-rooms 3
+                     --fail-shot ${_out}/fail_sim_baphomet.bmp)
+    add_test(NAME render_baphomet
+             COMMAND neon_breach --shot ${_out}/render_baphomet.bmp --baphomet --cleared --no-bot --depth 4 --seed 5 --frames 60)
     # Boss rooms (every 10 rooms): the boss must be beaten, by every character; the run
     # from room 8 must go through the single boss door of room 9.
     add_test(NAME sim_boss
@@ -163,7 +170,7 @@ if(SHMUP_BUILD_TESTS)
                  COMMAND neon_breach --shot ${_out}/render_boss_${_boss}.bmp --boss --boss-kind ${_boss} --depth ${_depth} --seed 5 --frames 1500)
     endforeach()
     add_test(NAME sim_boss_any
-             COMMAND neon_breach --headless --god --boss --depth 50 ${_deep_upgrades} --seed 200 --runs 4 --ticks 36000 --expect-rooms 2
+             COMMAND neon_breach --headless --god --boss --depth 50 ${_deep_upgrades} --seed 200 --runs 4 --ticks 48000 --expect-rooms 2
                      --fail-shot ${_out}/fail_sim_boss_any.bmp)
     add_test(NAME sim_boss_mortal
              COMMAND neon_breach --headless --boss --hp 40 --seed 300 --runs 4 --ticks 36000 --expect-rooms 1
@@ -440,8 +447,6 @@ if(SHMUP_BUILD_TESTS)
              COMMAND neon_breach --shot ${_out}/render_debug_menu.bmp --debug-menu --depth 4 --seed 4 --frames 3)
     add_test(NAME render_debug_menu_teleport
              COMMAND neon_breach --shot ${_out}/render_debug_menu_teleport.bmp --teleport-menu --depth 4 --seed 4 --frames 3)
-    add_test(NAME render_stats_room
-             COMMAND neon_breach --shot ${_out}/render_stats.bmp --stats --seed 4 --frames 20)
     add_test(NAME render_stats_overlay
              COMMAND neon_breach --shot ${_out}/render_stats_overlay.bmp --show-stats --all-upgrades --depth 6 --seed 9 --frames 200)
     # Main menu over the demo run the bot plays behind it (several rooms in 1500 frames).
@@ -485,10 +490,10 @@ if(SHMUP_BUILD_TESTS)
     # only reach their extremes by going deep keep their full length.
     set_tests_properties(sim_mortal_runs sim_mortal_runs_b sim_deep_rooms PROPERTIES ENVIRONMENT "NEON_TICK_SCALE=1")
     set_tests_properties(sim_god_seed1 sim_god_seed2 sim_god_seed3 sim_mortal_runs sim_mortal_runs_b sim_deep_rooms
-                         sim_stats_rooms sim_shop_rooms render_shop_room sim_secret_rooms sim_all_upgrades sim_all_upgrades_b
+                         sim_casino sim_baphomet sim_shop_rooms render_shop_room sim_secret_rooms sim_all_upgrades sim_all_upgrades_b
                          sim_all_upgrades_mortal_90 sim_all_upgrades_mortal_92 sim_all_upgrades_mortal_94
                          sim_shotgunner sim_knight sim_knight_mortal sim_knight_mortal_b render_char_select render_knight
-                         sim_workshop render_workshop render_deep_enemies
+                         sim_workshop render_workshop render_casino render_baphomet render_deep_enemies
                          sim_active_shield sim_active_boom sim_active_strength sim_active_chaos sim_active_rooms
                          render_active_room render_chaos
                          sim_weapon_railgun sim_weapon_flamer sim_weapon_rockets sim_weapon_chakram sim_weapon_cluster
@@ -496,7 +501,7 @@ if(SHMUP_BUILD_TESTS)
                          sim_active_blink sim_active_nova sim_active_timestop sim_active_blades render_rockets
                          render_chakram sim_weapon_scatter sim_weapon_needler sim_weapon_seeker sim_weapon_bouncer
                          sim_toggle_upgrades sim_toggle_all_upgrades render_upgrades_menu
-                         sim_debug_teleports render_debug_menu render_debug_menu_teleport render_stats_room render_stats_overlay render_offscreen sfx_synthesis PROPERTIES TIMEOUT 600)
+                         sim_debug_teleports render_debug_menu render_debug_menu_teleport render_stats_overlay render_offscreen sfx_synthesis PROPERTIES TIMEOUT 600)
     # Labels by area, from the test names (`ctest --preset release -L enemies`): a new test gets its
     # labels by itself. Anything touching the bot, the rooms' flow or shared code: the whole suite.
     get_property(_all_tests DIRECTORY PROPERTY TESTS)
@@ -526,7 +531,7 @@ if(SHMUP_BUILD_TESTS)
         if(_t MATCHES "knight|shotgunner|char_select")
             list(APPEND _labels characters)
         endif()
-        if(_t MATCHES "rooms|room$|shop|workshop|secret|blocks|door|teleports|debug_menu")
+        if(_t MATCHES "rooms|room$|shop|workshop|casino|baphomet|secret|blocks|door|teleports|debug_menu")
             list(APPEND _labels rooms)
         endif()
         if(_t MATCHES "god_seed|mortal|deep_rooms")
@@ -545,8 +550,8 @@ if(SHMUP_BUILD_TESTS)
     # "quick": one test per area (rooms, characters, boss, workshop, actives, weapon mods, layouts,
     # rendering, sound), a few seconds with the quick test preset (NEON_TICK_SCALE=0.4). For small edits
     # only: the full suite stays the step before a commit.
-    set_property(TEST sim_debug_teleports sim_god_seed1 sim_knight_mortal sim_all_upgrades sim_stats_rooms sim_shop_rooms
+    set_property(TEST sim_debug_teleports sim_god_seed1 sim_knight_mortal sim_all_upgrades sim_casino sim_shop_rooms
                       sim_secret_rooms sim_workshop sim_boss sim_active_rooms sim_active_multi sim_knight sim_shotgunner
                       sim_toggle_upgrades sim_dense_blocks sim_enemies_knight sim_weapon_laser render_offscreen
-                      render_stats_room sfx_synthesis sim_save_load sim_unlocks APPEND PROPERTY LABELS quick)
+                      render_casino sfx_synthesis sim_save_load sim_unlocks APPEND PROPERTY LABELS quick)
 endif()

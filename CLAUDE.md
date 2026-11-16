@@ -5,8 +5,8 @@ All graphics and sounds are generated in code. See README.md for controls and ar
 
 ## Game design rules (must always hold)
 
-- **Every room starts full of enemies — every room type, including stats rooms, shops and any
-  future treasure / boss room.** What makes a room special is only what appears once all its
+- **Every room starts full of enemies — every room type, including shops, workshops, casinos, Baphomet rooms
+  and any future treasure / boss room.** What makes a room special is only what appears once all its
   enemies are dead (reward drop, stat trades, ...). Never create a room that starts cleared or
   spawns its reward before the fight is over.
   **Only two exceptions** (`room_type_peaceful()`): the launch bay (first room, doors open at once - `clear_t` starts at `DOORS_AT`, no locked door)
@@ -50,7 +50,7 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   `upgrade_toggle`; only purely one-time ones like SKELETON KEY cannot, `upgrade_toggleable`). Turned
   off = no effect at all (`Player.upg_off`, `has()` returns 0, stats left out); turning a heart
   container back on never heals; stat trades stay.
-- **Secret rooms**: some rooms (combat / stats / shop) hide one. During the fight a small see-through ghost
+- **Secret rooms**: some rooms (combat / shop) hide one. During the fight a small see-through ghost
   shows up near the secret's door (within `GHOST_DOOR_R` of `room_secret_spot`, headless checks it) every 5-10 s, drifts for 0.5-2 s (`GHOST_MIN_TIME` / `GHOST_MAX_TIME`), fading
   in and out (`room_ghost_alpha`), then vanishes; a bomb next to the entry door
   (`room_secret_spot`) opens it, leading to the secret room.
@@ -58,11 +58,14 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   are waiting there. Variants: 10% secret shop (5 priced items instead of the free item),
   10% ambush (enemies first, loot once cleared). Its exit leads back to the room it was found in - the only time a room is
   re-entered, already cleared (`Room.revisit`; headless tracks rooms by `Room.id`).
-- **Workshop** (`ROOM_WORKSHOP`, `src/workshop.c`): starts full of enemies like every room; once cleared
-  it spawns its machines (supply press: damage -> coins/bomb/key; slot machine: 5 coins per spin for a
-  displayed weapon/upgrade) and augment pads. Exclusive upgrades (`UpgradeDef.tier > 0`) are only ever
-  obtained there, through augment pads paid with max HP (tier N costs N hearts); `upgrade_roll` never
-  offers them.
+- **Workshop, casino, Baphomet** (`ROOM_WORKSHOP` / `ROOM_CASINO` / `ROOM_BAPHOMET`, `src/workshop.c`): start full
+  of enemies like every room; once cleared (`room_reveal`) the WORKSHOP spawns a row of `WORKSHOP_TRADES` stat
+  trades (one-of-N; there is no stats room any more), the CASINO the supply press (damage -> coins / bomb / key) and
+  `CASINO_MACHINES` slot machines (5 coins per spin, one prize each, never the same upgrade on two; machines only ever
+  stand in a cleared casino), the
+  BAPHOMET room its pacts (augment pads, `PK_AUGMENT`) on a pentagram. Exclusive upgrades (`UpgradeDef.tier > 0`)
+  are only ever obtained there, through pacts paid with max HP (tier N costs N hearts); `upgrade_roll` never
+  offers them. Headless checks each one has exactly its own machines / offers.
 - **Enemies never scale with depth**: each type always has the same HP / speed / fire pattern
   (`ENEMIES` table). Difficulty only comes from more enemies, more waves and new, harder types.
   The 60 newest types (`EN_DRIFTER .. EN_SENTINEL`, plus the helpers `EN_EGG` / `EN_MISSILE` / `EN_TURRET` made by
@@ -86,8 +89,8 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   door stays closed - it only opens as the secret passage - and the other 3 sides are the exits (`gen_doors`;
   the boss door is the one straight ahead). When a room is cleared the ship stays where it is (headless
   checks the entry side).
-- **Nothing on a pedestal is taken by walking over it**: items (upgrades, stat trades, actives, augments),
-  shop articles and workshop machines are taken / bought / used with E (`Input.interact_pressed`), on the
+- **Nothing on a pedestal is taken by walking over it**: items (upgrades, stat trades, actives, pacts),
+  shop articles and casino machines are taken / bought / used with E (`Input.interact_pressed`), on the
   nearest one in reach (`interact_target`, framed with an "E" key cap by `interact_draw`). Only resources
   (coins, keys, bombs, reward hearts) are picked up / vacuumed automatically. Headless fails if an item
   disappears on a tick without E; the bot presses E on the item it wants. A new kind of offer goes through
@@ -108,7 +111,7 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   (`Player.dash_cooldown`). Every new screen (`room_enter`, `room_return_from_secret`) recharges them all
   (`actives_recharge_all`; running effects keep going).
 - A stat trade never lowers max HP (`stat_can_change(ST_MAX_HP, false)` is false; raising it is fine):
-  stats rooms, shops and the slot machine never offer one (headless checks). Only workshop augments cost max HP.
+  workshops, shops and slot machines never offer one (headless checks). Only Baphomet pacts cost max HP.
 - A shop always sells exactly 5 items (upgrades, stat trades), plus a supply counter (`SHOP_SUPPLIES`,
   `shop_supply_spot`): one heart, one bomb, one key, flat prices; all paid with coins, descriptions shown like on any pedestal.
 - **Room layouts** (`src/blocks.c`, `room_gen_layout`; every room with enemies except the boss room, which has
@@ -162,7 +165,7 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   `Room.mods`, read with `room_has_mod()`): a room with one more rule, rolled with its door (`mod_roll`, `MOD_CHANCE`, a
   first depth each, one at most per rolled door) and written under the door's reward; the only exception to "what makes
   a room special comes after the fight". Any room with a fight but a boss room (`mod_allowed` / `mods_allowed`: combat,
-  stats, shop, workshop), WAGER on combat rooms only; never two wager doors in a room (a ship on its last heart must
+  shop, workshop, casino, Baphomet), WAGER on combat rooms only; never two wager doors in a room (a ship on its last heart must
   always have a way out). Any mix must work together (the F4 menu and `--mod`, repeatable, stack them). COMPACTOR: `crush_start(true)` at the first wave
   (`crush_slow`, towards the centre), full speed when the last wave's timer runs out. BLACKOUT: drawing only
   (`mods_draw_over`). POWDER: `theme_kind` / the block budget. HORDE: one wave (`HORDE_BUDGET`), its timer is the
@@ -173,8 +176,13 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   `sim_rooms_mod_<name>` CTests (`--mod NAME` forces it on every room that can have it; `sim_rooms_mod_combo*` mix them),
   a check box on the F4 page comes with the enum.
 - After a room is cleared the player chooses between 3 doors; each door previews what the next
-  room gives. One door may be locked (costs a key). The 3 doors are always different (no reward or
-  special room behind two doors, locked or not).
+  room gives. The 3 doors are always different (no reward or special room behind two doors). Special rooms
+  (`SPECIALS` in `gen_doors`: shop, workshop, casino, Baphomet) each take a door of their own, never two of a kind
+  in a row, none from the launch bay, one combat door left at least.
+- **Locked doors** (`door_needs_key`): the doors to a **shop, a casino, an upgrade room or an active room are always
+  locked** (a key each), **no other door ever is**. One door at least asks for neither a key nor a heart (a WAGER comes
+  off the only free door), so a ship without keys always goes on; the launch bay has no locked door at all (no
+  upgrade / active room behind its doors: the run starts without a key). Headless checks all of it.
 - **Save files** (`src/save.c`): the game saves itself **only on entering a new screen** (`save_autosave()` in the
   room transition of `game_world_step`, plus the launch bay in `game_new_run`), never during a room. One file per
   save (`save_<slot>.sav`, `G.save_slot`) in the user's data folder (`SDL_GetPrefPath`; headless / `--shot` only with
@@ -227,7 +235,8 @@ All graphics and sounds are generated in code. See README.md for controls and ar
 
 These rules are enforced by invariants in `src/headless.c`; keep them there when adding rooms.
 Besides the two peaceful room types, the only exception is the debug menu (`src/debug_menu.c`: F3 cheats, F4 teleport), a dev tool that can teleport into a
-room "without enemies" (already cleared). When adding a room type or a room modifier, add it to the F4 teleport page (modifiers: a check box each) and
+room "without enemies" (already cleared). When adding a room type (`RoomType`, its `SPECIALS` line, `room_reveal`, its door look and label, `door_needs_key`)
+or a room modifier, add it to the F4 teleport page (modifiers: a check box each) and
 to the `--debug-rooms` test too.
 
 ## Build & test
@@ -262,7 +271,7 @@ cmake --preset asan && cmake --build --preset asan -j && ctest --preset asan   #
 
 Do not launch the game in a real window to test it. Use:
 
-- `neon_breach --headless [--god] [--seed N] [--runs N] [--depth N] [--stats] [--boss [--boss-kind NAME]] [--bombs N]` — simulation only,
+- `neon_breach --headless [--god] [--seed N] [--runs N] [--depth N] [--shop | --workshop | --casino | --baphomet] [--boss [--boss-kind NAME]] [--bombs N]` — simulation only,
   driven by the autopilot in `src/bot.c`, invariants checked every tick. Add `--fail-shot f.bmp`
   to get an offscreen render of the failing frame. `--toggle-upgrades` makes the bot turn random
   upgrades off / on (the bot also turns a weapon mod off by itself when its shots hit nothing for 10 s).
@@ -303,7 +312,7 @@ invariants / a CTest entry in `CMakeLists.txt`.
   (`upg_armor_piercing()`) skips the armour of `enemy2_damage`, bubbles and the MIRROR plate (never boss armour). **Stats are derived**: the Player stat fields
   (`dmg_mult`, `max_hp`, `extra_proj`...) are always `Player.base` + the stat effects of every upgrade
   turned on (`stat_effect`), rebuilt by `player_recompute()`. Never write them directly: change
-  `Player.base` (character, stat trades, augment costs) and call `player_recompute()`; stat upgrades go
+  `Player.base` (character, stat trades, pact costs) and call `player_recompute()`; stat upgrades go
   in `stat_effect`, one-time effects of taking an upgrade (coins, heal...) in `upgrade_grant`. Floors /
   caps live in `stats_clamp` (headless checks the stats stay in sync). `--all-upgrades` tests them all at once.
 - Hooks can run inside an entity loop (e.g. `upg_on_lethal_hit` runs inside the enemy bullet loop):

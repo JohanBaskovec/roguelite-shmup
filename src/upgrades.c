@@ -200,7 +200,7 @@ const UpgradeDef UPGRADES[UPG_COUNT] = {
     [UPG_W_GRAVITON] = {"GRAVITON", "Heavy orbs that drag enemies|along, then implode", 0x8a5aff},
     [UPG_W_SWORD] = {"SWORD", "Replaces the gun: arc slashes that cut|bullets; your shot upgrades empower it", 0xc9d4ff},
 
-    /* Workshop exclusives: tier = heart containers paid at the augment machine. */
+    /* Baphomet exclusives: tier = heart containers paid for the pact. */
     [UPG_X_BLOOD_ROUNDS] = {"BLOOD ROUNDS", "+30% damage; every hit makes|enemies bleed (40%/s, 3 s)", 0xff2050, 1},
     [UPG_X_OVERDRIVE] = {"OVERDRIVE CORE", "+30% fire rate, +15% speed,|active item recharges 30% faster", 0xff9f1c, 1},
     [UPG_X_HELLFIRE] = {"HELLFIRE ENGINE", "+40% damage; every hit sets|enemies ablaze (100%/s, 2 s)", 0xff5a00, 2},
@@ -344,7 +344,7 @@ bool upgrade_capped(int u) {
 }
 
 int upgrade_roll(void) {
-    /* exclusives: workshop only */
+    /* exclusives: Baphomet rooms only */
     int cand[UPG_COUNT], n = 0;
     for (int u = 0; u < UPG_COUNT; u++)
         if (UPGRADES[u].tier == 0 && upgrade_unlocked(u) && !upgrade_capped(u)) cand[n++] = u;

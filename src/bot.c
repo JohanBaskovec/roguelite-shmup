@@ -290,8 +290,8 @@ void bot_input(void) {
     const Room *r = &G.room;
     bool secret_known = r->has_secret && (r->ghosts > 0 || upg_has(UPG_XRAY)) && !r->secret_used;
 
-    /* Workshop machines: the supply press while healthy, a few slot machine plays while
-     * it has coins (E on it, one press at a time). */
+    /* Casino machines: the supply press while healthy, a few plays on each slot machine while it has coins (E on it,
+     * one press at a time). */
     const Machine *machine = NULL;
     for (int i = 0; i < G.nmc && G.room.cleared && !offer; i++) {
         const Machine *m = &G.mc[i];
@@ -342,13 +342,14 @@ void bot_input(void) {
             if (d->locked && pl->keys == 0) continue;
             if ((d->mods & MOD_BIT(MOD_WAGER)) && pl->hp <= WAGER_COST + 2) continue; /* a heart it can spare, and one more */
             int score = d->type == ROOM_SHOP ? (pl->coins >= 25 ? 7 : pl->coins >= 14 ? 4 : 0)
-                      : d->type == ROOM_STATS ? 4
-                      : d->type == ROOM_WORKSHOP ? (pl->coins >= GAMBLE_COST || pl->max_hp >= 6 ? 5 : 2)
+                      : d->type == ROOM_WORKSHOP ? 4
+                      : d->type == ROOM_CASINO ? (pl->coins >= 3 * GAMBLE_COST ? 5 : pl->hp + pl->shield >= 5 ? 2 : 0)
+                      : d->type == ROOM_BAPHOMET ? (pl->max_hp >= 8 ? 5 : 1)
                       : d->reward == RW_ACTIVE ? (G.active_uses == 0 && !pl->act[ACT_DASH].level ? 7 : 4)
                       : d->reward == RW_UPGRADE ? 5
                       : d->reward == RW_HEART && pl->hp <= pl->max_hp / 2 ? 6
                       : d->reward == RW_COINS && pl->coins < 40 ? 4
-                      : d->reward == RW_KEY ? 3 : d->reward == RW_BOMBS ? (pl->bombs == 0 ? 5 : 2) : 1; /* the run starts without any */
+                      : d->reward == RW_KEY ? (pl->keys == 0 ? 5 : 3) : d->reward == RW_BOMBS ? (pl->bombs == 0 ? 5 : 2) : 1; /* the run starts without any */
             if ((d->mods & MOD_BIT(MOD_WAGER))) score += 2; /* double reward */
             scores[i] = score * MAX_DOORS + (MAX_DOORS - 1 - i); /* ties: first door first */
         }

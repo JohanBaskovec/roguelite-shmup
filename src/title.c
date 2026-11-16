@@ -187,7 +187,7 @@ static void demo_new_run(void) {
     fx_clear();
     player_init();
     G.rooms_cleared = G.kills = G.items_bought = 0;
-    G.machine_uses = G.augments = G.active_uses = G.toggles = 0;
+    G.machine_uses = G.augments = G.trades = G.active_uses = G.toggles = 0;
     G.run_time = 0.0f;
     G.shake = G.hitstop = G.hurt_flash = G.bomb_flash = G.banner_t = 0.0f;
     G.transitioning = false;
@@ -711,7 +711,7 @@ static void save_menu_draw(void) {
 static const char *upgrade_kind(int u) {
     static char buf[64];
     if (UPGRADES[u].tier > 0) {
-        SDL_snprintf(buf, sizeof buf, "WORKSHOP AUGMENT - costs %d max heart%s", UPGRADES[u].tier, UPGRADES[u].tier > 1 ? "s" : "");
+        SDL_snprintf(buf, sizeof buf, "BAPHOMET PACT - costs %d max heart%s", UPGRADES[u].tier, UPGRADES[u].tier > 1 ? "s" : "");
         return buf;
     }
     if (upgrade_is_weapon(u)) return "SHOT MOD (combines with the others)";

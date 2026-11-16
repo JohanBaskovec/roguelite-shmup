@@ -30,7 +30,7 @@ bool stat_can_change(int s, bool up) {
     case ST_DAMAGE: return up || p->dmg_mult * 0.85f >= 0.3f;
     case ST_FIRE_RATE: return up || p->rate_mult * 0.85f >= 0.3f;
     case ST_RANGE: return up ? p->range_mult < 3.0f : p->range_mult * 0.8f >= 0.35f;
-    case ST_MAX_HP: return up && p->max_hp + 2 <= 24; /* a trade never costs max HP (only workshop augments do) */
+    case ST_MAX_HP: return up && p->max_hp + 2 <= 24; /* a trade never costs max HP (only Baphomet pacts do) */
     case ST_MOVE_SPEED: return up ? p->speed * 1.12f <= 900.0f : p->speed * 0.9f >= 330.0f;
     case ST_DASH: return up ? p->dash_cooldown * 0.75f >= 0.15f : p->dash_cooldown * 1.33f <= 2.0f;
     case ST_SHOT_SPEED: return up ? p->shot_speed_mult < 3.0f : p->shot_speed_mult * 0.85f >= 0.4f;

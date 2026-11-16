@@ -3,7 +3,7 @@
 #include "game.h"
 
 /*
- * The newer upgrades (50 regular ones, UPG_TWIN_BARREL .. UPG_SPLASH) and workshop exclusives
+ * The newer upgrades (50 regular ones, UPG_TWIN_BARREL .. UPG_SPLASH) and Baphomet exclusives
  * (UPG_X_ARSENAL .. UPG_X_DOOMSDAY). Their table entries live with the others (UPGRADES in
  * upgrades.c, MALUSES in maluses.c); their effects are here, called from the hooks of upgrades.c
  * (upg2_*), and read through upg_has() so that toggles and CHAOS loans follow. Their state lives

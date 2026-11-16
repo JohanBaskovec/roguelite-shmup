@@ -24,7 +24,7 @@ static const int START_UPGRADES[UNLOCK_START_COUNT] = {
     UPG_SKELETON_KEY, UPG_BARRIER, UPG_ORB,        UPG_LEECH,      UPG_W_SCATTER, UPG_W_SEEKER,
 };
 
-/* The first boss beaten: a few showy shot mods, a kill trigger, a safety net, a first workshop augment. */
+/* The first boss beaten: a few showy shot mods, a kill trigger, a safety net, a first Baphomet pact. */
 static const int FIRST_BOSS[UNLOCK_BATCH] = {
     UPG_W_LASER, UPG_W_ROCKETS, UPG_W_FLAMER, UPG_CHAIN_REACTION, UPG_SECOND_WIND, UPG_X_BLOOD_ROUNDS,
 };
