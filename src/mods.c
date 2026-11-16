@@ -121,7 +121,7 @@ unsigned mod_roll(RoomType type, RewardType reward) {
 static int elite_type(int depth) {
     int cand[EN_COUNT], n = 0;
     for (int t = 0; t < EN_COUNT; t++) {
-        bool ok = g_only_count ? g_only_enemies[t] : ENEMIES[t].min_depth <= depth && ENEMIES[t].cost <= 4;
+        bool ok = g_only_count ? g_only_enemies[t] : enemy_wave_weight(t, floor_of_depth(depth)) > 0.0f && ENEMIES[t].cost <= 4;
         if (ok && !type_is_boss(t)) cand[n++] = t;
     }
     return n ? cand[irand(0, n - 1)] : EN_CHASER;

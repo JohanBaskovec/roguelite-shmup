@@ -1991,6 +1991,73 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         }
         names[nres] = "shop supplies", oks[nres++] = supply_ok;
 
+        /* Enemy floors: 20 enemies on each of the FLOORS floors, 10 at the start and 5 + 5 more once the floor's boss is beaten (each tier harder),
+         * the floors behind rarer the farther they are, and a locked enemy never in a wave. */
+        {
+            bool floors_ok = true;
+            int per_floor[FLOORS + 1] = {0}, per_tier[FLOORS + 1][ENEMY_TIERS + 1] = {{0}};
+            int max_cost[FLOORS + 1][ENEMY_TIERS + 1] = {{0}}, min_cost[FLOORS + 1][ENEMY_TIERS + 1];
+            for (int f = 0; f <= FLOORS; f++)
+                for (int k = 0; k <= ENEMY_TIERS; k++) min_cost[f][k] = 999;
+            for (int t = 0; t < EN_COUNT; t++) {
+                const EnemyDef *d = &ENEMIES[t];
+                if (d->cost >= 999) { floors_ok = floors_ok && d->min_floor == 999; continue; } /* bosses, helpers: no floor */
+                if (d->min_floor < 1) continue; /* in no wave */
+                floors_ok = floors_ok && d->min_floor <= FLOORS && d->tier >= 0 && d->tier <= ENEMY_TIERS;
+                if (!floors_ok) break;
+                per_floor[d->min_floor]++;
+                per_tier[d->min_floor][d->tier]++;
+                max_cost[d->min_floor][d->tier] = d->cost > max_cost[d->min_floor][d->tier] ? d->cost : max_cost[d->min_floor][d->tier];
+                min_cost[d->min_floor][d->tier] = d->cost < min_cost[d->min_floor][d->tier] ? d->cost : min_cost[d->min_floor][d->tier];
+            }
+            for (int f = 1; f <= FLOORS && floors_ok; f++) {
+                floors_ok = per_floor[f] == 20 && per_tier[f][0] == 10 && per_tier[f][1] == 5 && per_tier[f][2] == 5 && max_cost[f][0] <= min_cost[f][1] &&
+                            max_cost[f][1] <= min_cost[f][2] && (f == 1 || max_cost[f - 1][2] <= min_cost[f][0]); /* each batch harder than the one before */
+            }
+            Profile fresh;
+            profile_fresh(&fresh);
+            Profile keep = G.prof;
+            G.prof = fresh;
+            int open[FLOORS + 1] = {0};
+            for (int t = 0; t < EN_COUNT; t++)
+                if (ENEMIES[t].min_floor >= 1 && ENEMIES[t].min_floor <= FLOORS && enemy_unlocked(t)) open[ENEMIES[t].min_floor]++;
+            for (int f = 1; f <= FLOORS; f++) floors_ok = floors_ok && open[f] == 10; /* a new save: 10 per floor */
+            int cheap = -1, dear = -1; /* one enemy of floor 1 (tier 0), one of floor 2 (tier 2) */
+            for (int t = 0; t < EN_COUNT; t++) {
+                if (ENEMIES[t].min_floor == 1 && ENEMIES[t].tier == 0 && cheap < 0) cheap = t;
+                if (ENEMIES[t].min_floor == 2 && ENEMIES[t].tier == 2 && dear < 0) dear = t;
+            }
+            floors_ok = floors_ok && enemy_wave_weight(cheap, 1) == 1.0f && enemy_wave_weight(cheap, 2) == 0.5f && enemy_wave_weight(cheap, 4) == 0.125f &&
+                        enemy_wave_weight(dear, 1) == 0.0f && enemy_wave_weight(dear, 2) == 0.0f && enemy_wave_weight(dear, 4) == 0.0f; /* locked: never */
+            G.prof.boss_floor[1] = 1;
+            floors_ok = floors_ok && !enemy_unlocked(dear);
+            G.prof.boss_floor[1] = 2;
+            floors_ok = floors_ok && enemy_wave_weight(dear, 2) == 1.0f && enemy_wave_weight(dear, 3) == 0.5f && enemy_wave_weight(dear, 1) == 0.0f;
+            floors_ok = floors_ok && floor_of_depth(1) == 1 && floor_of_depth(10) == 1 && floor_of_depth(11) == 2 && floor_of_depth(40) == 4 && floor_of_depth(77) == FLOORS;
+            G.prof = keep;
+            names[nres] = "enemy floors (20 each: 10 + 5 + 5, rarer behind)", oks[nres++] = floors_ok;
+        }
+
+        /* The last floor's boss ends the game - in a run that went through it; started on the spot (tests, teleports) it does not. */
+        {
+            bool win_ok = true;
+            for (int via = 0; via < 2; via++) {
+                game_init(o->seed);
+                G.god = true;
+                game_new_run();
+                if (via == 0) G.rooms_cleared = FLOORS * BOSS_EVERY - 2; /* all the rooms before it cleared */
+                room_enter(ROOM_BOSS, RW_UPGRADE, FLOORS * BOSS_EVERY);
+                G.state = GS_PLAYING;
+                G.god = true;
+                room_skip();
+                for (int t = 0; t < (int)(5.0f * TICK_RATE) && G.state == GS_PLAYING; t++) TICK();
+                win_ok = win_ok && (via == 0 ? G.state == GS_GAMEOVER && G.victory : G.state == GS_PLAYING && !G.victory);
+            }
+            game_init(o->seed);
+            game_new_run();
+            names[nres] = "last boss ends the game (only after the whole run)", oks[nres++] = win_ok;
+        }
+
         /* New enemy bullets: a grenade is harmless in the air and bursts where it lands; a mine
          * blows when the ship comes close; a split orb bursts; a bouncing bullet comes back off a wall. */
         FRESH();
@@ -4271,6 +4338,8 @@ worker:
                               ? "first room: only the launch bay / secret rooms start without enemies" : NULL;
         int tick = 0, hits = 0, life = G.pl.hp + G.pl.shield;
         int unlocked = profile_upgrades_unlocked(&G.prof); /* only a boss beaten unlocks upgrades */
+        uint8_t bf_prev[FLOORS];
+        memcpy(bf_prev, G.prof.boss_floor, sizeof bf_prev);
         int taken_side = -1; /* side of the door being walked through (-1: none / secret passage) */
         static char entry_msg[128];
         for (; !err && tick < o->max_ticks && G.state != GS_GAMEOVER; tick++) {
@@ -4353,6 +4422,12 @@ worker:
             if (G.room.cleared && !was_cleared && G.room.type == ROOM_BOSS && !G.room.revisit) {
                 int want = unlocked + (UPG_COUNT - unlocked < UNLOCK_BATCH ? UPG_COUNT - unlocked : UNLOCK_BATCH);
                 Profile saved;
+                int bfl = floor_of_depth(G.room.depth) - 1;
+                bool floor_up = G.room.depth <= FLOORS * BOSS_EVERY && bf_prev[bfl] < ENEMY_TIERS; /* the floor's next 5 enemies, only for the floor of that boss */
+                for (int f = 0; f < FLOORS; f++)
+                    if (G.prof.boss_floor[f] != bf_prev[f] + (f == bfl && floor_up)) err = "a boss beaten did not unlock 5 enemies of its floor (and only its floor)";
+                if (err) break;
+                memcpy(bf_prev, G.prof.boss_floor, sizeof bf_prev);
                 if (profile_upgrades_unlocked(&G.prof) != want || !character_unlocked(CHAR_KNIGHT)) {
                     err = "a boss beaten did not unlock the next upgrades (and the Knight) at once";
                     break;
@@ -4414,7 +4489,7 @@ worker:
             boss_hits += hits - hits_at_entry;
         }
 
-        const char *outcome = err ? "FAIL" : G.state == GS_GAMEOVER ? "died" : "time limit";
+        const char *outcome = err ? "FAIL" : G.state == GS_GAMEOVER ? (G.victory ? "WON" : "died") : "time limit";
         const Player *p = &G.pl;
         int owned = 0, off = 0;
         for (int u = 0; u < UPG_COUNT; u++) {

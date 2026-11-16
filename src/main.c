@@ -497,7 +497,7 @@ int main(int argc, char **argv) {
     }
     if (opt.bestiary >= 0) {
         profile_fresh(&G.prof);
-        for (int t = 0; t < EN_COUNT; t++) G.prof.seen[t] = !type_is_boss(t) && ENEMIES[t].min_depth <= 12;
+        for (int t = 0; t < EN_COUNT; t++) G.prof.seen[t] = !type_is_boss(t) && ENEMIES[t].min_floor >= 1 && ENEMIES[t].min_floor <= 2;
         G.prof.seen[EN_BOSS] = 1;
         G.prof.seen[opt.bestiary] = 1;
         title_open();

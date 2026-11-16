@@ -66,6 +66,7 @@ void profile_unlock_all(Profile *p) {
     memset(p->upg, 1, sizeof p->upg);
     memset(p->chr, 1, sizeof p->chr);
     memset(p->seen, 1, sizeof p->seen);
+    memset(p->boss_floor, ENEMY_TIERS, sizeof p->boss_floor);
 }
 
 int profile_seen(const Profile *p) {
@@ -81,6 +82,23 @@ void bestiary_saw(EnemyType t) {
     save_profile_update(); /* at once, like an unlock: met even if the run ends in this room */
 }
 
+int floor_of_depth(int depth) {
+    int f = (depth - 1) / BOSS_EVERY + 1;
+    return f < 1 ? 1 : f > FLOORS ? FLOORS : f;
+}
+
+bool enemy_unlocked(int t) {
+    if (t < 0 || t >= EN_COUNT) return false;
+    const EnemyDef *d = &ENEMIES[t];
+    if (d->min_floor < 1 || d->min_floor > FLOORS) return false;
+    return d->tier == 0 || G.prof.boss_floor[d->min_floor - 1] >= d->tier;
+}
+
+float enemy_wave_weight(int t, int floor) {
+    if (!enemy_unlocked(t) || ENEMIES[t].min_floor > floor) return 0.0f;
+    return powf(0.5f, (float)(floor - ENEMIES[t].min_floor)); /* the floors behind are rarer the farther they are */
+}
+
 bool upgrade_unlocked(int u) { return u >= 0 && u < UPG_COUNT && G.prof.upg[u]; }
 
 bool character_unlocked(int c) { return c >= 0 && c < CHAR_COUNT && G.prof.chr[c]; }
@@ -94,10 +112,11 @@ int profile_upgrades_unlocked(const Profile *p) {
 int profile_unlocked(const Profile *p) {
     int n = profile_upgrades_unlocked(p);
     for (int c = 0; c < CHAR_COUNT; c++) n += p->chr[c] != 0;
+    for (int f = 0; f < FLOORS; f++) n += p->boss_floor[f]; /* the enemies of each floor, 5 per boss beaten */
     return n;
 }
 
-int unlocks_total(void) { return UPG_COUNT + CHAR_COUNT; }
+int unlocks_total(void) { return UPG_COUNT + CHAR_COUNT + FLOORS * ENEMY_TIERS; }
 
 int unlock_percent(int unlocked, int total) { return total > 0 ? unlocked * 100 / total : 0; }
 
@@ -140,6 +159,12 @@ void unlocks_boss_beaten(void) {
     if (G.demo) return;
     G.prof.bosses++;
     char sub[200] = "";
+    int fl = floor_of_depth(G.room.depth);
+    bool harder = G.prof.boss_floor[fl - 1] < ENEMY_TIERS && G.room.depth <= FLOORS * BOSS_EVERY; /* the floor's next 5 enemies, for the runs to come */
+    if (harder) {
+        G.prof.boss_floor[fl - 1]++;
+        SDL_snprintf(sub, sizeof sub, "5 NEW ENEMIES ON FLOOR %d", fl);
+    }
     unlock_ship(CHAR_KNIGHT, sub, sizeof sub);
     int next[UNLOCK_BATCH], n = unlocks_next(next, UNLOCK_BATCH);
     for (int i = 0; i < n; i++) {
@@ -148,7 +173,7 @@ void unlocks_boss_beaten(void) {
         SDL_snprintf(sub + len, sizeof sub - len, "%s%s", i == 0 ? (len ? "  +  " : "") : ", ", UPGRADES[next[i]].name);
     }
     if (sub[0]) {
-        fx_banner("BOSS DEFEATED - UNLOCKED", sub, col_hex(COLOR_BOSS, 1), 4.0f);
+        fx_banner(harder ? "THE FLOOR JUST GOT HARDER!" : "BOSS DEFEATED - UNLOCKED", sub, col_hex(COLOR_BOSS, 1), 4.0f);
         sfx_play(SFX_POWER_UP);
     }
     save_profile_update(); /* at once: the unlocks are kept even if the run ends in this room */

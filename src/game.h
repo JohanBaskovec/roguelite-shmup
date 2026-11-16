@@ -222,7 +222,8 @@ typedef struct {
     const char *name;
     float radius, hp, speed;
     int cost;       /* wave budget cost */
-    int min_depth;  /* first room depth where it can appear */
+    int min_floor;  /* the floor it belongs to (1..FLOORS; 0: in no wave; 999: made by something else / a boss) */
+    int tier;       /* 0: unlocked on a new save; 1 / 2: unlocked when the floor's boss is beaten once / twice (5 each) */
     uint32_t color;
     int sides;
 } EnemyDef;
@@ -475,6 +476,7 @@ typedef struct {
     int crush_from[4], crush_cell[4], crush_goal[4]; /* cells each side has come: before the step, now, at the end */
     float crush_t, crush_slide;                      /* time to the next step; 0..1 along the current one */
     bool cleared;
+    float win_t;         /* > 0: the last boss is down, the victory comes when it runs out */
     float clear_t;       /* time since cleared; < 0 while the room shatters (reward, doors at 0) */
     V2 last_death;       /* where the last enemy died: the shatter wave starts there */
     float msg_cd;
@@ -680,11 +682,14 @@ extern const CharDef CHARACTERS[CHAR_COUNT];
  * rewritten at once when something is unlocked). A new save: the first ship and
  * UNLOCK_START_COUNT upgrades; each boss beaten unlocks UNLOCK_BATCH more (fixed order).
  * Outside a save (tests, the menu's demo before a save is chosen) everything is unlocked. */
+#define FLOORS 4              /* floors of BOSS_EVERY rooms, each ending with its boss: the 4th boss ends the game */
+#define ENEMY_TIERS 2         /* floor bosses that each unlock 5 more enemies of their floor (10 at the start + 5 + 5 = 20) */
 #define UNLOCK_START_COUNT 24
 #define UNLOCK_BATCH 6
 #define UNLOCK_SHOTGUNNER_DEPTH 5 /* reaching this room unlocks the Shotgunner; a boss beaten, the Knight */
 typedef struct {
     uint8_t upg[UPG_COUNT], chr[CHAR_COUNT];
+    uint8_t boss_floor[FLOORS]; /* times the boss of each floor was beaten, at most ENEMY_TIERS: each unlocks 5 enemies of that floor */
     uint8_t seen[EN_COUNT]; /* bestiary: every enemy type met at least once (written at once) */
     int32_t runs, deaths, bosses, best_depth;
 } Profile;
@@ -772,6 +777,7 @@ typedef struct {
     bool reveal_secrets; /* dev: mark hidden secrets permanently */
     int secret_shop_override, secret_ambush_override; /* dev (debug menu / tests): -1 random, 0 no, 1 yes */
     float gameover_t;
+    bool victory;       /* the game-over screen is the victory one: the last floor's boss fell (game_victory) */
     float restart_hold; /* how long R has been held in this run (RESTART_HOLD_T: a new run); < 0: let it go first */
     float last_enemy_damage_t; /* G.time of the last hit on an enemy (stall detection in tests) */
 
@@ -994,6 +1000,7 @@ void game_new_run(void);
 void game_update(void);
 void game_render(void);
 void game_over(void);
+void game_victory(void); /* the last floor's boss is beaten: the run is won (the game-over screen, as a victory) */
 void game_start_transition(int door);
 
 /* room.c */
@@ -1167,6 +1174,9 @@ void bestiary_draw(void);
 void bestiary_close(void);            /* the real world back as it was (path finder caches rebuilt) */
 int bestiary_world_type(void);        /* the type playing in the small screen (-1: closed) */
 bool title_world_hidden(void);        /* the bestiary: G holds its small world, not drawn full screen */
+int floor_of_depth(int depth);        /* 1..FLOORS (rooms 1-10: 1, 11-20: 2...; deeper: the last) */
+bool enemy_unlocked(int t);           /* in G.prof: tier 0, or its floor's boss beaten often enough */
+float enemy_wave_weight(int t, int floor); /* how likely it is in a wave of that floor: 0 locked / later floor, 1 its own floor, halved per floor since */
 int unlocks_next(int *out, int max);  /* the upgrades the next boss will unlock (tests) */
 /* Main menu (title.c) with the bot-played demo run behind it. */
 void title_open(void);

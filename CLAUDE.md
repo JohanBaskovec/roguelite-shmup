@@ -82,6 +82,15 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   `room_type_name`, spawn / use / draw in `special.c`, door colour / icon (`room.c`), HUD title and hint (`hud.c`), bot support (`bot.c`: door
   score + the machine loop), a row in the F4 page, its checks in `check_special_room` (headless), `--room NAME` (`room_type_by_name`) and the
   `sim_rooms_special_*` / `render_rooms_special_*` CTests.
+- **Floors** (`FLOORS` = 4, each `BOSS_EVERY` = 10 rooms ending with its boss; `floor_of_depth`): the 4th boss (room 40) ends the game
+  (`Room.win_t` -> `game_victory`: the game-over screen as a victory, `G.victory`; only in a run that went through the launch bay and the 39
+  rooms before it, `G.rooms_cleared`; started on the spot - tests, teleports - it does not). **Enemies belong to floors**: `EnemyDef.min_floor` (1..4, 0 =
+  in no wave, 999 = made by something else / a boss) and `tier`; 20 per floor, ranked by `cost` (each tier and floor harder than the one before, headless
+  checks it): **10 (tier 0) are unlocked on a new save, +5 (tier 1) when the floor's boss is beaten the first time, +5 (tier 2) the second**
+  (`Profile.boss_floor[f]`, `unlocks_boss_beaten`: banner "THE FLOOR JUST GOT HARDER!", for the runs to come; counted in `unlock_percent`). Wave draws
+  (`spawn_wave`, `elite_type`, `enemy_hatchling`) go through `enemy_wave_weight(t, floor)`: 0 if locked or of a later floor, 1 on its own floor, halved
+  per floor behind it. No ramp inside a floor (the wave budget still grows with depth). 10 of the 90 types are in no floor yet (`min_floor` 0: only
+  `--enemy` plays them). A new enemy: pick its floor and tier (keep 20 / 10 + 5 + 5 per floor).
 - **Enemies never scale with depth**: each type always has the same HP / speed / fire pattern
   (`ENEMIES` table). Difficulty only comes from more enemies, more waves and new, harder types.
   The 60 newest types (`EN_DRIFTER .. EN_SENTINEL`, plus the helpers `EN_EGG` / `EN_MISSILE` / `EN_TURRET` made by
@@ -93,7 +102,7 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   growth, illusions) says so in `enemy_base_hp()` (headless checks it). An enemy gone without being killed (egg
   hatching, missile blowing) sets `vanish`, an illusion `fake`: neither counts as a kill nor leaves a grave
   (`Room.graves`, NECRO). `--enemy NAME` fills `g_only_enemies[]` (`g_only_count`).
-  A new enemy: enum + `ENEMIES` entry (cost, min_depth), an `update_<name>` function, its drawing, its bestiary line,
+  A new enemy: enum + `ENEMIES` entry (cost, min_floor, tier), an `update_<name>` function, its drawing, its bestiary line,
   bot support if it needs a special answer (`bot.c`: hazards, charge lines, MIRROR flanking), a
   `sim_enemy_<name>` CTest (`--enemy NAME`, repeatable: waves of only those types) and, for a new
   mechanic, a scripted check in `debug_rooms_run`. Untouchable states go through `enemy_untouchable()`
@@ -251,7 +260,7 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   ones, the bot keeps off all of them, `boss_draw_under` shows them); shots stopped by armour go through
   `boss_armor_hit` (bullets.c), the bot's line of fire through `boss_armor_line`. Only THE FORGE leaves fire
   in its room (headless checks). A new boss: enum between `EN_BOSS` and `EN_SINGULARITY` (+ `BOSS_LAST`),
-  `ENEMIES` entry (cost / min_depth 999), its update / draw / title / spawn point, its layout if any, bot
+  `ENEMIES` entry (cost / min_floor 999), its update / draw / title / spawn point, its layout if any, bot
   support, a `boss_mechanics_run` check and `sim_boss_<name>` / `render_boss_<name>` CTests. A new boss
   attack must respect TIME STOP (it does as long as it lives in `boss_update`).
 

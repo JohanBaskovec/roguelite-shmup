@@ -45,6 +45,7 @@ void game_new_run(void) {
     G.banner_t = 0.0f;
     G.transitioning = false;
     G.gameover_t = 0.0f;
+    G.victory = false;
     G.demo = false; /* the menu's demo run is wiped */
     G.prof.runs++;
     bot_reset();     /* the autopilot too (headless, --shot): a run plays the same alone or in a batch */
@@ -70,6 +71,18 @@ void game_over(void) {
     fx_explosion(G.pl.pos, 60.0f, col_hex(CHARACTERS[G.character].color, 1));
     fx_explosion(G.pl.pos, 30.0f, COL_WHITE);
     fx_shake(1.0f);
+}
+
+void game_victory(void) {
+    if (!G.demo) { /* like a death for the save: the run ends, the profile stays */
+        save_end_run();
+    }
+    G.victory = true;
+    G.state = GS_GAMEOVER;
+    G.gameover_t = 0.0f;
+    G.hitstop = 0.0f;
+    sfx_play(SFX_POWER_UP);
+    fx_shake(0.5f);
 }
 
 void game_start_transition(int door) {

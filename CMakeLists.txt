@@ -139,7 +139,7 @@ if(SHMUP_BUILD_TESTS)
              COMMAND neon_breach --shot ${_out}/render_workshop.bmp --workshop --cleared --no-bot --depth 4 --seed 5 --frames 60)
     # Casino (slot machines) and Baphomet room (pacts paid with heart containers).
     add_test(NAME sim_casino
-             COMMAND neon_breach --headless --god --casino --coins 30 --seed 13 --runs 4 --ticks 20000 --expect-rooms 3
+             COMMAND neon_breach --headless --god --casino --coins 30 --seed 17 --runs 4 --ticks 20000 --expect-rooms 3
                      --fail-shot ${_out}/fail_sim_casino.bmp)
     add_test(NAME render_casino
              COMMAND neon_breach --shot ${_out}/render_casino.bmp --casino --cleared --no-bot --depth 4 --seed 5 --frames 60)

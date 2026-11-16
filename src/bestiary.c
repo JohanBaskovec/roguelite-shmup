@@ -152,7 +152,8 @@ static float first_room(EnemyType t) { /* recursive for the helpers */
     if (t == EN_EGG) return first_room(EN_BROODER) + 0.0001f;
     if (t == EN_MISSILE) return first_room(EN_ROCKETEER) + 0.0001f;
     if (t == EN_TURRET) return first_room(EN_ENGINEER) + 0.0001f;
-    return (float)ENEMIES[t].min_depth + (float)t * 0.001f;
+    int f = ENEMIES[t].min_floor;
+    return (float)(f >= 1 && f <= FLOORS ? f : FLOORS + 1) * 10.0f + (float)ENEMIES[t].tier + (float)ENEMIES[t].cost * 0.01f + (float)t * 0.00001f;
 }
 
 static int order[EN_COUNT]; /* a constant, built once */
@@ -254,7 +255,7 @@ static void world_reset(int t) {
     memset(&G.room, 0, sizeof G.room);
     bool boss = type_is_boss(t);
     G.room.type = boss ? ROOM_BOSS : ROOM_COMBAT;
-    G.room.depth = boss ? boss_room((EnemyType)t) : ENEMIES[t].min_depth < 100 ? ENEMIES[t].min_depth : 5;
+    G.room.depth = boss ? boss_room((EnemyType)t) : ENEMIES[t].min_floor >= 1 && ENEMIES[t].min_floor <= FLOORS ? (ENEMIES[t].min_floor - 1) * BOSS_EVERY + 1 : 5;
     G.room.entry = SIDE_BOTTOM;
     G.room.hue = boss ? 350.0f : 200.0f;
     G.room.nwaves = G.room.wave = 1;
@@ -455,7 +456,8 @@ static void detail(void) {
     else if (t == EN_SPLITLING) SDL_snprintf(info, sizeof info, "BORN FROM A SPLITTER     HP %.0f     SPEED %.0f", (double)d->hp, (double)d->speed);
     else if (t == EN_EGG || t == EN_MISSILE || t == EN_TURRET)
         SDL_snprintf(info, sizeof info, "MADE BY A %s     HP %.0f", t == EN_EGG ? "BROODER" : t == EN_MISSILE ? "ROCKETEER" : "ENGINEER", (double)d->hp);
-    else SDL_snprintf(info, sizeof info, "FROM ROOM %d     HP %.0f     SPEED %.0f", d->min_depth, (double)d->hp, (double)d->speed);
+    else if (d->min_floor < 1) SDL_snprintf(info, sizeof info, "IN NO FLOOR YET     HP %.0f     SPEED %.0f", (double)d->hp, (double)d->speed);
+    else SDL_snprintf(info, sizeof info, "FLOOR %d     HP %.0f     SPEED %.0f", d->min_floor, (double)d->hp, (double)d->speed);
     draw_text_centered(cx, y + 50.0f, 1.75f, col_a(COL_WHITE, 0.6f), "%s", info);
     draw_lines(cx, y + 95.0f, 2.25f, 32.0f, col_a(COL_WHITE, 0.95f), enemy_desc(t));
 }

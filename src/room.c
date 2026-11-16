@@ -722,14 +722,19 @@ static void spawn_wave(void) {
     if (cap > MAX_ENEMIES - 20) cap = MAX_ENEMIES - 20;
     int queued = 0;
     while (budget >= 1.0f && queued < cap) {
+        /* The enemies of the floor, and (rarer, the farther behind) those of the floors before: only the ones this save has unlocked. */
         EnemyType cand[EN_COUNT];
+        float wt[EN_COUNT], wsum = 0.0f;
         int nc = 0;
         for (int t = 0; t < EN_COUNT; t++) {
-            bool ok = r->elite ? t == r->elite - 1 : g_only_count ? g_only_enemies[t] : ENEMIES[t].min_depth <= depth;
-            if (ok && (float)ENEMIES[t].cost <= budget) cand[nc++] = (EnemyType)t;
+            float w = r->elite ? (t == r->elite - 1 ? 1.0f : 0.0f) : g_only_count ? (g_only_enemies[t] ? 1.0f : 0.0f) : enemy_wave_weight(t, floor_of_depth(depth));
+            if (w > 0.0f && (float)ENEMIES[t].cost <= budget) wt[nc] = w, wsum += w, cand[nc++] = (EnemyType)t;
         }
         if (nc == 0) break;
-        EnemyType t = cand[irand(0, nc - 1)];
+        float pick = frand(0.0f, wsum);
+        int ci = 0;
+        while (ci < nc - 1 && pick >= wt[ci]) pick -= wt[ci++];
+        EnemyType t = cand[ci];
         budget -= (float)ENEMIES[t].cost;
         V2 p = t == EN_CRAWLER ? wall_spawn_point(ENEMIES[t].radius) : find_spawn_point(ENEMIES[t].radius);
         float delay = 0.65f + frand(0.0f, horde ? 2.5f : 0.5f); /* a horde pours in */
@@ -854,6 +859,8 @@ static void room_clear(bool instant) {
     }
     if (r->type == ROOM_BOSS) fx_banner("BOSS DEFEATED", "pick your prize", col_hex(COLOR_BOSS, 1), 2.0f);
     else fx_banner("ROOM CLEARED", "choose your next door", col_hex(0x66f0ff, 1), 1.4f);
+    /* The boss of the last floor, in a run that went through the whole game: it is won a moment later. */
+    if (r->type == ROOM_BOSS && !instant && !G.demo && r->depth >= FLOORS * BOSS_EVERY && G.rooms_cleared >= FLOORS * BOSS_EVERY - 1 && !r->revisit) r->win_t = 3.5f;
     if (r->type == ROOM_BOSS && !instant) unlocks_boss_beaten(); /* its banner names them, saved at once */
     fx_shake(0.25f);
 }
@@ -941,6 +948,13 @@ void room_update(void) {
     Room *r = &G.room;
     blocks_update(); /* broken blocks go off, burning oil */
     if (r->msg_cd > 0.0f) r->msg_cd -= DT;
+    if (r->win_t > 0.0f) {
+        r->win_t -= DT;
+        if (r->win_t <= 0.0f) {
+            game_victory();
+            return;
+        }
+    }
     for (int i = 0; i < r->ndoors; i++)
         if (r->doors[i].anim > 0.0f) r->doors[i].anim -= DT;
 

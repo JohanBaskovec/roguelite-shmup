@@ -366,7 +366,12 @@ void overlay_draw(void) {
     case GS_GAMEOVER: {
         dim(fminf(G.gameover_t, 0.75f));
         if (G.gameover_t < 0.3f) break;
-        draw_text_centered(SCREEN_W * 0.5f, 260.0f, 8.0f, col_hex(0xff3355, 1), "SHIP DESTROYED");
+        if (G.victory) {
+            draw_text_centered(SCREEN_W * 0.5f, 240.0f, 8.0f, col_hex(0xffd23f, 1), "VICTORY");
+            draw_text_centered(SCREEN_W * 0.5f, 320.0f, 3.0f, col_hex(0xffffff, 0.9f), "THE LAST FLOOR HAS FALLEN");
+        } else {
+            draw_text_centered(SCREEN_W * 0.5f, 260.0f, 8.0f, col_hex(0xff3355, 1), "SHIP DESTROYED");
+        }
         format_time(tbuf, sizeof tbuf, G.run_time);
         draw_text_centered(SCREEN_W * 0.5f, 380.0f, 3.0f, COL_WHITE, "ROOMS CLEARED %d    KILLS %d    TIME %s",
                            G.rooms_cleared, G.kills, tbuf);
