@@ -245,7 +245,7 @@ static void use_chaos(void) {
     Player *p = &G.pl;
     int cand[ARRAY_LEN(CHAOS_POOL)], n = 0;
     for (int i = 0; i < ARRAY_LEN(CHAOS_POOL); i++)
-        if (p->upg_count[CHAOS_POOL[i]] == 0 && !upgrade_capped(CHAOS_POOL[i])) cand[n++] = CHAOS_POOL[i];
+        if (p->upg_count[CHAOS_POOL[i]] == 0 && upgrade_unlocked(CHAOS_POOL[i]) && !upgrade_capped(CHAOS_POOL[i])) cand[n++] = CHAOS_POOL[i];
     int want = active_chaos_count(p->act[ACT_CHAOS].level), give = n < want ? n : want;
     for (int i = 0; i < give; i++) { /* partial Fisher-Yates */
         int j = irand(i, n - 1), t = cand[i];

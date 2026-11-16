@@ -52,6 +52,9 @@ typedef struct {
     int depth;             /* --depth N: start directly in a combat room of that depth */
     const char *save_dir;  /* --save-dir DIR: where the save files go (the real game: the user's data folder) */
     bool load_menu;        /* --load-menu: open the load screen (fills an empty save folder with sample saves) */
+    bool save_menu;        /* --save-menu: like --load-menu, then open the most recent save's menu */
+    bool unlocks_menu;     /* --unlocks-menu: open the unlocks screen (a new save's unlocks + one boss) */
+    bool fresh_profile;    /* --fresh-profile: a new save's unlocks instead of everything unlocked */
     bool save_test;        /* --save-test (headless): saving / loading / deleting checks */
     bool fx;               /* --fx: headless keeps the particles (e.g. for a --fail-shot) */
     bool bot;              /* --bot: autopilot (also implied by --shot) */
@@ -158,6 +161,9 @@ static void parse_args(int argc, char **argv, Options *o) {
         else if (!strcmp(a, "--fx")) o->fx = true;
         else if (!strcmp(a, "--save-dir") && more) o->save_dir = argv[++i];
         else if (!strcmp(a, "--load-menu")) o->load_menu = true;
+        else if (!strcmp(a, "--unlocks-menu")) o->unlocks_menu = true;
+        else if (!strcmp(a, "--save-menu")) o->save_menu = o->load_menu = true;
+        else if (!strcmp(a, "--fresh-profile")) o->fresh_profile = true;
         else if (!strcmp(a, "--save-test")) o->save_test = true;
         else if (!strcmp(a, "--trace-bot") && more) bot_trace_from(atoi(argv[++i])); /* per tick, from tick N of each run */
         else if (!strcmp(a, "--god")) o->god = true;
@@ -174,7 +180,7 @@ static void parse_args(int argc, char **argv, Options *o) {
             o->expect_rooms = (int)(o->expect_rooms * k);
         }
     }
-    if ((o->shot_path || o->record) && !o->char_select && !o->title && !o->load_menu && !o->no_bot) o->bot = true; /* the bot would confirm the select screen at once */
+    if ((o->shot_path || o->record) && !o->char_select && !o->title && !o->load_menu && !o->unlocks_menu && !o->no_bot) o->bot = true; /* the bot would confirm the select screen at once */
 }
 
 static void clear_edges(void) {
@@ -233,7 +239,7 @@ static void handle_event(const SDL_Event *e, SDL_Window *win, bool bot) {
         if (e->key.key == SDLK_R) in->restart_pressed = true;
         if (e->key.key == SDLK_M) audio_toggle_mute();
         if (e->key.key == SDLK_C) in->char_pressed = true;
-        if (e->key.key == SDLK_Q && (G.state == GS_PAUSED || (G.state == GS_GAMEOVER && G.gameover_t > 0.8f))) title_open(); /* the run stays saved */
+        if (e->key.key == SDLK_Q && (G.state == GS_PAUSED || (G.state == GS_GAMEOVER && G.gameover_t > 0.8f))) title_back(); /* the save menu: the run stays saved */
         break;
     case SDL_EVENT_MOUSE_BUTTON_DOWN:
         if (e->button.button == SDL_BUTTON_LEFT) in->confirm_pressed = in->click_pressed = true;
@@ -297,7 +303,7 @@ int main(int argc, char **argv) {
             .shop_room = opt.shop_room, .coins = opt.coins, .debug_rooms = opt.debug_rooms, .secret = opt.secret,
             .all_upgrades = opt.all_upgrades, .hp = opt.hp, .character = opt.character, .workshop_room = opt.workshop_room, .boss_room = opt.boss_room,
             .actives = opt.actives, .active_room = opt.active_room, .weapons = opt.weapons, .upgrades = opt.upgrades, .nupgrades = opt.nupgrades, .toggle_upgrades = opt.toggle_upgrades, .god = opt.god, .expect_rooms = opt.expect_rooms, .fail_shot = opt.fail_shot,
-            .fx = opt.fx, .save_dir = opt.save_dir, .save_test = opt.save_test, .argc = argc, .argv = (const char *const *)argv,
+            .fx = opt.fx, .save_dir = opt.save_dir, .save_test = opt.save_test, .fresh_profile = opt.fresh_profile, .argc = argc, .argv = (const char *const *)argv,
         };
         return headless_run(&h);
     }
@@ -355,6 +361,7 @@ int main(int argc, char **argv) {
     uint64_t seed = opt.has_seed ? opt.seed : SDL_GetPerformanceCounter();
     SDL_Log("Neon Breach - seed %llu (renderer: %s)", (unsigned long long)seed, SDL_GetRendererName(ren));
     game_init(seed);
+    if (opt.fresh_profile) profile_fresh(&G.prof);
     G.god = opt.god;
     G.force_secret = opt.secret;
     G.reveal_secrets = opt.show_secret;
@@ -387,6 +394,15 @@ int main(int argc, char **argv) {
         if (save_enabled() && save_list(tmp, 1) == 0) { /* sample saves to show */
             const int depths[] = {14, 6, 23};
             for (int k = 0; k < 3; k++) {
+                profile_fresh(&G.prof);
+                for (int b = 0; b < k * 2; b++) { /* bosses beaten */
+                    int next[UNLOCK_BATCH], n = unlocks_next(next, UNLOCK_BATCH);
+                    for (int i = 0; i < n; i++) G.prof.upg[next[i]] = 1;
+                    G.prof.chr[CHAR_KNIGHT] = G.prof.chr[CHAR_SHOTGUNNER] = 1;
+                    G.prof.bosses++;
+                }
+                G.prof.runs = 1 + k * 4;
+                G.prof.best_depth = depths[k] + k * 5;
                 G.character = k % CHAR_COUNT;
                 game_new_run();
                 for (int n = depths[k] / 3; n > 0; n--) {
@@ -397,13 +413,27 @@ int main(int argc, char **argv) {
                 G.rooms_cleared = depths[k] - 1;
                 G.run_time = 41.0f * (float)depths[k];
                 save_write(G.save_slot);
+                if (k == 1) save_end_run(); /* a save between two runs */
                 G.save_slot = 0;
             }
         }
         game_init(seed);
         title_open();
         G.title_sel = 1;
-        G.in.confirm_pressed = true; /* LOAD */
+        G.in.confirm_pressed = true; /* CONTINUE */
+        if (opt.save_menu) {
+            SaveInfo list[SAVE_SLOTS];
+            if (save_list(list, SAVE_SLOTS) > 0) title_save_menu(list[0].slot);
+            G.in.confirm_pressed = false;
+        }
+    }
+    if (opt.unlocks_menu) {
+        profile_fresh(&G.prof);
+        int next[UNLOCK_BATCH], n = unlocks_next(next, UNLOCK_BATCH); /* + the first boss */
+        for (int i = 0; i < n; i++) G.prof.upg[next[i]] = 1;
+        title_open();
+        title_unlocks_open();
+        G.unl_sel = UPG_W_LASER;
     }
     if (opt.char_select) char_select_open();
     if (opt.upgrades_menu) upgrade_menu_open();

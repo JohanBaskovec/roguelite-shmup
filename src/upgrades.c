@@ -276,14 +276,14 @@ int upgrade_roll(void) {
     /* exclusives: workshop only */
     int cand[UPG_COUNT], n = 0;
     for (int u = 0; u < UPG_COUNT; u++)
-        if (UPGRADES[u].tier == 0 && !upgrade_capped(u)) cand[n++] = u;
+        if (UPGRADES[u].tier == 0 && upgrade_unlocked(u) && !upgrade_capped(u)) cand[n++] = u;
     return n ? cand[irand(0, n - 1)] : -1;
 }
 
 int upgrade_roll_exclusive(int tier) {
     int cand[UPG_COUNT], n = 0;
     for (int u = 0; u < UPG_COUNT; u++)
-        if (UPGRADES[u].tier == tier && !upgrade_capped(u)) cand[n++] = u;
+        if (UPGRADES[u].tier == tier && upgrade_unlocked(u) && !upgrade_capped(u)) cand[n++] = u;
     return n ? cand[irand(0, n - 1)] : -1;
 }
 

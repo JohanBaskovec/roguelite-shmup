@@ -463,6 +463,7 @@ void room_enter(RoomType type, RewardType reward, int depth) {
     static int layouts;
     r->layout_id = ++layouts;
     r->entry = G.entry_side;
+    unlocks_on_room(depth); /* ships unlocked by depth (not in the demo) */
     bool can_hide = type == ROOM_COMBAT || type == ROOM_STATS || type == ROOM_SHOP;
     if (can_hide && (G.force_secret || chance(SECRET_CHANCE))) {
         r->has_secret = true;
@@ -690,6 +691,7 @@ static void room_clear(bool instant) {
     }
     if (r->type == ROOM_BOSS) fx_banner("BOSS DEFEATED", "pick your prize", col_hex(COLOR_BOSS, 1), 2.0f);
     else fx_banner("ROOM CLEARED", "choose your next door", col_hex(0x66f0ff, 1), 1.4f);
+    if (r->type == ROOM_BOSS && !instant) unlocks_boss_beaten(); /* its banner names them, saved at once */
     fx_shake(0.25f);
 }
 

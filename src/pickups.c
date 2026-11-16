@@ -98,7 +98,7 @@ static bool on_offer(int u) {
 int upgrade_fresh(void) {
     int cand[UPG_COUNT], n = 0;
     for (int u = 0; u < UPG_COUNT; u++)
-        if (UPGRADES[u].tier == 0 && !upgrade_capped(u) && !on_offer(u)) cand[n++] = u;
+        if (UPGRADES[u].tier == 0 && upgrade_unlocked(u) && !upgrade_capped(u) && !on_offer(u)) cand[n++] = u;
     return n ? cand[irand(0, n - 1)] : -1;
 }
 

@@ -34,6 +34,7 @@ typedef struct {
     int expect_rooms;  /* fail if a run clears fewer rooms than this */
     const char *fail_shot; /* if set, render the failing frame offscreen into this BMP */
     const char *save_dir; /* --save-dir: saving on, save files there */
+    bool fresh_profile; /* --fresh-profile: runs on a new save's unlocks, kept from run to run (boss unlocks) */
     bool save_test;    /* --save-test: saving / loading / deleting checks instead of normal runs */
     bool fx;           /* keep the particles (off by default: they never change the game, only cost time) */
     int argc;          /* the command line, to print the command replaying a failed run alone */

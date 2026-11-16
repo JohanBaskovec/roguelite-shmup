@@ -23,8 +23,20 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   `upgrade_capped` is true once owned, so `upgrade_roll` / `upgrade_fresh` never offer
   it; an offer still on the floor (or the slot machine's prize) is swapped for a fresh one as soon as
   the same upgrade is taken elsewhere (`pickups_refresh_owned`). Once every upgrade is owned, rooms
-  fall back to stat trades. No upgrade is reserved to a character: all of them, the sword included,
-  can be found by everyone (character / upgrade unlocks may come later).
+  fall back to stat trades (every *unlocked* upgrade owned). No upgrade is reserved to a character: all of
+  them, the sword included, can be found by everyone once unlocked.
+- **Unlocks** (`src/unlocks.c`, `Profile` in `G.prof`, one per save file): a new save has only the first ship
+  (NORMAL) and `UNLOCK_START_COUNT` = 24 upgrades (`START_UPGRADES`, simple ones for a first run). **Every boss
+  beaten unlocks the next `UNLOCK_BATCH` = 6 upgrades at once** (`unlocks_boss_beaten` from `room_clear`; the first
+  boss: `FIRST_BOSS`, then the rest in a fixed mixed order, `unlocks_next`), available for the rest of the run and
+  every later one, and the Knight; reaching room `UNLOCK_SHOTGUNNER_DEPTH` (5) unlocks the Shotgunner
+  (`unlocks_on_room`). Every roll skips locked upgrades (`upgrade_unlocked` in `upgrade_roll`, `upgrade_fresh`,
+  `upgrade_roll_exclusive`, CHAOS); a ship's own starting mod is granted even if locked. Locked ships are greyed
+  out and refused by the character select (`character_unlock_hint`). The demo never unlocks anything (`G.demo`
+  set before its `room_enter`). Outside a save (`game_init`: headless, `--shot`, the menu before a save is
+  chosen) everything is unlocked (`profile_unlock_all`); `--fresh-profile` runs on a new save's unlocks, kept
+  from run to run (headless checks: never a locked upgrade offered, +6 exactly when a boss dies and only then,
+  saved at once, ships unlocked). A new unlock kind: `Profile` field + its condition + `unlock_percent` total.
 - **Upgrade rooms always offer a choice of 3 items** (take one, the other two vanish).
 - **Every upgrade has a bonus AND a malus** (`MALUSES` table in `src/maluses.c`, one `MalusKind` + amount
   per upgrade, or `MAL_CUSTOM` text when the trade-off is built into the effect, e.g. weapon-like ones).
@@ -127,13 +139,20 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   special room behind two doors, locked or not).
 - **Save files** (`src/save.c`): the game saves itself **only on entering a new screen** (`save_autosave()` in the
   room transition of `game_world_step`, plus the launch bay in `game_new_run`), never during a room. One file per
-  run (`save_<slot>.sav`, `G.save_slot`) in the user's data folder (`SDL_GetPrefPath`; headless / `--shot` only with
-  `--save-dir`). A save is a snapshot of the whole `Game` taken right after the room is set up: loading it puts the
-  ship at the start of that room, enemies about to show up, and the room then plays exactly as it did (the bot's
-  memory is per room for that). The ship destroyed = its save deleted (`game_over`); R / another ship (C) replace
-  the run in the same file; Q (pause / game over) goes back to the menu, the save staying. Main menu: NEW GAME /
-  LOAD (load screen: ENTER / click loads, DEL / the X twice deletes). Headless checks one save per room entered and
-  none during a room (`--save-dir`), and `--save-test` the load / replay / delete / menu flow.
+  save (`save_<slot>.sav`, `G.save_slot`) in the user's data folder (`SDL_GetPrefPath`; headless / `--shot` only with
+  `--save-dir`): header (unlock %, run summary), the save's `Profile`, then - while a run goes on - its run: a
+  snapshot of the whole `Game` taken right after the room is set up. Loading it puts the ship at the start of that
+  room, enemies about to show up, and the room then plays exactly as it did (the bot's memory is per room for
+  that). Something unlocked during a room is written at once (`save_profile_update`: the profile changes, the run
+  part stays the start of the room; not counted as a save). **The ship destroyed ends the run, never the save**
+  (`game_over` -> `save_end_run`: profile only); R / another ship (C) start a new run in the same file; Q (pause /
+  game over) goes back to that save's menu (`title_back`). Main menu: NEW SAVE (new file, fresh profile, the
+  first ship's run at once) / CONTINUE (saves list with unlock %: ENTER / click opens a save, DEL / the X twice
+  deletes) -> save menu: RESUME RUN (only while a run goes on), NEW RUN (character select, the run goes in that
+  save, `G.menu_slot`), UNLOCKS (every upgrade, locked ones greyed, the selected one in full: icon, kind,
+  bonus, malus, toggle, synergies), BESTIARY (greyed, to do). Headless checks one save per room entered and
+  none during a room (`--save-dir`), the save still there after a death (no run, same unlocks), and
+  `--save-test` the load / replay / unlock / death / delete / menu flow.
   **`Game` must stay free of pointers** (it is written as is), and every piece of run state must live in `G`
   (state kept elsewhere is lost on load). A save whose layout fingerprint differs is listed as an old version (can
   only be deleted); bump `SAVE_VERSION` when saved data changes meaning without changing its layout.
@@ -188,7 +207,8 @@ Do not launch the game in a real window to test it. Use:
   driven by the autopilot in `src/bot.c`, invariants checked every tick. Add `--fail-shot f.bmp`
   to get an offscreen render of the failing frame. `--toggle-upgrades` makes the bot turn random
   upgrades off / on (the bot also turns a weapon mod off by itself when its shots hit nothing for 10 s).
-  Every run is reproducible on its own: the bot keeps its state in `B` (`bot.c`), wiped by `bot_reset()` at each
+  Every run is reproducible on its own (except with `--fresh-profile`, where a run inherits the unlocks of the
+  runs before it): the bot keeps its state in `B` (`bot.c`), wiped by `bot_reset()` at each
   `game_init` / `game_new_run` - any new bot memory goes there, never in a `static` local. A failed run prints
   the command replaying it alone (`replay it alone: ... --seed S --trace-bot T`). `--trace-bot TICK` prints one
   line per tick from TICK on (position, goal, path waypoint, digging, keys, fire / aim, target, threats...).
@@ -212,7 +232,8 @@ invariants / a CTest entry in `CMakeLists.txt`.
 - Characters (Normal / Shotgunner / Knight) only change the starting state (`character_apply`) and the
   ship's look (`draw_ship`); `G.character` survives restarts; `CharDef.start_upgrade` is the weapon mod
   owned from the start (the Knight's sword can also be found by the others). When adding a character: table
-  entry, ship drawing, bot support if it plays differently, and a `sim_<name>` CTest (`--char NAME`).
+  entry, ship drawing, bot support if it plays differently, its unlock condition (`unlocks.c`,
+  `character_unlock_hint`), and a `sim_<name>` CTest (`--char NAME`).
 - Upgrade effects live in `upgrades.c` as `upg_*` hooks called from bullets / enemies / player /
   room code; add new upgrades there (table entry + hook). **Stats are derived**: the Player stat fields
   (`dmg_mult`, `max_hp`, `extra_proj`...) are always `Player.base` + the stat effects of every upgrade
@@ -261,7 +282,8 @@ invariants / a CTest entry in `CMakeLists.txt`.
   (`G.demo`), on its own generator (`G.demo_rng`, swapped with `G.rng` for each demo tick) with sounds
   suppressed (`audio_suppress`) and no HUD (`demo_visible()`); `game_new_run` wipes it. Any new per-run
   state must be reset by `game_new_run` (the demo leaves its own behind). `--title` renders the menu,
-  `--load-menu --save-dir DIR` the load screen (sample saves written into an empty folder).
+  `--load-menu --save-dir DIR` the saves list (sample saves written into an empty folder), `--save-menu` a save's
+  menu, `--unlocks-menu` the unlocks screen, `--char-select --fresh-profile` the locked ships.
 - Controls: SHIFT / right click = active items, SPACE = bomb, E = take / buy / use, TAB = upgrades menu. The
   mouse is grabbed during a run (`SDL_SetWindowMouseGrab` in `main.c`, released in pause / menus / game over).
 - In-game text is English and ASCII only (SDL's debug font has no accents). The user writes in French.

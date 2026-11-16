@@ -26,6 +26,7 @@ void game_init(uint64_t seed) {
     G.in.number = -1;
     G.secret_shop_override = G.secret_ambush_override = -1; /* random */
     G.state = GS_TITLE;
+    profile_unlock_all(&G.prof); /* no save chosen yet (tests, the demo): everything unlocked */
     player_init();
     G.entry_side = SIDE_BOTTOM;
     room_enter(ROOM_START, RW_NONE, 0);
@@ -45,20 +46,22 @@ void game_new_run(void) {
     G.transitioning = false;
     G.gameover_t = 0.0f;
     G.demo = false; /* the menu's demo run is wiped */
+    G.prof.runs++;
     bot_reset();     /* the autopilot too (headless, --shot): a run plays the same alone or in a batch */
     G.entry_side = SIDE_BOTTOM; /* the launch bay: in from the bottom */
     room_enter(ROOM_START, RW_NONE, 0);
     G.state = GS_PLAYING;
-    /* A restart (or another ship) replaces the run it abandons; from the menu, a new save file. */
+    /* A restart (or another ship) replaces the run it abandons, in the same save file; without
+     * one (tests with --save-dir) a new file. */
     if (G.save_slot <= 0) G.save_slot = save_new_slot();
     save_autosave();
     sfx_play(SFX_UI_START);
 }
 
 void game_over(void) {
-    if (!G.demo && G.save_slot > 0) { /* the run is over: its save goes with it */
-        save_delete(G.save_slot);
-        G.save_slot = 0;
+    if (!G.demo) { /* the run is over: the save stays, with its unlocks and no run */
+        G.prof.deaths++;
+        save_end_run();
     }
     G.state = GS_GAMEOVER;
     G.gameover_t = 0.0f;

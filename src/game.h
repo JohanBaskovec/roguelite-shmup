@@ -518,6 +518,20 @@ typedef struct {
 
 extern const CharDef CHARACTERS[CHAR_COUNT];
 
+/* ---- Unlocks (unlocks.c) -------------------------------------------------- */
+
+/* What a save file has unlocked, kept from run to run (G.prof, written with every save and
+ * rewritten at once when something is unlocked). A new save: the first ship and
+ * UNLOCK_START_COUNT upgrades; each boss beaten unlocks UNLOCK_BATCH more (fixed order).
+ * Outside a save (tests, the menu's demo before a save is chosen) everything is unlocked. */
+#define UNLOCK_START_COUNT 24
+#define UNLOCK_BATCH 6
+#define UNLOCK_SHOTGUNNER_DEPTH 5 /* reaching this room unlocks the Shotgunner; a boss beaten, the Knight */
+typedef struct {
+    uint8_t upg[UPG_COUNT], chr[CHAR_COUNT];
+    int32_t runs, deaths, bosses, best_depth;
+} Profile;
+
 #define MAX_SHIELD 12 /* half-hearts: 6 shields */
 #define SPREAD_MIN 0.2f /* bounds of Player.spread_mult (trades, lenses) */
 #define SPREAD_MAX 3.0f
@@ -553,9 +567,12 @@ typedef struct {
     int demo_room_id;
     int title_sel;
     bool title_up, title_down;
-    int title_page;   /* 0: main menu, 1: load screen */
+    int title_page;   /* TitlePage: main menu, saves list, save menu, unlocks */
     int load_sel;     /* load screen: highlighted save (index in the list) */
     int load_confirm; /* load screen: slot waiting for a second press to be deleted (0: none) */
+    int menu_slot;    /* save menu (CONTINUE): the save file chosen, its run started / resumed from there */
+    int unl_sel;      /* unlocks screen: highlighted upgrade */
+    Profile prof;     /* unlocks of the current save (unlocks.c) */
     Player pl;
     Room room;
 
@@ -848,8 +865,24 @@ void active_spawn_choices(V2 center);
 void character_apply(void); /* starting stats / weapon of G.character, after player_init's defaults */
 const char *character_option_name(int c); /* lowercase name for --char */
 void char_select_open(void);
+/* unlocks.c */
+void profile_fresh(Profile *p);       /* a new save: the first ship and the starting upgrades */
+void profile_unlock_all(Profile *p);  /* tests, demo: everything */
+bool upgrade_unlocked(int u);         /* in G.prof: may be offered (rolls never offer a locked one) */
+bool character_unlocked(int c);
+int profile_unlocked(const Profile *p); /* upgrades + ships unlocked */
+int profile_upgrades_unlocked(const Profile *p);
+int unlocks_total(void);              /* UPG_COUNT + CHAR_COUNT */
+int unlock_percent(int unlocked, int total);
+const char *character_unlock_hint(int c); /* how a locked ship is unlocked */
+void unlocks_on_room(int depth);      /* room_enter: ships unlocked by depth, best depth */
+void unlocks_boss_beaten(void);       /* the next UNLOCK_BATCH upgrades (+ ships), saved at once */
+int unlocks_next(int *out, int max);  /* the upgrades the next boss will unlock (tests) */
 /* Main menu (title.c) with the bot-played demo run behind it. */
 void title_open(void);
+void title_back(void);          /* Q / character select ESC: the menu of the save played, else the main menu */
+void title_unlocks_open(void);   /* the unlocks screen of G.prof (--unlocks-menu) */
+bool title_save_menu(int slot);  /* the menu of a save (--save-menu) */
 void title_update(void);
 void title_draw(void);
 void demo_update(void);

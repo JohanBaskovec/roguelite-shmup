@@ -87,6 +87,7 @@ static const char *check_invariants(float room_time) {
         const Pickup *k = &G.pk[i];
         if ((k->type == PK_UPGRADE || k->type == PK_AUGMENT) && (k->sub < 0 || k->sub >= UPG_COUNT)) return "invalid upgrade offered";
         if (k->type == PK_UPGRADE && p->upg_count[k->sub] > 0) return "upgrade offered that the player already owns";
+        if ((k->type == PK_UPGRADE || k->type == PK_AUGMENT) && !upgrade_unlocked(k->sub)) return "a locked upgrade was offered";
         if (k->type == PK_STAT && (stat_offer_down(k->sub) == ST_MAX_HP || stat_offer_down(k->sub) == ST_SHIELD))
             return "stat trade offered that lowers max HP (or shields)";
         if (k->type == PK_AUGMENT && p->upg_count[k->sub] > 0) return "augment offered that the player already owns";
@@ -100,6 +101,9 @@ static const char *check_invariants(float room_time) {
         if (G.mc[i].type == MC_GAMBLE && !G.mc[i].broken && G.mc[i].prize == PK_UPGRADE &&
             (p->upg_count[G.mc[i].prize_sub] > 0 || on_floor(G.mc[i].prize_sub)))
             return "slot machine prize already owned (or also on the floor)";
+    for (int i = 0; i < G.nmc; i++)
+        if (G.mc[i].type == MC_GAMBLE && G.mc[i].prize == PK_UPGRADE && !G.mc[i].broken && !upgrade_unlocked(G.mc[i].prize_sub))
+            return "the slot machine shows a locked upgrade";
     for (int i = 0; i < G.nmc; i++)
         if (G.mc[i].type == MC_GAMBLE && G.mc[i].prize == PK_STAT && stat_offer_down(G.mc[i].prize_sub) == ST_MAX_HP)
             return "slot machine prize is a stat trade that lowers max HP";
@@ -328,7 +332,7 @@ static const char *check_room_reward(void) {
             gamble += G.mc[i].type == MC_GAMBLE && !G.mc[i].broken;
         }
         for (int i = 0; i < G.npk; i++) pads += G.pk[i].type == PK_AUGMENT;
-        for (int u = 0; u < UPG_COUNT; u++) tier1_left += UPGRADES[u].tier == 1 && G.pl.upg_count[u] == 0;
+        for (int u = 0; u < UPG_COUNT; u++) tier1_left += UPGRADES[u].tier == 1 && G.pl.upg_count[u] == 0 && upgrade_unlocked(u);
         if (supply != 1 || gamble != 1) return "workshop cleared without its supply press and slot machine";
         if (pads > 3) return "workshop offers more than 3 augments";
         if (pads == 0 && G.pl.max_hp >= 4 && tier1_left > 0) return "workshop offers no augment although the player can pay one";
@@ -625,9 +629,8 @@ static int debug_rooms_run(const HeadlessOptions *o) {
     {
         game_init(o->seed);
         Input *k = &G.in;
-        k->confirm_pressed = true; /* title -> character select */
-        game_update();
-        clear_edges();
+        game_update(); /* the title, then its character select (everything unlocked: no save) */
+        char_select_open();
         bool ok = G.state == GS_CHAR_SELECT && G.char_hover == CHAR_NORMAL;
         for (int step = 0; step < 4; step++) { /* right, release, right, release: NORMAL -> KNIGHT */
             k->right = step % 2 == 0;
@@ -656,7 +659,7 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         clear_edges();
         ok = ok && G.state == GS_PLAYING && G.character == CHAR_SHOTGUNNER && upg_has(UPG_W_SCATTER) && !sword_on() &&
              pl->dmg_mult > 1.99f && pl->hit_radius > PLAYER_HIT_R && pl->shield == 0;
-        printf("character select: title, right x2, enter -> knight; game over, C, 2, enter -> shotgunner -> %s\n", ok ? "OK" : "FAILED");
+        printf("character select: menu, right x2, enter -> knight; game over, C, 2, enter -> shotgunner -> %s\n", ok ? "OK" : "FAILED");
         failures += !ok;
     }
 
@@ -1713,8 +1716,9 @@ static int debug_rooms_run(const HeadlessOptions *o) {
 
     {
         /* Main menu: a bot-played demo runs behind it (on its own generator: the game's stays
-         * untouched), OPTIONS / UNLOCKS are greyed out (skipped, clicks do nothing), PLAY opens
-         * the character select with the demo still going, and the run starts clean. */
+         * untouched), CONTINUE (no save) / OPTIONS are greyed out (skipped, clicks do nothing),
+         * NEW SAVE starts a clean run at once on a new save's unlocks; the character select keeps
+         * the demo going and refuses locked ships. */
         game_init(o->seed);
         Input *in = &G.in;
         uint64_t rng0 = G.rng.s;
@@ -1729,32 +1733,46 @@ static int debug_rooms_run(const HeadlessOptions *o) {
             demo_ok = demo_ok && G.state == GS_TITLE && G.demo && demo_visible();
         }
         demo_ok = demo_ok && G.rng.s == rng0 && G.room.id != rooms0; /* it played on, through rooms */
-        in->down = true; /* NEW GAME -> (LOAD: no save; OPTIONS, UNLOCKS greyed) -> QUIT */
+        in->down = true; /* NEW SAVE -> (CONTINUE: no save; OPTIONS greyed) -> QUIT */
         game_update();
         clear_edges();
         in->down = false;
-        bool grey_ok = G.title_sel == 4;
+        bool grey_ok = G.title_sel == 3;
         in->mouse = v2(SCREEN_W * 0.5f, 430.0f + 2.0f * 78.0f + 30.0f); /* click on OPTIONS */
         in->click_pressed = in->confirm_pressed = true;
         game_update();
         clear_edges();
         grey_ok = grey_ok && G.state == GS_TITLE && !G.quit;
-        in->up = true; /* back to NEW GAME */
+        in->up = true; /* back to NEW SAVE: nothing unlocked yet, the run starts at once */
         game_update();
         clear_edges();
         in->up = false;
         in->confirm_pressed = true;
         game_update();
         clear_edges();
+        bool play_ok = G.state == GS_PLAYING && !G.demo && G.room.type == ROOM_START && G.kills == 0 && G.nen == 0 &&
+                       !demo_visible() && G.character == CHAR_NORMAL && profile_upgrades_unlocked(&G.prof) == UNLOCK_START_COUNT &&
+                       !character_unlocked(CHAR_SHOTGUNNER) && !character_unlocked(CHAR_KNIGHT);
+        /* The character select behind which the demo keeps playing: a new run, locked ships refused. */
+        game_init(o->seed);
+        profile_fresh(&G.prof);
+        title_open();
+        for (int t = 0; t < 10; t++) { game_update(); clear_edges(); }
+        char_select_open();
         int demo_room = G.room.id;
         float demo_t = G.run_time;
         for (int t = 0; t < 120; t++) { game_update(); clear_edges(); }
-        bool play_ok = G.state == GS_CHAR_SELECT && G.demo && (G.run_time > demo_t || G.room.id != demo_room);
+        play_ok = play_ok && G.state == GS_CHAR_SELECT && G.demo && (G.run_time > demo_t || G.room.id != demo_room);
+        in->number = CHAR_KNIGHT;
         in->confirm_pressed = true;
         game_update();
         clear_edges();
-        play_ok = play_ok && G.state == GS_PLAYING && !G.demo && G.room.type == ROOM_START && G.kills == 0 && G.nen == 0 &&
-                  !demo_visible();
+        play_ok = play_ok && G.state == GS_CHAR_SELECT && G.demo;
+        in->number = CHAR_NORMAL;
+        in->confirm_pressed = true;
+        game_update();
+        clear_edges();
+        play_ok = play_ok && G.state == GS_PLAYING && !G.demo && G.character == CHAR_NORMAL;
         printf("scripted main menu: demo behind it -> %s, greyed items -> %s, play -> %s\n", demo_ok ? "OK" : "FAILED",
                grey_ok ? "OK" : "FAILED", play_ok ? "OK" : "FAILED");
         failures += !demo_ok + !grey_ok + !play_ok;
@@ -2106,15 +2124,16 @@ static void print_repro(const HeadlessOptions *o, uint64_t seed, int fail_tick) 
     printf("\n");
 }
 
-/* --save-test: the game saves on entering each room and only then, a loaded save puts the ship at
- * the start of that room and plays on exactly like the run it was taken from, death takes the save
- * away, and the load screen lists / deletes / loads them. */
+/* --save-test: a save keeps its unlocks from run to run; its run is saved on entering each room and
+ * only then, a loaded run puts the ship at the start of that room and plays on exactly like the run it
+ * was taken from, a boss beaten unlocks upgrades at once (saved at once), death ends the run but keeps
+ * the save, and the menus (NEW SAVE, CONTINUE, the save menu, unlocks, character select) work. */
 static int save_test_run(const HeadlessOptions *o) {
     int failures = 0;
 #define CHECK(cond, what)                                                       \
     do {                                                                       \
         bool ok_ = (cond);                                                     \
-        printf("%-72s -> %s\n", what, ok_ ? "OK" : "FAILED");                  \
+        printf("%-76s -> %s\n", what, ok_ ? "OK" : "FAILED");                  \
         failures += !ok_;                                                      \
     } while (0)
 #define STICK() do { game_update(); clear_edges(); } while (0)
@@ -2124,13 +2143,31 @@ static int save_test_run(const HeadlessOptions *o) {
     }
     for (int s = 1; s <= SAVE_SLOTS; s++) save_delete(s);
     SaveInfo list[SAVE_SLOTS];
+    Profile saved;
+    const int fresh_pct = unlock_percent(UNLOCK_START_COUNT + 1, unlocks_total());
 
+    /* NEW SAVE, like a player: a run starts at once, first ship, starting unlocks only. */
     game_init(o->seed);
+    title_open();
+    G.in.mouse = G.sel_mouse = v2(0, 0);
+    G.in.confirm_pressed = true;
+    STICK();
     G.god = true;
-    G.character = o->character;
-    game_new_run();
     int slot = G.save_slot, n = save_list(list, SAVE_SLOTS);
-    CHECK(slot == 1 && n == 1 && list[0].slot == 1 && list[0].ok && list[0].depth == 0, "a new run is saved at once (launch bay)");
+    CHECK(G.state == GS_PLAYING && !G.demo && G.room.type == ROOM_START && G.character == CHAR_NORMAL && slot == 1 && n == 1 &&
+              list[0].ok && list[0].has_run && list[0].depth == 0 && list[0].percent == fresh_pct,
+          "NEW SAVE: a new file and its first run, saved at once (launch bay)");
+    bool locked_ok = profile_upgrades_unlocked(&G.prof) == UNLOCK_START_COUNT && character_unlocked(CHAR_NORMAL) &&
+                     !character_unlocked(CHAR_SHOTGUNNER) && !character_unlocked(CHAR_KNIGHT);
+    {
+        Rng keep = G.rng;
+        for (int k = 0; k < 400; k++) {
+            int u = upgrade_roll();
+            locked_ok = locked_ok && u >= 0 && upgrade_unlocked(u);
+        }
+        G.rng = keep;
+    }
+    CHECK(locked_ok, "a new save: the first ship and 24 upgrades, never a locked one offered");
 
     /* Play: one save per room entered, never during a room. The save of the 3rd room is kept. */
     int writes = save_writes(), room = G.room.id, entered = 0, wrong = 0, entry_tick = -1, entry_kills = 0, entry_room = -1;
@@ -2177,25 +2214,73 @@ static int save_test_run(const HeadlessOptions *o) {
     printf("  (%d kills in the room after 20 s: %d / %d)\n", sig0[0] - entry_kills, sig0[0], sig1[0]);
     CHECK(same && sig0[0] > entry_kills, "a loaded save plays on exactly like the run it was taken from");
 
-    game_over();
-    char path[600];
-    save_path(50, path, sizeof path);
-    FILE *f = fopen(path, "rb");
-    if (f) fclose(f);
-    CHECK(!f && G.save_slot == 0, "the ship destroyed: its save goes with it");
-
-    /* Another run: a new file; deleting one leaves the other. */
-    game_init(o->seed + 1);
-    game_new_run();
+    /* A boss beaten: the next upgrades and the Knight at once, written at once (the run part stays
+     * the start of the boss room), and they survive loading that room again. */
+    G.entry_side = SIDE_BOTTOM;
+    room_enter(ROOM_BOSS, RW_UPGRADE, BOSS_EVERY);
+    save_autosave();
+    int boss_room = G.room.id, pw = save_profile_writes();
+    writes = save_writes();
+    int next[UNLOCK_BATCH];
+    unlocks_next(next, UNLOCK_BATCH);
+    for (int t = 0; t < 120 * 180 && !G.room.cleared; t++) {
+        bot_input();
+        game_update();
+        clear_edges();
+    }
+    bool batch = G.room.cleared;
+    for (int i = 0; i < UNLOCK_BATCH; i++) batch = batch && upgrade_unlocked(next[i]);
     n = save_list(list, SAVE_SLOTS);
-    CHECK(G.save_slot == 2 && n == 2 && list[0].slot == 2 && list[1].slot == 1, "a new run gets its own file, listed first");
+    int i50 = -1;
+    for (int i = 0; i < n; i++)
+        if (list[i].slot == 50) i50 = i;
+    CHECK(batch && character_unlocked(CHAR_KNIGHT) && profile_upgrades_unlocked(&G.prof) == UNLOCK_START_COUNT + UNLOCK_BATCH &&
+              G.prof.bosses == 1,
+          "a boss beaten unlocks 6 upgrades and the Knight at once");
+    CHECK(save_profile_writes() == pw + 1 && save_writes() == writes && save_load_profile(50, &saved) &&
+              !memcmp(&saved, &G.prof, sizeof saved) && i50 >= 0 && list[i50].has_run && list[i50].depth == BOSS_EVERY,
+          "...written at once, the run part still the start of the boss room");
+    Profile after_boss = G.prof;
+    CHECK(save_load(50) && G.room.id == boss_room && !G.room.cleared && !memcmp(&G.prof, &after_boss, sizeof after_boss),
+          "...and kept when the boss room is loaded again");
+
+    /* Death: the run is over, the save and its unlocks stay. */
+    G.prof = after_boss;
+    int runs = G.prof.runs;
+    game_over();
+    n = save_list(list, SAVE_SLOTS);
+    i50 = -1;
+    for (int i = 0; i < n; i++)
+        if (list[i].slot == 50) i50 = i;
+    CHECK(i50 >= 0 && list[i50].ok && !list[i50].has_run && save_load_profile(50, &saved) && !memcmp(&saved, &G.prof, sizeof saved) &&
+              !save_load(50) && G.save_slot == 50 && G.prof.deaths == 1,
+          "the ship destroyed: the save stays with its unlocks, without a run");
+    G.gameover_t = 1.0f;
+    G.in.restart_pressed = true;
+    STICK();
+    n = save_list(list, SAVE_SLOTS);
+    i50 = -1;
+    for (int i = 0; i < n; i++)
+        if (list[i].slot == 50) i50 = i;
+    CHECK(G.state == GS_PLAYING && G.save_slot == 50 && i50 >= 0 && list[i50].has_run && list[i50].depth == 0 &&
+              G.prof.runs == runs + 1 && profile_upgrades_unlocked(&G.prof) == UNLOCK_START_COUNT + UNLOCK_BATCH,
+          "R: a new run in the same save, its unlocks kept");
+
+    /* Another save: its own file, its own (fresh) unlocks. */
+    title_open();
+    G.in.confirm_pressed = true;
+    STICK();
+    n = save_list(list, SAVE_SLOTS);
+    CHECK(G.save_slot == 2 && n == 3 && list[0].slot == 2 && profile_upgrades_unlocked(&G.prof) == UNLOCK_START_COUNT,
+          "NEW SAVE again: another file, listed first, with its own unlocks");
     save_delete(1);
     n = save_list(list, SAVE_SLOTS);
-    CHECK(n == 1 && list[0].slot == 2, "a save can be deleted");
+    CHECK(n == 2 && list[0].slot == 2 && list[1].slot == 50, "a save can be deleted");
 
     /* A file from another version: listed, never loaded. */
+    char path[600];
     save_path(7, path, sizeof path);
-    f = fopen(path, "wb");
+    FILE *f = fopen(path, "wb");
     if (f) {
         const char junk[64] = "NBSV\x7f";
         fwrite(junk, sizeof junk, 1, f);
@@ -2203,25 +2288,28 @@ static int save_test_run(const HeadlessOptions *o) {
     }
     int room_before = G.room.id;
     n = save_list(list, SAVE_SLOTS);
-    CHECK(n == 2 && list[1].slot == 7 && !list[1].ok && !save_load(7) && G.room.id == room_before && G.state == GS_PLAYING,
+    CHECK(n == 3 && list[2].slot == 7 && !list[2].ok && !save_load(7) && G.room.id == room_before && G.state == GS_PLAYING,
           "a save from another version is listed but never loaded");
 
-    /* The menus, like a player: LOAD, delete the old one (DEL twice), load the other. */
+    /* The menus, like a player: CONTINUE, delete the old one (DEL twice), open save 50. */
+    memset(&G.in, 0, sizeof G.in); /* nothing held (the bot was driving) */
+    G.in.number = -1;
     title_open();
-    G.in.mouse = G.sel_mouse = v2(0, 0);
     STICK();
     G.in.down = true;
     STICK();
     G.in.down = false;
     STICK();
-    bool on_load = G.title_sel == 1;
+    bool on_continue = G.title_sel == 1;
     G.in.confirm_pressed = true;
     STICK();
     bool page = G.title_page == 1 && G.load_sel == 0;
-    G.in.down = true;
-    STICK();
-    G.in.down = false;
-    STICK();
+    for (int k = 0; k < 2; k++) {
+        G.in.down = true;
+        STICK();
+        G.in.down = false;
+        STICK();
+    }
     G.in.delete_pressed = true;
     STICK();
     f = fopen(path, "rb");
@@ -2231,12 +2319,91 @@ static int save_test_run(const HeadlessOptions *o) {
     STICK();
     f = fopen(path, "rb");
     if (f) fclose(f);
-    bool deleted = !f && G.load_confirm == 0 && G.load_sel == 0;
+    bool deleted = !f && G.load_confirm == 0 && G.load_sel == 1;
+    G.in.confirm_pressed = true; /* save 50 (a run going on) */
+    STICK();
+    CHECK(on_continue && page, "main menu: CONTINUE opens the list of saves");
+    CHECK(asked && deleted, "saves list: DEL asks, DEL again deletes");
+    bool menu_ok = G.state == GS_TITLE && G.title_page == 2 && G.menu_slot == 50 && G.title_sel == 0 &&
+              profile_upgrades_unlocked(&G.prof) == UNLOCK_START_COUNT + UNLOCK_BATCH;
+    CHECK(menu_ok, "ENTER opens the save's menu (RESUME RUN first), its unlocks loaded");
+    /* down: NEW RUN, UNLOCKS, then BESTIARY (greyed) is skipped: back to RESUME RUN */
+    int seen[4];
+    for (int k = 0; k < 4; k++) {
+        G.in.down = true;
+        STICK();
+        G.in.down = false;
+        STICK();
+        seen[k] = G.title_sel;
+    }
+    CHECK(seen[0] == 1 && seen[1] == 2 && seen[2] == 0 && seen[3] == 1, "save menu: NEW RUN, UNLOCKS; BESTIARY greyed (skipped)");
+    G.in.down = true; /* UNLOCKS */
+    STICK();
+    G.in.down = false;
     G.in.confirm_pressed = true;
     STICK();
-    CHECK(on_load && page, "main menu: LOAD opens the list of saves");
-    CHECK(asked && deleted, "load screen: DEL asks, DEL again deletes");
-    CHECK(G.state == GS_PLAYING && G.save_slot == 2 && G.room.type == ROOM_START, "load screen: ENTER loads the save");
+    bool unl = G.title_page == 3 && G.unl_sel == 0;
+    G.in.down = true;
+    STICK();
+    G.in.down = false;
+    STICK();
+    G.in.right = true;
+    STICK();
+    G.in.right = false;
+    STICK();
+    unl = unl && G.unl_sel == 1 + (UPG_COUNT + 3) / 4;
+    G.in.pause_pressed = true;
+    STICK();
+    CHECK(unl && G.title_page == 2 && G.title_sel == 2, "UNLOCKS: every upgrade listed, arrows move, ESC back");
+    /* NEW RUN: the character select, the run goes in this save (no new file). */
+    G.in.up = true;
+    STICK();
+    G.in.up = false;
+    G.in.confirm_pressed = true;
+    STICK();
+    bool sel_ok = G.state == GS_CHAR_SELECT;
+    G.in.number = CHAR_KNIGHT; /* unlocked by the boss */
+    G.in.confirm_pressed = true;
+    STICK();
+    n = save_list(list, SAVE_SLOTS);
+    CHECK(sel_ok && G.state == GS_PLAYING && G.character == CHAR_KNIGHT && G.save_slot == 50 && n == 2,
+          "NEW RUN: the character select, the run starts in this save");
+    /* Q from the pause: the save's menu, RESUME RUN puts the run back. */
+    G.state = GS_PAUSED;
+    title_back();
+    STICK();
+    bool back = G.state == GS_TITLE && G.title_page == 2 && G.menu_slot == 50 && G.title_sel == 0;
+    G.in.confirm_pressed = true;
+    STICK();
+    CHECK(back && G.state == GS_PLAYING && G.save_slot == 50 && G.character == CHAR_KNIGHT && G.room.type == ROOM_START,
+          "Q: back to the save's menu; RESUME RUN loads the run");
+    /* The new save (nothing unlocked): its locked ships are refused, ESC goes back to its menu. */
+    G.state = GS_PAUSED;
+    title_back();
+    STICK();
+    G.in.pause_pressed = true; /* the saves list, on save 50 (played last: listed first) */
+    STICK();
+    bool on_50 = G.title_page == 1 && G.load_sel == 0;
+    G.in.down = true;
+    STICK();
+    G.in.down = false;
+    G.in.confirm_pressed = true;
+    STICK();
+    bool fresh_menu = on_50 && G.title_page == 2 && G.menu_slot == 2 && profile_upgrades_unlocked(&G.prof) == UNLOCK_START_COUNT;
+    G.in.down = true;
+    STICK();
+    G.in.down = false;
+    G.in.confirm_pressed = true;
+    STICK();
+    sel_ok = G.state == GS_CHAR_SELECT;
+    G.in.number = CHAR_SHOTGUNNER;
+    G.in.confirm_pressed = true;
+    STICK();
+    sel_ok = sel_ok && G.state == GS_CHAR_SELECT && G.char_hover == CHAR_SHOTGUNNER;
+    G.in.pause_pressed = true;
+    STICK();
+    CHECK(fresh_menu && sel_ok && G.state == GS_TITLE && G.title_page == 2 && G.menu_slot == 2,
+          "a new save: locked ships greyed and refused, ESC back to the save's menu");
 #undef CHECK
 #undef STICK
     printf("save files - %s\n", failures ? "FAILED" : "OK");
@@ -2255,6 +2422,11 @@ int headless_run(const HeadlessOptions *o) {
     long long total_ticks = 0;
     int best = 0, sum_rooms = 0;
     uint64_t t0 = SDL_GetPerformanceCounter();
+    /* --fresh-profile: a new save's unlocks, kept from run to run like in a save file (and in the
+     * same file with --save-dir); the runs then depend on the bosses beaten before them. */
+    Profile prof;
+    profile_fresh(&prof);
+    int prof_slot = 0;
 
     for (int run = 0; run < runs; run++) {
         uint64_t seed = o->seed + (uint64_t)run;
@@ -2263,6 +2435,11 @@ int headless_run(const HeadlessOptions *o) {
         G.god = o->god;
         G.force_secret = o->secret;
         G.character = o->character;
+        if (o->fresh_profile) {
+            G.prof = prof;
+            G.save_slot = prof_slot;
+            if (!character_unlocked(G.character)) G.character = CHAR_NORMAL;
+        }
         game_new_run();
         const CharDef *cd = &CHARACTERS[G.character];
         int start_acts[ACT_COUNT];
@@ -2308,6 +2485,7 @@ int headless_run(const HeadlessOptions *o) {
                           : G.room.cleared != G.room.peaceful
                               ? "first room: only the launch bay / secret rooms start without enemies" : NULL;
         int tick = 0, hits = 0, life = G.pl.hp + G.pl.shield;
+        int unlocked = profile_upgrades_unlocked(&G.prof); /* only a boss beaten unlocks upgrades */
         int taken_side = -1; /* side of the door being walked through (-1: none / secret passage) */
         static char entry_msg[128];
         for (; !err && tick < o->max_ticks && G.state != GS_GAMEOVER; tick++) {
@@ -2384,6 +2562,27 @@ int headless_run(const HeadlessOptions *o) {
                 if ((err = check_room_reward()) != NULL) break;
                 choices = count_choices();
             }
+            if (G.room.cleared && !was_cleared && G.room.type == ROOM_BOSS && !G.room.revisit) {
+                int want = unlocked + (UPG_COUNT - unlocked < UNLOCK_BATCH ? UPG_COUNT - unlocked : UNLOCK_BATCH);
+                Profile saved;
+                if (profile_upgrades_unlocked(&G.prof) != want || !character_unlocked(CHAR_KNIGHT)) {
+                    err = "a boss beaten did not unlock the next upgrades (and the Knight) at once";
+                    break;
+                }
+                if (save_enabled() && (!save_load_profile(G.save_slot, &saved) || memcmp(&saved, &G.prof, sizeof saved))) {
+                    err = "the unlocks of a boss beaten were not saved at once";
+                    break;
+                }
+                unlocked = want;
+            }
+            if (profile_upgrades_unlocked(&G.prof) != unlocked) {
+                err = "upgrades unlocked without beating a boss";
+                break;
+            }
+            if (G.room.depth >= UNLOCK_SHOTGUNNER_DEPTH && !character_unlocked(CHAR_SHOTGUNNER)) {
+                err = "reached room 5 but the Shotgunner is still locked";
+                break;
+            }
             if (G.room.cleared && !was_cleared) {
                 if (G.room.type == ROOM_BOSS) {
                     bosses_beaten++;
@@ -2402,14 +2601,22 @@ int headless_run(const HeadlessOptions *o) {
             if ((err = check_invariants(room_time)) != NULL) break;
         }
         if (!err && save_err) err = save_err;
-        if (!err && save_enabled()) { /* died: the save is gone; otherwise it holds the room the ship is in */
+        if (!err && save_enabled()) { /* died: the save stays, without a run; otherwise it holds the room the ship is in */
             SaveInfo list[SAVE_SLOTS];
+            Profile saved;
             int n = save_list(list, SAVE_SLOTS), found = -1;
             for (int i = 0; i < n; i++)
                 if (list[i].slot == run_slot) found = i;
-            if (G.state == GS_GAMEOVER ? found >= 0 : found < 0 || list[found].depth != G.room.depth || !list[found].ok)
-                err = G.state == GS_GAMEOVER ? "the ship was destroyed but its save is still there" : "the save does not hold the room the ship is in";
+            if (found < 0 || !list[found].ok) err = "the run's save file is gone";
+            else if (G.state == GS_GAMEOVER ? list[found].has_run : !list[found].has_run || list[found].depth != G.room.depth)
+                err = G.state == GS_GAMEOVER ? "the ship was destroyed but its save still holds the run" : "the save does not hold the room the ship is in";
+            else if (!save_load_profile(run_slot, &saved) || memcmp(&saved, &G.prof, sizeof saved))
+                err = "the save does not hold the unlocks";
+            else if (list[found].percent != unlock_percent(profile_unlocked(&G.prof), unlocks_total()))
+                err = "the save list shows a wrong unlock percentage";
         }
+        prof = G.prof;
+        prof_slot = G.save_slot;
         total_ticks += tick;
         if (G.room.type == ROOM_BOSS && !G.room.cleared) { /* died (or ran out of time) against the boss */
             boss_time += room_time;
@@ -2436,6 +2643,8 @@ int headless_run(const HeadlessOptions *o) {
         if (bosses) printf(" bosses=%d/%d (%.0fs, %d hits)", bosses_beaten, bosses, (double)boss_time, boss_hits);
         if (workshops) printf(" workshops=%d machine_uses=%d augments=%d", workshops, G.machine_uses, G.augments);
         if (start_revives > p->revives) printf(" second_winds=%d", start_revives - p->revives);
+        if (o->fresh_profile)
+            printf(" unlocked=%d/%d ships=%d%d%d", profile_upgrades_unlocked(&G.prof), UPG_COUNT, G.prof.chr[0], G.prof.chr[1], G.prof.chr[2]);
         if (stats_rooms)
             printf(" [dmg x%.2f rate x%.2f range x%.2f speed x%.2f recharge x%.2f hitbox %.1f luck %+d]", (double)p->dmg_mult,
                    (double)p->rate_mult, (double)p->range_mult, (double)(p->speed / 540.0f), (double)(p->dash_cooldown / DASH_BASE_CD),

@@ -348,7 +348,7 @@ void overlay_draw(void) {
         if (G.gameover_t > 0.8f) {
             float pulse = 0.5f + 0.5f * sinf(G.time * 3.0f);
             draw_text_centered(SCREEN_W * 0.5f, 840.0f, 3.0f, col_a(COL_WHITE, 0.4f + 0.6f * pulse), "CLICK OR R TO RETRY");
-            draw_text_centered(SCREEN_W * 0.5f, 895.0f, 2.0f, col_a(COL_WHITE, 0.6f), "C   change ship     Q   main menu");
+            draw_text_centered(SCREEN_W * 0.5f, 895.0f, 2.0f, col_a(COL_WHITE, 0.6f), "C   change ship     Q   main menu (your unlocks are saved)");
         }
     } break;
     case GS_CHAR_SELECT:

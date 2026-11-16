@@ -8,13 +8,16 @@
 #include <string.h>
 
 static char dir[512];
-static int writes;
+static int writes, profile_writes;
 static Game snap; /* the snapshot being written / read (1.4 MB: kept off the stack) */
 
+/* A save file: this header, the save's Profile (unlocks), then - while a run is going on -
+ * the snapshot of the whole Game at the start of the room the ship is in. */
 typedef struct {
     char magic[4];
     uint32_t version, fingerprint, game_size;
-    int32_t character, depth, rooms_cleared, kills, hp, max_hp, upgrades;
+    int32_t has_run, unlocked, unlock_total, runs, bosses, best_depth; /* the save */
+    int32_t character, depth, rooms_cleared, kills, hp, max_hp, upgrades; /* its run (has_run) */
     float run_time;
     int64_t saved_at;
 } SaveHeader;
@@ -24,7 +27,7 @@ static uint32_t fingerprint(void) {
     const uint32_t parts[] = {
         (uint32_t)sizeof(Game), (uint32_t)sizeof(Player), (uint32_t)sizeof(Room), (uint32_t)sizeof(Enemy),
         (uint32_t)sizeof(PBullet), (uint32_t)sizeof(EBullet), (uint32_t)sizeof(Pickup), (uint32_t)sizeof(Machine),
-        (uint32_t)sizeof(Spawn), (uint32_t)sizeof(Obstacle), (uint32_t)offsetof(Game, pl), (uint32_t)offsetof(Game, room),
+        (uint32_t)sizeof(Spawn), (uint32_t)sizeof(Obstacle), (uint32_t)sizeof(Profile), (uint32_t)offsetof(Game, pl), (uint32_t)offsetof(Game, room),
         (uint32_t)offsetof(Game, pb), (uint32_t)offsetof(Game, save_slot), (uint32_t)offsetof(Player, act),
         UPG_COUNT, ACT_COUNT, EN_COUNT, ST_COUNT, SYN_COUNT, RW_COUNT, CHAR_COUNT, MAL_COUNT, OB_KIND_COUNT,
     };
@@ -60,6 +63,7 @@ static bool read_header(int slot, SaveHeader *h) {
 }
 
 static bool header_ok(const SaveHeader *h) {
+    if (h->has_run != 0 && h->has_run != 1) return false;
     return !memcmp(h->magic, "NBSV", 4) && h->version == SAVE_VERSION && h->fingerprint == fingerprint() &&
            h->game_size == (uint32_t)sizeof(Game);
 }
@@ -70,6 +74,38 @@ int save_new_slot(void) {
     for (int s = 1; s <= SAVE_SLOTS; s++)
         if (!read_header(s, &h)) return s;
     return 0;
+}
+
+static void header_profile(SaveHeader *h, const Profile *p) {
+    *h = (SaveHeader){.magic = {'N', 'B', 'S', 'V'}, .version = SAVE_VERSION, .fingerprint = fingerprint(),
+                      .game_size = (uint32_t)sizeof(Game), .unlocked = profile_unlocked(p), .unlock_total = unlocks_total(),
+                      .runs = p->runs, .bosses = p->bosses, .best_depth = p->best_depth};
+    SDL_Time now = 0;
+    SDL_GetCurrentTime(&now);
+    h->saved_at = now;
+}
+
+static void header_run(SaveHeader *h, const Game *g) {
+    h->has_run = 1;
+    h->character = g->character, h->depth = g->room.depth, h->rooms_cleared = g->rooms_cleared, h->kills = g->kills;
+    h->hp = g->pl.hp, h->max_hp = g->pl.max_hp, h->run_time = g->run_time;
+    for (int u = 0; u < UPG_COUNT; u++) h->upgrades += g->pl.upg_count[u] > 0;
+}
+
+/* Written next to it, then renamed over it: a crash mid-write never leaves a broken save. */
+static bool write_file(int slot, const SaveHeader *h, const Profile *p, const void *game) {
+    char tmp[600], path[600];
+    slot_path(tmp, sizeof tmp, slot, "tmp");
+    slot_path(path, sizeof path, slot, "sav");
+    FILE *f = fopen(tmp, "wb");
+    if (!f) return false;
+    bool ok = fwrite(h, sizeof *h, 1, f) == 1 && fwrite(p, sizeof *p, 1, f) == 1 && (!game || fwrite(game, sizeof(Game), 1, f) == 1);
+    ok = fclose(f) == 0 && ok;
+    if (!ok || !SDL_RenamePath(tmp, path)) {
+        SDL_RemovePath(tmp);
+        return false;
+    }
+    return true;
 }
 
 bool save_write(int slot) {
@@ -83,27 +119,10 @@ bool save_write(int slot) {
     snap.npt = snap.npop = 0;
     snap.quit = false;
     snap.save_slot = slot;
-    SaveHeader h = {
-        .magic = {'N', 'B', 'S', 'V'}, .version = SAVE_VERSION, .fingerprint = fingerprint(), .game_size = (uint32_t)sizeof(Game),
-        .character = G.character, .depth = G.room.depth, .rooms_cleared = G.rooms_cleared, .kills = G.kills,
-        .hp = G.pl.hp, .max_hp = G.pl.max_hp, .run_time = G.run_time,
-    };
-    for (int u = 0; u < UPG_COUNT; u++) h.upgrades += G.pl.upg_count[u] > 0;
-    SDL_Time now = 0;
-    SDL_GetCurrentTime(&now);
-    h.saved_at = now;
-    /* Written next to it, then renamed over it: a crash mid-write never leaves a broken save. */
-    char tmp[600], path[600];
-    slot_path(tmp, sizeof tmp, slot, "tmp");
-    slot_path(path, sizeof path, slot, "sav");
-    FILE *f = fopen(tmp, "wb");
-    if (!f) return false;
-    bool ok = fwrite(&h, sizeof h, 1, f) == 1 && fwrite(&snap, sizeof snap, 1, f) == 1;
-    ok = fclose(f) == 0 && ok;
-    if (!ok || !SDL_RenamePath(tmp, path)) {
-        SDL_RemovePath(tmp);
-        return false;
-    }
+    SaveHeader h;
+    header_profile(&h, &G.prof);
+    header_run(&h, &G);
+    if (!write_file(slot, &h, &G.prof, &snap)) return false;
     writes++;
     return true;
 }
@@ -113,6 +132,40 @@ void save_autosave(void) {
     if (!save_write(G.save_slot)) SDL_Log("Could not save the game in %s", dir);
 }
 
+void save_end_run(void) {
+    if (G.demo || G.save_slot <= 0 || !save_enabled()) return;
+    SaveHeader h;
+    header_profile(&h, &G.prof);
+    if (write_file(G.save_slot, &h, &G.prof, NULL)) profile_writes++;
+    else SDL_Log("Could not save the game in %s", dir);
+}
+
+void save_profile_update(void) {
+    if (G.demo || G.save_slot <= 0 || !save_enabled()) return;
+    /* The run part stays the snapshot of the start of the room; only the unlocks change. */
+    char path[600];
+    slot_path(path, sizeof path, G.save_slot, "sav");
+    size_t n = 0;
+    uint8_t *data = SDL_LoadFile(path, &n);
+    SaveHeader old, h;
+    bool run = data && n == sizeof old + sizeof(Profile) + sizeof(Game);
+    if (run) memcpy(&old, data, sizeof old);
+    run = run && header_ok(&old) && old.has_run;
+    header_profile(&h, &G.prof);
+    if (run) {
+        int64_t at = h.saved_at;
+        h = old;
+        h.unlocked = profile_unlocked(&G.prof), h.unlock_total = unlocks_total();
+        h.runs = G.prof.runs, h.bosses = G.prof.bosses, h.best_depth = G.prof.best_depth;
+        h.saved_at = at;
+    }
+    if (write_file(G.save_slot, &h, &G.prof, run ? data + sizeof old + sizeof(Profile) : NULL)) profile_writes++;
+    else SDL_Log("Could not save the game in %s", dir);
+    SDL_free(data);
+}
+
+int save_profile_writes(void) { return profile_writes; }
+
 int save_list(SaveInfo *out, int max) {
     int n = 0;
     if (!save_enabled()) return 0;
@@ -120,9 +173,12 @@ int save_list(SaveInfo *out, int max) {
     for (int s = 1; s <= SAVE_SLOTS && n < max; s++) {
         if (!read_header(s, &h)) continue;
         SaveInfo *i = &out[n++];
-        *i = (SaveInfo){.slot = s, .ok = header_ok(&h), .character = h.character, .depth = h.depth,
-                        .rooms_cleared = h.rooms_cleared, .kills = h.kills, .hp = h.hp, .max_hp = h.max_hp,
-                        .upgrades = h.upgrades, .run_time = h.run_time, .saved_at = h.saved_at};
+        *i = (SaveInfo){.slot = s, .ok = header_ok(&h), .has_run = h.has_run == 1, .unlocked = h.unlocked,
+                        .unlock_total = h.unlock_total, .runs = h.runs, .bosses = h.bosses, .best_depth = h.best_depth,
+                        .character = h.character, .depth = h.depth, .rooms_cleared = h.rooms_cleared, .kills = h.kills,
+                        .hp = h.hp, .max_hp = h.max_hp, .upgrades = h.upgrades, .run_time = h.run_time, .saved_at = h.saved_at};
+        i->percent = unlock_percent(i->unlocked, i->unlock_total);
+        if (!i->ok) i->has_run = false;
         if (i->character < 0 || i->character >= CHAR_COUNT) i->character = 0;
     }
     for (int a = 1; a < n; a++) /* most recent first */
@@ -134,6 +190,20 @@ int save_list(SaveInfo *out, int max) {
     return n;
 }
 
+bool save_load_profile(int slot, Profile *out) {
+    if (!save_enabled() || slot <= 0) return false;
+    char path[600];
+    slot_path(path, sizeof path, slot, "sav");
+    FILE *f = fopen(path, "rb");
+    if (!f) return false;
+    SaveHeader h;
+    Profile p;
+    bool ok = fread(&h, sizeof h, 1, f) == 1 && header_ok(&h) && fread(&p, sizeof p, 1, f) == 1;
+    fclose(f);
+    if (ok) *out = p;
+    return ok;
+}
+
 bool save_load(int slot) {
     if (!save_enabled() || slot <= 0) return false;
     char path[600];
@@ -141,7 +211,9 @@ bool save_load(int slot) {
     FILE *f = fopen(path, "rb");
     if (!f) return false;
     SaveHeader h;
-    bool ok = fread(&h, sizeof h, 1, f) == 1 && header_ok(&h) && fread(&snap, sizeof snap, 1, f) == 1;
+    Profile prof;
+    bool ok = fread(&h, sizeof h, 1, f) == 1 && header_ok(&h) && h.has_run && fread(&prof, sizeof prof, 1, f) == 1 &&
+              fread(&snap, sizeof snap, 1, f) == 1;
     fclose(f);
     if (!ok) return false;
     /* Settings of this session stay as they are. */
@@ -155,6 +227,7 @@ bool save_load(int slot) {
     G.demo = false;
     G.quit = false;
     G.save_slot = slot;
+    G.prof = prof; /* may be newer than the snapshot's (unlocked during that room) */
     room_nav_reset(); /* caches built for whatever room was loaded before */
     bot_reset();
     return true;

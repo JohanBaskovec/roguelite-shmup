@@ -63,6 +63,7 @@ static int card_at(V2 m) {
 
 void char_select_open(void) {
     G.state = GS_CHAR_SELECT;
+    if (!character_unlocked(G.character)) G.character = CHAR_NORMAL;
     G.char_hover = G.character;
     G.sel_mouse = G.in.mouse;
     G.sel_left = G.in.left; /* a key already held does not count as a press */
@@ -87,10 +88,15 @@ void char_select_update(void) {
     if (G.char_hover != prev) sfx_play(SFX_WEAPON_SWITCH);
 
     if (in->pause_pressed) {
-        title_open();
+        title_back(); /* from the save menu: back to it; from a run: the main menu */
         sfx_play(SFX_PAUSE);
     } else if (in->confirm_pressed) {
+        if (!character_unlocked(G.char_hover)) { /* greyed out: not yet */
+            sfx_play(SFX_DENIED);
+            return;
+        }
         G.character = G.char_hover;
+        if (G.demo && G.menu_slot > 0) G.save_slot = G.menu_slot; /* a new run in the save chosen in the menu */
         game_new_run();
     }
 }
@@ -113,6 +119,18 @@ void char_select_draw(void) {
         float x = card_x(i), y = CARD_Y, cx = x + CARD_W * 0.5f;
         SDL_FColor col = col_hex(c->color, 1);
         float pulse = 0.5f + 0.5f * sinf(G.time * 4.0f);
+        if (!character_unlocked(i)) { /* greyed out: the ship's outline and how to unlock it */
+            SDL_FColor g = col_a(COL_WHITE, sel ? 0.45f : 0.25f);
+            draw_rect(x, y, CARD_W, CARD_H, col_hex(0x07080d, 1));
+            draw_rect_outline(x, y, CARD_W, CARD_H, sel ? 3.0f : 1.5f, g);
+            draw_text_centered(cx, y + 28.0f, 4.0f, g, "%s", c->name);
+            draw_ship(i, v2(cx, y + 190.0f), -PI_F * 0.5f, 2.6f, false);
+            draw_rect(x + 2.0f, y + 110.0f, CARD_W - 4.0f, 160.0f, col_hex(0x07080d, 0.82f)); /* a silhouette */
+            draw_text_centered(cx, y + 330.0f, 4.0f, col_a(COL_WHITE, sel ? 0.7f : 0.4f), "LOCKED");
+            draw_text_centered(cx, y + 400.0f, 2.25f, col_a(COL_WHITE, sel ? 0.65f : 0.35f), "%s", character_unlock_hint(i));
+            draw_text(x + 12.0f, y + 10.0f, 1.5f, col_a(COL_WHITE, 0.25f), "%d", i + 1);
+            continue;
+        }
 
         draw_rect(x, y, CARD_W, CARD_H, sel ? col_a(col_mul(col, 0.12f), 1.0f) : col_hex(0x080a12, 1));
         draw_rect_outline(x, y, CARD_W, CARD_H, sel ? 3.0f : 1.5f, col_a(col, sel ? 0.7f + 0.3f * pulse : 0.3f));
