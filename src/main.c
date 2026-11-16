@@ -14,6 +14,10 @@
 typedef struct {
     const char *dump_dir;  /* --dump-sfx DIR: write every sound effect as WAV and exit */
     const char *shot_path; /* --shot FILE: render N frames offscreen (no window), save a BMP, exit */
+    const char *record;    /* --record PREFIX: render offscreen at 1920x1080, write the frames (PREFIX.rgb, raw RGB24),
+                              the game's sounds mixed offline (PREFIX.wav) and the ship's position (PREFIX.txt) */
+    int record_from;       /* --record-from F: first frame written (sounds too) */
+    int record_step;       /* --record-step S: one frame in S (scouting) */
     bool headless;         /* --headless: simulation only, no window / audio (see headless.h) */
     int ticks, runs, expect_rooms;
     bool stats_room;       /* --stats: start in a Stats room */
@@ -59,6 +63,9 @@ static void parse_args(int argc, char **argv, Options *o) {
         const char *a = argv[i];
         bool more = i + 1 < argc;
         if (!strcmp(a, "--shot") && more) o->shot_path = argv[++i];
+        else if (!strcmp(a, "--record") && more) o->record = argv[++i];
+        else if (!strcmp(a, "--record-from") && more) o->record_from = atoi(argv[++i]);
+        else if (!strcmp(a, "--record-step") && more) o->record_step = atoi(argv[++i]);
         else if (!strcmp(a, "--frames") && more) { o->frames = atoi(argv[++i]); o->frames_given = true; }
         else if (!strcmp(a, "--depth") && more) o->depth = atoi(argv[++i]);
         else if (!strcmp(a, "--seed") && more) { o->seed = strtoull(argv[++i], NULL, 10); o->has_seed = true; }
@@ -142,7 +149,8 @@ static void parse_args(int argc, char **argv, Options *o) {
         else if (!strcmp(a, "--god")) o->god = true;
         else if (!strcmp(a, "--novsync")) o->novsync = true;
     }
-    if (o->shot_path && !o->char_select && !o->title && !o->no_bot) o->bot = true; /* the bot would confirm the select screen at once */
+    if (o->record_step < 1) o->record_step = 1;
+    if ((o->shot_path || o->record) && !o->char_select && !o->title && !o->no_bot) o->bot = true; /* the bot would confirm the select screen at once */
 }
 
 static void clear_edges(void) {
@@ -217,6 +225,27 @@ static void handle_event(const SDL_Event *e, SDL_Window *win, bool bot) {
     }
 }
 
+/* --record: one raw RGB24 frame appended to f. */
+static bool record_frame(SDL_Renderer *r, FILE *f) {
+    SDL_Surface *s = SDL_RenderReadPixels(r, NULL);
+    if (!s) return false;
+    SDL_Surface *rgb = SDL_ConvertSurface(s, SDL_PIXELFORMAT_RGB24);
+    SDL_DestroySurface(s);
+    if (!rgb) return false;
+    for (int y = 0; y < rgb->h; y++) fwrite((const uint8_t *)rgb->pixels + (size_t)y * (size_t)rgb->pitch, 3, (size_t)rgb->w, f);
+    SDL_DestroySurface(rgb);
+    return true;
+}
+
+static void wav_header(FILE *f, uint32_t frames) { /* stereo float32, 48 kHz */
+    uint32_t bytes = frames * 8, v;
+    uint16_t h;
+    fwrite("RIFF", 1, 4, f); v = 36 + bytes; fwrite(&v, 4, 1, f); fwrite("WAVEfmt ", 1, 8, f);
+    v = 16; fwrite(&v, 4, 1, f); h = 3; fwrite(&h, 2, 1, f); h = 2; fwrite(&h, 2, 1, f);
+    v = 48000; fwrite(&v, 4, 1, f); v = 48000 * 8; fwrite(&v, 4, 1, f); h = 8; fwrite(&h, 2, 1, f); h = 32; fwrite(&h, 2, 1, f);
+    fwrite("data", 1, 4, f); fwrite(&bytes, 4, 1, f);
+}
+
 static bool save_screenshot(SDL_Renderer *r, const char *path) {
     SDL_Surface *s = SDL_RenderReadPixels(r, NULL);
     if (!s) return false;
@@ -247,7 +276,8 @@ int main(int argc, char **argv) {
     }
 
     SDL_SetAppMetadata("Neon Breach", "0.1.0", "dev.neonbreach.game");
-    if (opt.shot_path) {
+    const bool offscreen = opt.shot_path || opt.record;
+    if (offscreen) {
         /* Render into an offscreen surface: never opens a window. */
         SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "offscreen");
         SDL_SetHint(SDL_HINT_RENDER_DRIVER, "software");
@@ -260,16 +290,33 @@ int main(int argc, char **argv) {
 
     SDL_Window *win = NULL;
     SDL_Renderer *ren = NULL;
-    if (!SDL_CreateWindowAndRenderer("Neon Breach", 1600, 900, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY, &win, &ren)) {
+    if (!SDL_CreateWindowAndRenderer("Neon Breach", opt.record ? SCREEN_W : 1600, opt.record ? SCREEN_H : 900, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY, &win, &ren)) {
         SDL_Log("Window/renderer creation failed: %s", SDL_GetError());
         SDL_Quit();
         return 1;
     }
     SDL_SetRenderLogicalPresentation(ren, SCREEN_W, SCREEN_H, SDL_LOGICAL_PRESENTATION_LETTERBOX);
-    if (!opt.shot_path && !opt.novsync) SDL_SetRenderVSync(ren, 1);
+    if (!offscreen && !opt.novsync) SDL_SetRenderVSync(ren, 1);
     SDL_HideCursor();
     draw_init(ren);
-    if (!opt.shot_path) audio_init();
+    if (opt.record) audio_offline_begin();
+    else if (!opt.shot_path) audio_init();
+    FILE *rec_rgb = NULL, *rec_wav = NULL, *rec_txt = NULL;
+    uint32_t rec_samples = 0;
+    if (opt.record) {
+        char path[512];
+        snprintf(path, sizeof path, "%s.rgb", opt.record);
+        rec_rgb = fopen(path, "wb");
+        snprintf(path, sizeof path, "%s.wav", opt.record);
+        rec_wav = fopen(path, "wb");
+        snprintf(path, sizeof path, "%s.txt", opt.record);
+        rec_txt = fopen(path, "w");
+        if (!rec_rgb || !rec_wav || !rec_txt) {
+            SDL_Log("Cannot write %s.*", opt.record);
+            return 1;
+        }
+        wav_header(rec_wav, 0);
+    }
 
     uint64_t seed = opt.has_seed ? opt.seed : SDL_GetPerformanceCounter();
     SDL_Log("Neon Breach - seed %llu (renderer: %s)", (unsigned long long)seed, SDL_GetRendererName(ren));
@@ -317,7 +364,7 @@ int main(int argc, char **argv) {
         Uint64 now = SDL_GetPerformanceCounter();
         double elapsed = (double)(now - last) / freq;
         last = now;
-        if (opt.shot_path) elapsed = 2.0 * DT; /* deterministic: 2 ticks per frame */
+        if (offscreen) elapsed = 2.0 * DT; /* deterministic: 2 ticks per frame */
         acc += elapsed;
         if (acc > 0.25) acc = 0.25; /* avoid the spiral of death after a stall */
 
@@ -325,7 +372,7 @@ int main(int argc, char **argv) {
         fps_frames++;
         if (fps_t >= 0.5) {
             G.fps = (float)(fps_frames / fps_t);
-            if (opt.bot && !opt.shot_path && (frame % 4) == 0)
+            if (opt.bot && !offscreen && (frame % 4) == 0)
                 SDL_Log("fps %.0f  room %d  eb %d  pb %d  en %d  pt %d", (double)G.fps, G.room.depth, G.neb, G.npb, G.nen, G.npt);
             fps_t = 0.0;
             fps_frames = 0;
@@ -341,12 +388,28 @@ int main(int argc, char **argv) {
 
         /* In a run, the cursor stays inside the window (no stray click on the desktop mid-fight);
          * it is let go in the pause menu, the main menu and on the game over screen. */
-        bool grab = !opt.shot_path && !opt.bot && (SDL_GetWindowFlags(win) & SDL_WINDOW_INPUT_FOCUS) &&
+        bool grab = !offscreen && !opt.bot && (SDL_GetWindowFlags(win) & SDL_WINDOW_INPUT_FOCUS) &&
                     (G.state == GS_PLAYING || G.state == GS_UPGRADES || G.state == GS_DEBUG);
         if (grab != SDL_GetWindowMouseGrab(win)) SDL_SetWindowMouseGrab(win, grab);
 
         audio_flush();
         game_render();
+        if (opt.record) {
+            float mix[800 * 2]; /* one frame of sound: 2 ticks at 48 kHz */
+            audio_offline_render(mix, 800);
+            if (frame >= opt.record_from) {
+                fwrite(mix, sizeof mix, 1, rec_wav);
+                rec_samples += 800;
+                bool keep = (frame - opt.record_from) % opt.record_step == 0;
+                if (keep && !record_frame(ren, rec_rgb)) SDL_Log("Frame capture failed: %s", SDL_GetError());
+                {
+                    fprintf(rec_txt, "%d ", keep);
+                    fprintf(rec_txt, "%d %.1f %.1f %d %d %d %d %.2f %d\n", frame, (double)G.pl.pos.x, (double)G.pl.pos.y, G.nen, G.neb,
+                            G.room.depth, G.room.cleared, (double)G.room.clear_t, G.room.id);
+                }
+            }
+            if (frame + 1 >= opt.frames) G.quit = true;
+        }
         frame++;
         if (opt.shot_path && frame >= opt.frames) {
             if (!save_screenshot(ren, opt.shot_path)) SDL_Log("Screenshot failed: %s", SDL_GetError());
@@ -360,6 +423,14 @@ int main(int argc, char **argv) {
         SDL_RenderPresent(ren);
     }
 
+    if (opt.record) {
+        fseek(rec_wav, 0, SEEK_SET);
+        wav_header(rec_wav, rec_samples);
+        fclose(rec_wav);
+        fclose(rec_rgb);
+        fclose(rec_txt);
+        SDL_Log("Recorded %s (%d frames)", opt.record, frame);
+    }
     audio_shutdown();
     SDL_DestroyRenderer(ren);
     SDL_DestroyWindow(win);

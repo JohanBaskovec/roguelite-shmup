@@ -39,6 +39,10 @@ void audio_toggle_mute(void);
 /* Dev tool: synthesize every sound and write it as a WAV file into dir. */
 bool audio_dump_wavs(const char *dir);
 bool audio_muted(void);
+/* --record: mix offline on the game's clock instead of a device; audio_offline_render() starts the
+ * sounds queued since the last call and mixes `frames` stereo float frames (SR 48000) into out. */
+void audio_offline_begin(void);
+void audio_offline_render(float *out, int frames);
 
 /* While on, sfx_play* requests are dropped (the menu's background demo is silent). */
 void audio_suppress(bool on);

@@ -538,9 +538,13 @@ bool audio_muted(void) { return muted; }
 static bool suppressed;
 void audio_suppress(bool on) { suppressed = on; }
 
+/* Offline mixing (--record): no device, the game's own clock, mixed into a buffer per frame. */
+static bool offline;
+static uint64_t offline_ns;
+
 void sfx_play_ex(SfxId id, float vol, float pitch, float pan) {
-    if (suppressed || !stream || id < 0 || id >= SFX_COUNT || samples[id].len == 0) return;
-    uint64_t now = SDL_GetTicksNS();
+    if (suppressed || (!stream && !offline) || id < 0 || id >= SFX_COUNT || samples[id].len == 0) return;
+    uint64_t now = offline ? offline_ns + 1 : SDL_GetTicksNS();
     if (last_play_ns[id] != 0 && now - last_play_ns[id] < (uint64_t)(INFO[id].min_interval * 1e9f)) return;
     last_play_ns[id] = now;
     if (npending >= MAX_PENDING) return;
@@ -582,6 +586,42 @@ static void start_voice(const Request *r) {
     v->gl = r->vol * sqrtf(0.5f * (1.0f - r->pan));
     v->gr = r->vol * sqrtf(0.5f * (1.0f + r->pan));
     v->order = ++voice_order;
+}
+
+void audio_offline_begin(void) {
+    if (samples[0].len == 0) generate_all();
+    rng_seed(&arng, 12345);
+    offline = true;
+}
+
+void audio_offline_render(float *out, int frames) {
+    for (int i = 0; i < npending; i++) start_voice(&pending[i]);
+    npending = 0;
+    offline_ns += (uint64_t)frames * 1000000000ull / SR;
+    for (int done = 0; done < frames;) {
+        int n = frames - done > MIX_CHUNK ? MIX_CHUNK : frames - done;
+        float *buf = out + done * 2;
+        memset(buf, 0, sizeof(float) * 2 * (size_t)n);
+        for (int v = 0; v < MAX_VOICES; v++) {
+            Voice *vo = &voices[v];
+            if (!vo->active) continue;
+            const Sample *sm = &samples[vo->id];
+            for (int i = 0; i < n; i++) {
+                int ip = (int)vo->pos;
+                if (ip >= sm->len - 1) {
+                    vo->active = false;
+                    break;
+                }
+                float fr = vo->pos - (float)ip;
+                float x = sm->data[ip] + (sm->data[ip + 1] - sm->data[ip]) * fr;
+                buf[i * 2] += x * vo->gl;
+                buf[i * 2 + 1] += x * vo->gr;
+                vo->pos += vo->rate;
+            }
+        }
+        for (int i = 0; i < n * 2; i++) buf[i] = tanhf(buf[i] * master);
+        done += n;
+    }
 }
 
 void audio_flush(void) {

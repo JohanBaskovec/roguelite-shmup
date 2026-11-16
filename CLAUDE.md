@@ -156,6 +156,10 @@ Do not launch the game in a real window to test it. Use:
   upgrades off / on (the bot also turns a weapon mod off by itself when its shots hit nothing for 10 s).
 - `neon_breach --shot out.bmp --frames N [...]` — offscreen render (SDL offscreen driver).
 - `neon_breach --dump-sfx DIR` — writes every synthesized sound as WAV.
+- `neon_breach --record PREFIX --frames N [--record-from F] [--record-step S] [...]` — offscreen 1920x1080 at
+  60 fps, the bot playing: raw RGB24 frames (`PREFIX.rgb`), the game's sounds mixed offline on the game clock
+  (`PREFIX.wav`, `audio_offline_render`) and the ship's position per frame (`PREFIX.txt`). Deterministic for a
+  given seed and options. `tools/trailer/make_trailer.sh` builds the trailer from it (no window, GStreamer).
 - `--dense-blocks` fills rooms with the maximum block budget (stress test for the layouts and the bot).
 
 When adding a room type or mechanic, teach the bot to use it (so the simulations cover it) and add
