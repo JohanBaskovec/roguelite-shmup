@@ -4,8 +4,13 @@
 #include <stdarg.h>
 #include <stdio.h>
 
+/* Particles are only for show: they never touch the game's generator (their own, G.fx_rng), so a
+ * run plays the same with or without them. Headless runs without (g_fx_off; --fx keeps them). */
+bool g_fx_off;
+static float fx_rand(float lo, float hi) { return rng_range(&G.fx_rng, lo, hi); }
+
 void fx_particle(V2 pos, V2 vel, float life, float size, SDL_FColor col, float drag, int shape) {
-    if (G.npt >= MAX_PARTICLES) return;
+    if (g_fx_off || G.npt >= MAX_PARTICLES) return;
     Particle *p = &G.pt[G.npt++];
     p->pos = pos;
     p->vel = vel;
@@ -18,27 +23,30 @@ void fx_particle(V2 pos, V2 vel, float life, float size, SDL_FColor col, float d
 }
 
 void fx_shard(V2 pos, V2 vel, float life, float size, SDL_FColor col, float spin) {
+    if (g_fx_off || G.npt >= MAX_PARTICLES) return;
     fx_particle(pos, vel, life, size, col, 2.5f, PT_SHARD);
     if (G.npt > 0 && G.pt[G.npt - 1].shape == PT_SHARD) {
-        G.pt[G.npt - 1].rot = frand(0.0f, TAU_F);
+        G.pt[G.npt - 1].rot = fx_rand(0.0f, TAU_F);
         G.pt[G.npt - 1].spin = spin;
     }
 }
 
 void fx_burst(V2 pos, int n, float smin, float smax, float life, float size, SDL_FColor col) {
+    if (g_fx_off) return;
     for (int i = 0; i < n; i++) {
-        V2 v = v2_scale(v2_angle(frand(0.0f, TAU_F)), frand(smin, smax));
-        fx_particle(pos, v, life * frand(0.6f, 1.2f), size * frand(0.7f, 1.3f), col, 4.0f, PT_SPARK);
+        V2 v = v2_scale(v2_angle(fx_rand(0.0f, TAU_F)), fx_rand(smin, smax));
+        fx_particle(pos, v, life * fx_rand(0.6f, 1.2f), size * fx_rand(0.7f, 1.3f), col, 4.0f, PT_SPARK);
     }
 }
 
 void fx_explosion(V2 pos, float radius, SDL_FColor col) {
+    if (g_fx_off) return;
     int n = (int)(10.0f + radius * 1.2f);
     fx_burst(pos, n, 120.0f, 450.0f + radius * 9.0f, 0.45f, 2.5f + radius * 0.07f, col);
     fx_burst(pos, n / 3, 80.0f, 300.0f, 0.3f, 2.0f, COL_WHITE);
     for (int i = 0; i < n / 3; i++) {
-        V2 v = v2_scale(v2_angle(frand(0.0f, TAU_F)), frand(20.0f, 160.0f));
-        fx_particle(pos, v, frand(0.3f, 0.7f), radius * frand(0.5f, 1.0f), col_a(col, 0.5f), 3.0f, PT_GLOW);
+        V2 v = v2_scale(v2_angle(fx_rand(0.0f, TAU_F)), fx_rand(20.0f, 160.0f));
+        fx_particle(pos, v, fx_rand(0.3f, 0.7f), radius * fx_rand(0.5f, 1.0f), col_a(col, 0.5f), 3.0f, PT_GLOW);
     }
     fx_particle(pos, v2(0, 0), 0.16f, radius * 3.0f, col_a(COL_WHITE, 0.9f), 0.0f, PT_GLOW);
     fx_particle(pos, v2(0, 0), 0.32f, radius * 3.2f, col, 0.0f, PT_RING);
@@ -83,7 +91,7 @@ void fx_update(void) {
             continue;
         }
         p->pos = v2_add(p->pos, v2_scale(p->vel, DT));
-        p->vel = v2_scale(p->vel, fmaxf(0.0f, 1.0f - p->drag * DT));
+        p->vel = v2_scale(p->vel, maxf(0.0f, 1.0f - p->drag * DT));
         p->rot += p->spin * DT;
     }
     for (int i = 0; i < G.npop; i++) {

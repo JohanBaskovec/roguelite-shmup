@@ -11,7 +11,9 @@ BIN=${1:-$HERE/../../build/release/neon_breach}
 export TRAILER_DIR=${TRAILER_DIR:-/tmp/trailer}
 mkdir -p "$TRAILER_DIR/work"
 
-# shot name, first frame, frames used (60 fps), options (see compose.py SEGS)
+# shot name, first frame, frames used (60 fps), options (see compose.py SEGS). The windows were picked
+# by eye: after any change to the gameplay (or its use of the generator) the same seeds play
+# differently, pick them again (--record + PREFIX.txt) before rebuilding the trailer.
 rec() {
     name=$1 from=$2 len=$3
     shift 3

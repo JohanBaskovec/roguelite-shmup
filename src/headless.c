@@ -45,6 +45,7 @@ static const char *check_invariants(float room_time) {
     static char msg[512];
     const Player *p = &G.pl;
     if (!finite_v2(p->pos) || !finite_v2(p->vel)) return "player position/velocity is not finite";
+    if (G.ticks % 4 == 0 && !room_occupancy_ok()) return "an obstacle is missing from the collision cell map (room_nav_reset() not called when obstacles changed)";
     if (G.state == GS_PLAYING && !G.transitioning && !in_arena(p->pos, PLAYER_BODY_R)) {
         snprintf(msg, sizeof msg, "player outside the arena at (%.1f, %.1f)", (double)p->pos.x, (double)p->pos.y);
         return msg;
@@ -1984,6 +1985,33 @@ static int debug_rooms_run(const HeadlessOptions *o) {
 #undef BDUMMY
     }
 
+    { /* Particles never change the game: the same fight with and without them ends in the same state. */
+        Rng rng[2];
+        V2 pos[2];
+        int kills[2], counts[2];
+        for (int k = 0; k < 2; k++) {
+            g_fx_off = k == 1;
+            game_init(o->seed);
+            G.god = true;
+            game_new_run();
+            for (int u = 0; u < UPG_COUNT; u++)
+                if (!upgrade_capped(u)) upgrade_apply(u);
+            room_enter(ROOM_COMBAT, RW_UPGRADE, 14);
+            for (int t = 0; t < 3600; t++) {
+                bot_input();
+                game_update();
+                clear_edges();
+            }
+            rng[k] = G.rng, pos[k] = G.pl.pos, kills[k] = G.kills, counts[k] = G.nen * 100000 + G.neb * 1000 + G.npb;
+            if (k == 1 && G.npt != 0) failures++;
+        }
+        g_fx_off = false;
+        bool same = !memcmp(&rng[0], &rng[1], sizeof rng[0]) && pos[0].x == pos[1].x && pos[0].y == pos[1].y &&
+                    kills[0] == kills[1] && counts[0] == counts[1];
+        printf("particles on / off: same game after 30 s (%d kills) -> %s\n", kills[0], same && kills[0] > 0 ? "OK" : "FAILED");
+        failures += !(same && kills[0] > 0);
+    }
+
     printf("debug teleports - %s\n", failures ? "FAILED" : "OK");
     return failures ? 1 : 0;
 }
@@ -2011,6 +2039,7 @@ static void print_repro(const HeadlessOptions *o, uint64_t seed, int fail_tick) 
 int headless_run(const HeadlessOptions *o) {
 
     if (o->debug_rooms) return debug_rooms_run(o);
+    g_fx_off = !o->fx;
     int failures = 0;
     int runs = o->runs > 0 ? o->runs : 1;
     long long total_ticks = 0;

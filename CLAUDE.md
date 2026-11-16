@@ -93,7 +93,7 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   (leaves a `FirePool` that sets the ship and enemies on fire; a dash jumps over), spark pod (ring of `EB_BALL`
   that hurt enemies too). Blocks only break under player shots / the blade / explosions, never enemy bullets,
   and a bomb breaks them all (`room_blocks_break_all`). A broken block goes off in `blocks_update`, outside
-  the entity loops (chains on the next tick); call `room_nav_reset()` whenever obstacles change. Connectivity
+  the entity loops (chains on the next tick); call `room_nav_reset()` whenever obstacles change (the path finder and the collision cell map, `occ` in `room.c`, are rebuilt from it; headless checks the map). Connectivity
   counts walls only (`room_walls_connected`: every free cell and door reachable from the entry spot), so
   blocks may close a passage but can always be shot through; only the entry spot is kept clear.
   **Everything sits on the floor grid**: `GRID` = 60 px cells, arena 1800x900 (`GW` x `GH` = 30 x 15); every
@@ -140,9 +140,9 @@ the `--debug-rooms` test too.
 ```sh
 cmake --preset release && cmake --build --preset release -j
 ctest --preset quick              # ~2 s: label "quick", one test per area, simulations at 40%
-ctest --preset release            # ~15 s
+ctest --preset release            # ~12 s
 ctest --preset release -L enemies # one area: enemies, weapons, actives, synergies, upgrades, boss, characters, rooms, runs, render
-cmake --preset asan && cmake --build --preset asan -j && ctest --preset asan   # ASan + UBSan, ~40 s
+cmake --preset asan && cmake --build --preset asan -j && ctest --preset asan   # ASan + UBSan, ~30 s
 ```
 
 - The build must stay free of compiler warnings (`-Wall -Wextra`).
@@ -157,6 +157,11 @@ cmake --preset asan && cmake --build --preset asan -j && ctest --preset asan   #
   (`CMakeLists.txt`): name a new test like its neighbours (`sim_enemy_*`, `sim_weapon_*`, `render_*`...).
 - The path finder is what the simulations spend their time in (`room_navigate_ex`, `line_blocked` in `room.c`):
   a line test that only needs yes / no uses `line_blocked` (stops at the first hit), never `nearest_blocker`.
+  In hot loops use `minf` / `maxf` (`common.h`), not `fminf` / `fmaxf` (libm calls). Measure before keeping an
+  optimisation (compare the run lines of the old and new binaries: same results, real gain).
+- **Particles never touch the game's generator**: `fx.c` draws its randomness from `G.fx_rng`, so a run plays the
+  same with or without them. Headless runs without particles (`g_fx_off`; `--fx` keeps them, e.g. for a
+  `--fail-shot`); `--debug-rooms` checks that a fight ends in the same state with and without.
 
 ## Testing: never open a window
 

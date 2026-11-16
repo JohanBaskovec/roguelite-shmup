@@ -540,6 +540,7 @@ typedef struct {
     /* Main menu (title.c): a demo run played by the bot behind it, on its own generator. */
     bool demo;
     Rng demo_rng;
+    Rng fx_rng;          /* particles: never the game's generator (see fx.c) */
     float demo_dead_t, demo_room_t;
     int demo_room_id;
     int title_sel;
@@ -776,8 +777,11 @@ void blocks_update(void);
 void blocks_draw(SDL_FColor wall, SDL_FColor edge);
 void fires_draw(void);
 void room_nav_reset(void);
+/* The cell map used to skip collision tests in the open still covers every solid obstacle (headless). */
+bool room_occupancy_ok(void);
 void room_shatter_start(V2 origin); /* the room is cleared: crack every obstacle, in a wave from origin */
 void room_obstacles_vanish(void);   /* every obstacle gone at once, no effect (debug clear) */
+extern bool g_fx_off; /* no particles (headless): the game plays the same without them */
 extern bool g_dense_blocks; /* --dense-blocks: as many blocks and gates as possible (test) */
 V2 door_position(Side side);
 RewardType room_roll_reward(void);

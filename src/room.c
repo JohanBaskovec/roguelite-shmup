@@ -53,6 +53,58 @@ static V2 side_inward(Side side) {
 
 /* ---- Collision ----------------------------------------------------------- */
 
+/* Floor cells with an obstacle on them: lets a circle in the open (most bullets, most of the time)
+ * skip the obstacle list. Always a superset of the solid obstacles: built from them, a block that
+ * breaks only leaves its cell marked until the next room_nav_reset() (headless checks it). */
+#define OCC_W 30 /* ARENA_W / GRID */
+#define OCC_H 15 /* ARENA_H / GRID */
+static uint8_t occ[OCC_H][OCC_W];
+static int occ_layout = -1, occ_nobs = -1;
+
+/* (no floorf: a libm call; left of the arena everything lands in cell 0 anyway) */
+static int occ_cx(float x) {
+    int c = (int)((x - ARENA_X0) * (1.0f / GRID));
+    return c < 0 ? 0 : c >= OCC_W ? OCC_W - 1 : c;
+}
+static int occ_cy(float y) {
+    int c = (int)((y - ARENA_Y0) * (1.0f / GRID));
+    return c < 0 ? 0 : c >= OCC_H ? OCC_H - 1 : c;
+}
+
+static void occ_build(void) {
+    memset(occ, 0, sizeof occ);
+    for (int i = 0; i < G.room.nobs; i++) {
+        const Obstacle *o = &G.room.obs[i];
+        if (!obstacle_solid(o)) continue;
+        for (int y = occ_cy(o->r.y), y1 = occ_cy(o->r.y + o->r.h - 0.5f); y <= y1; y++)
+            for (int x = occ_cx(o->r.x), x1 = occ_cx(o->r.x + o->r.w - 0.5f); x <= x1; x++) occ[y][x] = 1;
+    }
+    occ_layout = G.room.layout_id;
+    occ_nobs = G.room.nobs;
+}
+
+/* An obstacle may lie within r of p (1 px to spare). */
+static bool occ_near(V2 p, float r) {
+    if (occ_layout != G.room.layout_id || occ_nobs != G.room.nobs) occ_build();
+    r += 1.0f;
+    for (int y = occ_cy(p.y - r), y1 = occ_cy(p.y + r); y <= y1; y++)
+        for (int x = occ_cx(p.x - r), x1 = occ_cx(p.x + r); x <= x1; x++)
+            if (occ[y][x]) return true;
+    return false;
+}
+
+bool room_occupancy_ok(void) {
+    if (occ_layout != G.room.layout_id || occ_nobs != G.room.nobs) return true; /* rebuilt on the next use */
+    for (int i = 0; i < G.room.nobs; i++) {
+        const Obstacle *o = &G.room.obs[i];
+        if (!obstacle_solid(o)) continue;
+        for (int y = occ_cy(o->r.y), y1 = occ_cy(o->r.y + o->r.h - 0.5f); y <= y1; y++)
+            for (int x = occ_cx(o->r.x), x1 = occ_cx(o->r.x + o->r.w - 0.5f); x <= x1; x++)
+                if (!occ[y][x]) return false;
+    }
+    return true;
+}
+
 bool room_collide_circle(V2 *p, float r, V2 *normal) { return room_collide_obstacle(p, r, normal, NULL); }
 
 bool room_collide_obstacle(V2 *p, float r, V2 *normal, int *which) {
@@ -65,6 +117,10 @@ bool room_collide_obstacle(V2 *p, float r, V2 *normal, int *which) {
     if (p->y > ARENA_Y1 - r) { p->y = ARENA_Y1 - r; n.y = -1; hit = true; }
 
     const Room *room = &G.room;
+    if (!occ_near(*p, r)) { /* open floor all around */
+        if (normal) *normal = v2_norm(n);
+        return hit;
+    }
     for (int i = 0; i < room->nobs; i++) {
         if (!obstacle_solid(&room->obs[i])) continue;
         const SDL_FRect *o = &room->obs[i].r;
@@ -113,8 +169,8 @@ static float segment_entry(V2 a, V2 b, SDL_FRect r) {
             continue;
         }
         float t = q[i] / p[i];
-        if (p[i] < 0.0f) t0 = fmaxf(t0, t);
-        else t1 = fminf(t1, t);
+        if (p[i] < 0.0f) t0 = maxf(t0, t);
+        else t1 = minf(t1, t);
         if (t0 > t1) return -1.0f;
     }
     return t0;
@@ -129,9 +185,9 @@ static SDL_FRect obs_inflated(int i, float m) {
 /* Largest inflation of r that still leaves p outside (inflated rectangles have square
  * corners, so this is the per-axis distance, not the Euclidean one). */
 static float box_dist(V2 p, SDL_FRect r) {
-    float dx = fmaxf(fmaxf(r.x - p.x, 0.0f), p.x - (r.x + r.w));
-    float dy = fmaxf(fmaxf(r.y - p.y, 0.0f), p.y - (r.y + r.h));
-    return fmaxf(dx, dy);
+    float dx = maxf(maxf(r.x - p.x, 0.0f), p.x - (r.x + r.w));
+    float dy = maxf(maxf(r.y - p.y, 0.0f), p.y - (r.y + r.h));
+    return maxf(dx, dy);
 }
 
 /* Nearest obstacle crossed by the segment, or -1. When an endpoint already sits
@@ -146,12 +202,12 @@ static int nearest_blocker_ex(V2 a, V2 b, float margin, bool walls_only) {
     int best = -1;
     float best_t = 2.0f;
     /* Quick reject: obstacles out of the segment's bounding box (grown by the margin). */
-    float x0 = fminf(a.x, b.x) - margin, x1 = fmaxf(a.x, b.x) + margin;
-    float y0 = fminf(a.y, b.y) - margin, y1 = fmaxf(a.y, b.y) + margin;
+    float x0 = minf(a.x, b.x) - margin, x1 = maxf(a.x, b.x) + margin;
+    float y0 = minf(a.y, b.y) - margin, y1 = maxf(a.y, b.y) + margin;
     for (int i = 0; i < G.room.nobs; i++) {
         SDL_FRect o = G.room.obs[i].r;
         if (o.x > x1 || o.x + o.w < x0 || o.y > y1 || o.y + o.h < y0 || !nav_counts(i, walls_only)) continue;
-        float m = fminf(margin, fmaxf(0.0f, fminf(box_dist(a, o), box_dist(b, o)) - 0.5f));
+        float m = minf(margin, maxf(0.0f, minf(box_dist(a, o), box_dist(b, o)) - 0.5f));
         float t = segment_entry(a, b, obs_inflated(i, m));
         if (t >= 0.0f && t < best_t) {
             best_t = t;
@@ -164,12 +220,12 @@ static int nearest_blocker_ex(V2 a, V2 b, float margin, bool walls_only) {
 /* Same test, but only whether anything is crossed: stops at the first obstacle hit (most callers
  * - lines of sight, the path finder - never need to know which one comes first). */
 static bool line_blocked(V2 a, V2 b, float margin, bool walls_only) {
-    float x0 = fminf(a.x, b.x) - margin, x1 = fmaxf(a.x, b.x) + margin;
-    float y0 = fminf(a.y, b.y) - margin, y1 = fmaxf(a.y, b.y) + margin;
+    float x0 = minf(a.x, b.x) - margin, x1 = maxf(a.x, b.x) + margin;
+    float y0 = minf(a.y, b.y) - margin, y1 = maxf(a.y, b.y) + margin;
     for (int i = 0; i < G.room.nobs; i++) {
         SDL_FRect o = G.room.obs[i].r;
         if (o.x > x1 || o.x + o.w < x0 || o.y > y1 || o.y + o.h < y0 || !nav_counts(i, walls_only)) continue;
-        float m = fminf(margin, fmaxf(0.0f, fminf(box_dist(a, o), box_dist(b, o)) - 0.5f));
+        float m = minf(margin, maxf(0.0f, minf(box_dist(a, o), box_dist(b, o)) - 0.5f));
         if (segment_entry(a, b, obs_inflated(i, m)) >= 0.0f) return true;
     }
     return false;
@@ -201,7 +257,7 @@ typedef struct {
 static NavGraph nav_graphs[NAV_CACHE];
 static int nav_count;
 
-static void nav_reset(void) { nav_count = 0; }
+static void nav_reset(void) { nav_count = 0, occ_layout = -1; }
 void room_nav_reset(void) { nav_reset(); }
 
 static NavGraph *nav_graph(float margin, bool walls_only) {

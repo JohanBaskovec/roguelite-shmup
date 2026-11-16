@@ -57,6 +57,10 @@ static inline V2 v2_rotate(V2 a, float ang) {
 }
 
 static inline float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
+/* For hot loops: fminf / fmaxf are libm calls (the compiler may not inline them: NaN and signed-zero
+ * rules). Same result for ordinary numbers. */
+static inline float minf(float a, float b) { return a < b ? a : b; }
+static inline float maxf(float a, float b) { return a > b ? a : b; }
 static inline float lerpf(float a, float b, float t) { return a + (b - a) * t; }
 static inline float angle_wrap(float a) {
     while (a > PI_F) a -= TAU_F;

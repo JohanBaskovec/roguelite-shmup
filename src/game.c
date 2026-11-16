@@ -21,6 +21,7 @@ void game_init(uint64_t seed) {
     rng_seed(&G.rng, seed);
     rng_seed(&vis_rng, seed ^ 0xA5A5A5A5ull);
     rng_seed(&G.demo_rng, seed ^ 0x5EED5EEDull);
+    rng_seed(&G.fx_rng, seed ^ 0xF00DF00Dull);
     G.in.number = -1;
     G.secret_shop_override = G.secret_ambush_override = -1; /* random */
     G.state = GS_TITLE;
