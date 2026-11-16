@@ -224,11 +224,30 @@ const MalusDef MALUSES[UPG_COUNT] = {
     [UPG_X_DOOMSDAY] = {MAL_CROWD, 20},
 };
 
+/* The upgrades of each malus kind, in table order (built once from MALUSES): malus() is read
+ * several times per tick and per bullet, a scan of every upgrade each time was a hot spot. */
+static uint16_t mal_upg[UPG_COUNT];
+static int mal_first[MAL_COUNT + 1];
+
+static void mal_index_build(void) {
+    int n = 0;
+    for (int k = 0; k < MAL_COUNT; k++) {
+        mal_first[k] = n;
+        for (int u = 0; u < UPG_COUNT; u++)
+            if ((int)MALUSES[u].kind == k) mal_upg[n++] = (uint16_t)u;
+    }
+    mal_first[MAL_COUNT] = n;
+}
+
 int malus(MalusKind k) {
+    if (mal_first[MAL_COUNT] == 0) mal_index_build();
+    if ((int)k < 0 || (int)k >= MAL_COUNT) return 0;
     const Player *p = &G.pl;
     int sum = 0;
-    for (int u = 0; u < UPG_COUNT; u++)
-        if (MALUSES[u].kind == k && p->upg_count[u] > 0 && !p->upg_off[u] && !p->malus_off[u]) sum += MALUSES[u].amount;
+    for (int i = mal_first[k]; i < mal_first[k + 1]; i++) {
+        int u = mal_upg[i];
+        if (p->upg_count[u] > 0 && !p->upg_off[u] && !p->malus_off[u]) sum += MALUSES[u].amount;
+    }
     return sum;
 }
 

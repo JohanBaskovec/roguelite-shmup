@@ -284,7 +284,10 @@ cmake --preset asan && cmake --build --preset asan -j && ctest --preset asan   #
 - The path finder is what the simulations spend their time in (`room_navigate_ex`, `line_blocked` in `room.c`):
   a line test that only needs yes / no uses `line_blocked` (stops at the first hit), never `nearest_blocker`.
   In hot loops use `minf` / `maxf` (`common.h`), not `fminf` / `fmaxf` (libm calls). Measure before keeping an
-  optimisation (compare the run lines of the old and new binaries: same results, real gain).
+  optimisation (compare the run lines of the old and new binaries: same results, real gain). `malus()` reads an
+  index of the upgrades per malus kind (not a scan of `MALUSES`); the path finder's Dijkstra runs on a heap keyed on
+  (distance, node) - the tie order of the old O(n^2) scan, so the paths stay the same to the bit - and only tests the
+  straight line from the start to a node when that node comes out of the heap.
 - **Particles never touch the game's generator**: `fx.c` draws its randomness from `G.fx_rng`, so a run plays the
   same with or without them. Headless runs without particles (`g_fx_off`; `--fx` keeps them, e.g. for a
   `--fail-shot`); `--debug-rooms` checks that a fight ends in the same state with and without.
@@ -302,6 +305,9 @@ Do not launch the game in a real window to test it. Use:
   `game_init` / `game_new_run` - any new bot memory goes there, never in a `static` local. A failed run prints
   the command replaying it alone (`replay it alone: ... --seed S --trace-bot T`). `--trace-bot TICK` prints one
   line per tick from TICK on (position, goal, path waypoint, digging, keys, fire / aim, target, threats...).
+- Mass runs: `--runs N --jobs 0 --no-checks` (`--jobs N`: the runs shared out between N forked workers, 0 = one per core,
+  same results as one process, lines out of order; `--no-checks`: no per-tick invariants, same games). Both must keep
+  the games exactly the same: compare the run lines with and without.
 - `neon_breach --shot out.bmp --frames N [...]` — offscreen render (SDL offscreen driver; simulates every
   frame, draws one in 32).
 - `neon_breach --dump-sfx DIR` — writes every synthesized sound as WAV.

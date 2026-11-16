@@ -64,6 +64,8 @@ typedef struct {
     bool fresh_profile;    /* --fresh-profile: a new save's unlocks instead of everything unlocked */
     bool save_test;        /* --save-test (headless): saving / loading / deleting checks */
     bool fx;               /* --fx: headless keeps the particles (e.g. for a --fail-shot) */
+    int jobs;              /* --jobs N (headless): N processes play the runs side by side (0: one per core) */
+    bool no_checks;        /* --no-checks (headless): no per-tick invariants */
     bool bot;              /* --bot: autopilot (also implied by --shot) */
     bool god;              /* --god: player takes no damage (testing) */
     bool novsync;          /* --novsync: uncapped frame rate (benchmarking) */
@@ -78,6 +80,7 @@ static void parse_args(int argc, char **argv, Options *o) {
     o->shot_draw_every = 32;
     o->ticks = 120 * 600;
     o->runs = 1;
+    o->jobs = 1;
     for (int i = 1; i < argc; i++) {
         const char *a = argv[i];
         bool more = i + 1 < argc;
@@ -196,6 +199,8 @@ static void parse_args(int argc, char **argv, Options *o) {
         else if (!strcmp(a, "--fail-shot") && more) o->fail_shot = argv[++i];
         else if (!strcmp(a, "--ticks") && more) o->ticks = atoi(argv[++i]);
         else if (!strcmp(a, "--runs") && more) o->runs = atoi(argv[++i]);
+        else if (!strcmp(a, "--jobs") && more) o->jobs = atoi(argv[++i]);
+        else if (!strcmp(a, "--no-checks")) o->no_checks = true;
         else if (!strcmp(a, "--expect-rooms") && more) o->expect_rooms = atoi(argv[++i]);
         else if (!strcmp(a, "--bot")) o->bot = true;
         else if (!strcmp(a, "--fx")) o->fx = true;
@@ -354,7 +359,7 @@ int main(int argc, char **argv) {
             .shop_room = opt.shop_room, .coins = opt.coins, .bombs = opt.bombs, .keys = opt.keys, .start_room = opt.start_room, .debug_rooms = opt.debug_rooms, .secret = opt.secret,
             .all_upgrades = opt.all_upgrades, .hp = opt.hp, .character = opt.character, .workshop_room = opt.workshop_room, .boss_room = opt.boss_room,
             .actives = opt.actives, .active_room = opt.active_room, .weapons = opt.weapons, .upgrades = opt.upgrades, .nupgrades = opt.nupgrades, .toggle_upgrades = opt.toggle_upgrades, .god = opt.god, .expect_rooms = opt.expect_rooms, .fail_shot = opt.fail_shot,
-            .fx = opt.fx, .save_dir = opt.save_dir, .save_test = opt.save_test, .fresh_profile = opt.fresh_profile, .argc = argc, .argv = (const char *const *)argv,
+            .fx = opt.fx, .jobs = opt.jobs > 0 ? opt.jobs : SDL_GetNumLogicalCPUCores(), .no_checks = opt.no_checks, .save_dir = opt.save_dir, .save_test = opt.save_test, .fresh_profile = opt.fresh_profile, .argc = argc, .argv = (const char *const *)argv,
         };
         return headless_run(&h);
     }

@@ -89,6 +89,9 @@ if(SHMUP_BUILD_TESTS)
              COMMAND neon_breach --headless --seed 100 --runs 5 --ticks 72000 --fail-shot ${_out}/fail_sim_mortal.bmp)
     add_test(NAME sim_mortal_runs_b
              COMMAND neon_breach --headless --seed 105 --runs 5 --ticks 72000 --fail-shot ${_out}/fail_sim_mortal_b.bmp)
+    # Mass runs: workers side by side (--jobs), no per-tick invariants (--no-checks).
+    add_test(NAME sim_mortal_runs_jobs
+             COMMAND neon_breach --headless --seed 300 --runs 4 --jobs 2 --no-checks --ticks 36000)
     # Late-game rooms (dense waves, every enemy type).
     add_test(NAME sim_deep_rooms
              COMMAND neon_breach --headless --god --depth 15 --seed 7 --runs 3 --ticks 36000 --fail-shot ${_out}/fail_sim_deep.bmp)

@@ -41,6 +41,8 @@ typedef struct {
     bool fresh_profile; /* --fresh-profile: runs on a new save's unlocks, kept from run to run (boss unlocks) */
     bool save_test;    /* --save-test: saving / loading / deleting checks instead of normal runs */
     bool fx;           /* keep the particles (off by default: they never change the game, only cost time) */
+    int jobs;          /* --jobs N: runs played by N processes side by side (<= 1: this one only) */
+    bool no_checks;    /* --no-checks: skip the per-tick invariants (mass runs for statistics; the games are the same) */
     int argc;          /* the command line, to print the command replaying a failed run alone */
     const char *const *argv;
 } HeadlessOptions;

@@ -7,6 +7,11 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#ifndef _WIN32
+#include <sys/mman.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
 
 /* Soft-lock detection: enemies alive but none of them hurt for this long... */
 #define MAX_STALL_SECONDS 60.0f
@@ -4121,6 +4126,22 @@ static int save_test_run(const HeadlessOptions *o) {
     return failures ? 1 : 0;
 }
 
+/* --jobs: the runs shared out between worker processes (fork), each taking the next run left
+ * when it is done with one; their totals add up in shared memory. Every run is played alone from
+ * its seed, so the results are the same as one process playing them all (only the order of the
+ * lines changes). */
+typedef struct {
+    int next;           /* next run to hand out */
+    int failures, best, sum_rooms;
+    long long ticks;
+} JobShare;
+
+static int next_run(JobShare *share, int run) {
+    if (!share) return run + 1;
+    fflush(stdout); /* one run's lines in one write: never mixed with another worker's */
+    return __atomic_fetch_add(&share->next, 1, __ATOMIC_RELAXED);
+}
+
 int headless_run(const HeadlessOptions *o) {
     save_set_dir(o->save_dir);
     if (o->save_test) return save_test_run(o);
@@ -4139,7 +4160,43 @@ int headless_run(const HeadlessOptions *o) {
     profile_fresh(&prof);
     int prof_slot = 0;
 
-    for (int run = 0; run < runs; run++) {
+    JobShare *share = NULL;
+    int jobs = o->jobs < runs ? o->jobs : runs;
+    if (jobs > 1) setvbuf(stdout, NULL, _IOFBF, 1 << 16); /* before any output (each worker flushes after a run) */
+#ifndef _WIN32
+    if (jobs > 1 && (o->fresh_profile || o->save_dir)) {
+        fprintf(stderr, "--jobs: not with --fresh-profile / --save-dir (runs that depend on each other / share files), playing in one process\n");
+        jobs = 1;
+    }
+    if (jobs > 1) {
+        share = mmap(NULL, sizeof *share, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+        if (share == MAP_FAILED) share = NULL;
+    }
+    if (share) {
+        memset(share, 0, sizeof *share);
+        fflush(stdout);
+        int started = 0;
+        for (int j = 0; j < jobs; j++) {
+            pid_t pid = fork();
+            if (pid == 0) goto worker;
+            started += pid > 0;
+        }
+        int crashed = 0;
+        for (int j = 0; j < started; j++) {
+            int status = 0;
+            if (wait(&status) > 0 && !(WIFEXITED(status) && WEXITSTATUS(status) <= 1)) crashed++;
+        }
+        if (started == 0 || crashed) printf("--jobs: %d worker(s) of %d crashed or never started\n", crashed + jobs - started, jobs);
+        failures = share->failures + crashed + (started == 0);
+        best = share->best;
+        sum_rooms = share->sum_rooms;
+        total_ticks = share->ticks;
+        if (share->next < runs) failures++; /* runs never played */
+        goto summary;
+    }
+worker:
+#endif
+    for (int run = next_run(share, -1); run < runs; run = next_run(share, run)) {
         uint64_t seed = o->seed + (uint64_t)run;
         int failures_before = failures;
         game_init(seed);
@@ -4208,11 +4265,11 @@ int headless_run(const HeadlessOptions *o) {
         for (; !err && tick < o->max_ticks && G.state != GS_GAMEOVER; tick++) {
             bot_input();
             /* Items on a pedestal / shop counter are only ever taken with E. */
-            int pedestals = count_pedestals(), pk_room = G.room.id;
+            int pedestals = o->no_checks ? 0 : count_pedestals(), pk_room = G.room.id;
             bool pressed_e = G.in.interact_pressed;
             game_update();
             clear_edges();
-            if (G.room.id == pk_room && !G.transitioning && !pressed_e && count_pedestals() < pedestals) {
+            if (!o->no_checks && G.room.id == pk_room && !G.transitioning && !pressed_e && count_pedestals() < pedestals) {
                 err = "an item was taken without pressing E";
                 break;
             }
@@ -4295,7 +4352,7 @@ int headless_run(const HeadlessOptions *o) {
                 }
                 unlocked = want;
             }
-            if (profile_upgrades_unlocked(&G.prof) != unlocked) {
+            if (!o->no_checks && profile_upgrades_unlocked(&G.prof) != unlocked) {
                 err = "upgrades unlocked without beating a boss";
                 break;
             }
@@ -4313,7 +4370,7 @@ int headless_run(const HeadlessOptions *o) {
             }
             was_cleared = G.room.cleared;
             /* A one-of-N choice goes all at once: never a leftover after picking one. */
-            if (G.room.cleared) /* per group (MOD_WAGER has two): all of it or none of it */
+            if (G.room.cleared && !o->no_checks) /* per group (MOD_WAGER has two): all of it or none of it */
                 for (int g = 1; g <= 2; g++)
                     if (count_group(g) != 0 && count_group(g) != ((choices >> (8 * g)) & 0xff)) {
                         err = "some one-of-N choices remained after one was taken";
@@ -4321,7 +4378,7 @@ int headless_run(const HeadlessOptions *o) {
                     }
             if (err) break;
             room_time += DT;
-            if ((err = check_invariants(room_time)) != NULL) break;
+            if (!o->no_checks && (err = check_invariants(room_time)) != NULL) break;
         }
         if (!err && save_err) err = save_err;
         if (!err && save_enabled()) { /* died: the save stays, without a run; otherwise it holds the room the ship is in */
@@ -4420,6 +4477,19 @@ int headless_run(const HeadlessOptions *o) {
         sum_rooms += G.rooms_cleared;
     }
 
+#ifndef _WIN32
+    if (share) { /* a worker: its totals go to the parent */
+        __atomic_fetch_add(&share->failures, failures, __ATOMIC_RELAXED);
+        __atomic_fetch_add(&share->sum_rooms, sum_rooms, __ATOMIC_RELAXED);
+        __atomic_fetch_add(&share->ticks, total_ticks, __ATOMIC_RELAXED);
+        for (int b = __atomic_load_n(&share->best, __ATOMIC_RELAXED); best > b &&
+             !__atomic_compare_exchange_n(&share->best, &b, best, false, __ATOMIC_RELAXED, __ATOMIC_RELAXED);)
+            ;
+        fflush(stdout);
+        _exit(0);
+    }
+summary:;
+#endif
     double secs = (double)(SDL_GetPerformanceCounter() - t0) / (double)SDL_GetPerformanceFrequency();
     printf("%d run(s): avg %.1f rooms, best %d, %lld ticks simulated in %.2f s (%.0fx real time) - %s\n", runs,
            (double)sum_rooms / runs, best, total_ticks, secs, (double)total_ticks / TICK_RATE / (secs > 0 ? secs : 1),

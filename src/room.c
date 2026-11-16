@@ -261,7 +261,11 @@ typedef struct {
     bool walls_only;
     int n;
     V2 pt[NAV_MAX_NODES];
-    uint8_t vis[NAV_MAX_NODES][NAV_MAX_NODES];
+    /* Who sees whom, as neighbour lists (node i: adj[first[i] .. first[i + 1] - 1], ascending)
+     * with the edge lengths worked out once. */
+    int first[NAV_MAX_NODES + 1];
+    uint16_t adj[NAV_MAX_NODES * (NAV_MAX_NODES - 1)];
+    float len[NAV_MAX_NODES * (NAV_MAX_NODES - 1)];
 } NavGraph;
 
 static NavGraph nav_graphs[NAV_CACHE];
@@ -300,12 +304,75 @@ static NavGraph *nav_graph(float margin, bool walls_only) {
             if (!useless) g->pt[g->n++] = c[k];
         }
     }
+    static uint8_t vis[NAV_MAX_NODES][NAV_MAX_NODES];
     for (int i = 0; i < g->n; i++) {
-        g->vis[i][i] = 0;
-        for (int j = i + 1; j < g->n; j++)
-            g->vis[i][j] = g->vis[j][i] = (uint8_t)!line_blocked(g->pt[i], g->pt[j], margin, walls_only);
+        vis[i][i] = 0;
+        for (int j = i + 1; j < g->n; j++) vis[i][j] = vis[j][i] = (uint8_t)!line_blocked(g->pt[i], g->pt[j], margin, walls_only);
     }
+    int e = 0;
+    for (int i = 0; i < g->n; i++) {
+        g->first[i] = e;
+        for (int j = 0; j < g->n; j++)
+            if (vis[i][j]) {
+                g->adj[e] = (uint16_t)j;
+                g->len[e++] = v2_dist(g->pt[i], g->pt[j]);
+            }
+    }
+    g->first[g->n] = e;
     return g;
+}
+
+/* Min-heap of node indices keyed on (dist, index), with each node's slot for decrease-key. */
+typedef struct {
+    const float *key;
+    int n;
+    int node[NAV_MAX_NODES + 1];
+    int at[NAV_MAX_NODES + 1]; /* slot of a node in node[], -1: not in the heap */
+} NavHeap;
+
+static bool heap_less(const NavHeap *h, int a, int b) { return h->key[a] < h->key[b] || (h->key[a] == h->key[b] && a < b); }
+
+static void heap_put(NavHeap *h, int slot, int v) {
+    h->node[slot] = v;
+    h->at[v] = slot;
+}
+
+static void heap_up(NavHeap *h, int slot) {
+    int v = h->node[slot];
+    while (slot > 0) {
+        int parent = (slot - 1) / 2;
+        if (!heap_less(h, v, h->node[parent])) break;
+        heap_put(h, slot, h->node[parent]);
+        slot = parent;
+    }
+    heap_put(h, slot, v);
+}
+
+/* A node reached for the first time or by a shorter way (its key only ever goes down, but when a
+ * straight line from the start turns out blocked: then it is back in, with a key no lower). */
+static void heap_update(NavHeap *h, int v) {
+    if (h->at[v] < 0) {
+        h->at[v] = h->n;
+        h->node[h->n++] = v;
+    }
+    heap_up(h, h->at[v]);
+}
+
+static int heap_pop(NavHeap *h) {
+    int top = h->node[0];
+    h->at[top] = -1;
+    int v = h->node[--h->n], slot = 0;
+    if (h->n == 0) return top;
+    for (;;) {
+        int c = 2 * slot + 1;
+        if (c >= h->n) break;
+        if (c + 1 < h->n && heap_less(h, h->node[c + 1], h->node[c])) c++;
+        if (!heap_less(h, h->node[c], v)) break;
+        heap_put(h, slot, h->node[c]);
+        slot = c;
+    }
+    heap_put(h, slot, v);
+    return top;
 }
 
 V2 room_navigate(V2 from, V2 goal, float margin) { return room_navigate_ex(from, goal, margin, false, NULL); }
@@ -315,33 +382,64 @@ V2 room_navigate_ex(V2 from, V2 goal, float margin, bool walls_only, bool *reach
     if (!line_blocked(from, goal, margin, walls_only)) return goal;
     NavGraph *g = nav_graph(margin, walls_only);
     int n = g->n, goal_node = n;
-    float dist[NAV_MAX_NODES + 1];
+    float dist[NAV_MAX_NODES + 1], key[NAV_MAX_NODES + 1];
     int prev[NAV_MAX_NODES + 1];
-    bool done[NAV_MAX_NODES + 1];
+    bool done[NAV_MAX_NODES + 1], direct[NAV_MAX_NODES + 1];
+    /* Dijkstra on a binary heap. Nodes come out by distance, the lowest index first on a tie (the
+     * goal last): the order of the plain O(n^2) scan it replaced, so the paths are the same to the
+     * bit. Whether a node is in a straight line from the start is only worked out when it comes out
+     * (most never do): until then its key is that straight line, a lower bound (`direct`); dist only
+     * holds the ways through other nodes. */
+    NavHeap h = {.key = key};
     for (int i = 0; i <= n; i++) {
         dist[i] = 1e30f;
         prev[i] = -1;
         done[i] = false;
+        direct[i] = i < n;
+        key[i] = i < n ? v2_dist(from, g->pt[i]) : 1e30f;
+        h.at[i] = -1;
     }
-    for (int i = 0; i < n; i++) {
-        if (!line_blocked(from, g->pt[i], margin, walls_only)) dist[i] = v2_dist(from, g->pt[i]);
-    }
-    /* Dijkstra (dense, O(n^2) with n <= ~100). */
-    for (;;) {
-        int u = -1;
-        for (int i = 0; i <= n; i++)
-            if (!done[i] && dist[i] < 1e29f && (u < 0 || dist[i] < dist[u])) u = i;
-        if (u < 0 || u == goal_node) break;
+    for (int i = 0; i < n; i++) heap_update(&h, i);
+    while (h.n > 0) {
+        int u = heap_pop(&h);
+        if (direct[u]) {
+            direct[u] = false;
+            /* the straight line is shorter than (or as long as) any way found so far: it wins if clear */
+            float line = v2_dist(from, g->pt[u]);
+            if (line <= dist[u]) {
+                if (!line_blocked(from, g->pt[u], margin, walls_only)) {
+                    dist[u] = line;
+                    prev[u] = -1;
+                } else {
+                    key[u] = dist[u];
+                    if (dist[u] < 1e29f) heap_update(&h, u);
+                    continue;
+                }
+            }
+        }
+        if (u == goal_node) break;
         done[u] = true;
-        for (int v = 0; v < n; v++) {
-            if (done[v] || !g->vis[u][v]) continue;
-            float d = dist[u] + v2_dist(g->pt[u], g->pt[v]);
-            if (d < dist[v]) { dist[v] = d; prev[v] = u; }
+        for (int k = g->first[u]; k < g->first[u + 1]; k++) {
+            int v = g->adj[k];
+            if (done[v]) continue;
+            float d = dist[u] + g->len[k];
+            if (d < dist[v]) {
+                dist[v] = d;
+                prev[v] = u;
+                if (d < key[v]) {
+                    key[v] = d;
+                    heap_update(&h, v);
+                }
+            }
         }
         /* Whether a node sees the goal is only worked out for the nodes actually visited. */
         if (!line_blocked(g->pt[u], goal, margin, walls_only)) {
             float d = dist[u] + v2_dist(g->pt[u], goal);
-            if (d < dist[goal_node]) { dist[goal_node] = d; prev[goal_node] = u; }
+            if (d < dist[goal_node]) {
+                dist[goal_node] = key[goal_node] = d;
+                prev[goal_node] = u;
+                heap_update(&h, goal_node);
+            }
         }
     }
     if (dist[goal_node] >= 1e29f) { /* unreachable: push straight and slide along walls */
