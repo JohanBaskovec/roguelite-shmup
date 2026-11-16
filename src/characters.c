@@ -61,7 +61,10 @@ static int card_at(V2 m) {
     return -1;
 }
 
+static bool back_to_pause; /* opened from the pause (NEW RUN): ESC goes back to it, the run untouched */
+
 void char_select_open(void) {
+    back_to_pause = false;
     G.state = GS_CHAR_SELECT;
     if (!character_unlocked(G.character)) G.character = CHAR_NORMAL;
     G.char_hover = G.character;
@@ -87,8 +90,10 @@ void char_select_update(void) {
     }
     if (G.char_hover != prev) sfx_play(SFX_WEAPON_SWITCH);
 
-    if (in->pause_pressed) {
-        title_back(); /* from the save menu: back to it; from a run: the main menu */
+    if (in->pause_pressed && back_to_pause) {
+        pause_open_new_run(); /* the run still behind */
+    } else if (in->pause_pressed) {
+        title_back(); /* from the save menu: back to it; from a game over: the save's menu, else the main menu */
         sfx_play(SFX_PAUSE);
     } else if (in->confirm_pressed) {
         if (!character_unlocked(G.char_hover)) { /* greyed out: not yet */
@@ -105,6 +110,11 @@ static void stat_line(float x, float w, float y, const char *label, const char *
     SDL_FColor c = better > 0 ? col_hex(0x7dff9a, 1) : better < 0 ? col_hex(0xff5f7e, 1) : col_a(COL_WHITE, 0.85f);
     draw_text(x, y, 2.0f, col_a(COL_WHITE, 0.5f), "%s", label);
     draw_text(x + w - draw_text_width(value, 2.0f), y, 2.0f, c, "%s", value);
+}
+
+void char_select_open_paused(void) {
+    char_select_open();
+    back_to_pause = true;
 }
 
 static int cmp(float v, float base, int better) { return v > base + 1e-4f ? better : v < base - 1e-4f ? -better : 0; }

@@ -44,6 +44,7 @@ typedef struct {
     bool char_select;      /* --char-select: open the character select screen at startup */
     bool title;            /* --title: stay on the main menu (screenshots: the bot only plays the demo behind it) */
     bool upgrades_menu;    /* --upgrades-menu: open the upgrades menu (TAB) at startup */
+    bool pause;            /* --pause: open the pause (the save's menu over the run) at startup */
     bool show_secret;      /* --show-secret: mark hidden secrets (debug menu: SHOW SECRETS) */
     bool all_upgrades;     /* --all-upgrades: start with one of every upgrade */
     int hp;                /* --hp N (headless): starting max hp in half-hearts */
@@ -101,6 +102,7 @@ static void parse_args(int argc, char **argv, Options *o) {
         else if (!strcmp(a, "--char-select")) o->char_select = true;
         else if (!strcmp(a, "--title")) o->title = true;
         else if (!strcmp(a, "--upgrades-menu")) o->upgrades_menu = true;
+        else if (!strcmp(a, "--pause")) o->pause = true;
         else if (!strcmp(a, "--char") && more) {
             const char *name = argv[++i];
             o->character = -1;
@@ -269,7 +271,7 @@ static void handle_event(const SDL_Event *e, SDL_Window *win, bool bot) {
         else if (e->wheel.y < 0) in->wheel = 1;
         break;
     case SDL_EVENT_WINDOW_FOCUS_LOST:
-        if (G.state == GS_PLAYING && !bot) G.state = GS_PAUSED;
+        if (G.state == GS_PLAYING && !bot) pause_open();
         break;
     default:
         break;
@@ -387,7 +389,7 @@ int main(int argc, char **argv) {
     G.show_stats = opt.show_stats;
     G.character = opt.character;
     if (opt.stats_room || opt.shop_room || opt.workshop_room || opt.boss_room || opt.active_room || opt.actives || opt.weapons || opt.nupgrades || opt.cleared || opt.depth > 0 ||
-        opt.coins > 0 || opt.bombs > 0 || opt.debug_menu || opt.all_upgrades || opt.upgrades_menu) {
+        opt.coins > 0 || opt.bombs > 0 || opt.debug_menu || opt.all_upgrades || opt.upgrades_menu || opt.pause) {
         game_new_run();
         G.pl.coins += opt.coins;
         G.pl.bombs += opt.bombs;
@@ -465,6 +467,7 @@ int main(int argc, char **argv) {
     }
     if (opt.char_select) char_select_open();
     if (opt.upgrades_menu) upgrade_menu_open();
+    if (opt.pause) pause_open();
     if (opt.debug_menu) debug_menu_open();
 
     const double freq = (double)SDL_GetPerformanceFrequency();

@@ -332,10 +332,7 @@ void overlay_draw(void) {
         title_draw();
         break;
     case GS_PAUSED:
-        dim(0.75f);
-        draw_text_centered(SCREEN_W * 0.5f, 280.0f, 8.0f, COL_WHITE, "PAUSED");
-        draw_stats(420.0f);
-        draw_text_centered(SCREEN_W * 0.5f, 820.0f, 2.0f, col_a(COL_WHITE, 0.7f), "ESC resume    TAB upgrades    R restart    C change ship    Q main menu");
+        pause_draw(); /* the save's menu (title.c) */
         break;
     case GS_GAMEOVER: {
         dim(fminf(G.gameover_t, 0.75f));

@@ -14,7 +14,8 @@
  *              (twice) deletes it. A save opens its own menu: RESUME RUN (a run is going on), NEW RUN
  *              (character select, locked ships greyed), UNLOCKS (every upgrade, locked ones greyed;
  *              the one selected shown in full), BESTIARY (every enemy met, the one selected playing in a
- *              small screen of its own: bestiary.c; the demo behind pauses meanwhile);
+ *              small screen of its own: bestiary.c; the demo behind pauses meanwhile), MAIN MENU, QUIT.
+ *              ESC in a run opens this same menu over it (pause_open);
  *   DEV MODE   a save of its own (SAVE_DEV_SLOT, never listed), everything unlocked and every enemy
  *              met, opened on its menu (ESC: back to the main menu).
  * The save is saved on entering each room (save.c) and keeps its unlocks when the ship is destroyed.
@@ -29,8 +30,8 @@ typedef enum { TP_MAIN, TP_SAVES, TP_SAVE, TP_UNLOCKS, TP_BESTIARY } TitlePage;
 
 enum { TM_NEW, TM_CONTINUE, TM_DEV, TM_OPTIONS, TM_QUIT, TM_COUNT };
 static const char *const TITLE_ITEMS[TM_COUNT] = {"NEW SAVE", "CONTINUE", "DEV MODE", "OPTIONS", "QUIT"};
-enum { SM_RESUME, SM_NEW_RUN, SM_UNLOCKS, SM_BESTIARY, SM_COUNT };
-static const char *const SAVE_ITEMS[SM_COUNT] = {"RESUME RUN", "NEW RUN", "UNLOCKS", "BESTIARY"};
+enum { SM_RESUME, SM_NEW_RUN, SM_UNLOCKS, SM_BESTIARY, SM_MAIN_MENU, SM_QUIT, SM_COUNT };
+static const char *const SAVE_ITEMS[SM_COUNT] = {"RESUME RUN", "NEW RUN", "UNLOCKS", "BESTIARY", "MAIN MENU", "QUIT"};
 
 /* The save files, as listed when the menu opened (and after each deletion); the one opened. */
 static SaveInfo saves[SAVE_SLOTS];
@@ -46,7 +47,7 @@ static void refresh_saves(void) {
 
 /* Options: later. CONTINUE needs a save file. */
 static bool main_enabled(int i) { return i == TM_NEW || i == TM_DEV || i == TM_QUIT || (i == TM_CONTINUE && nsaves > 0); }
-/* RESUME RUN only while a run is going on (hidden otherwise). */
+/* The same buttons from the main menu and in the pause; RESUME RUN only while a run is going on. */
 static bool save_item_shown(int i) { return i != SM_RESUME || cur.has_run; }
 static bool save_enabled_item(int i) { return save_item_shown(i); }
 
@@ -424,6 +425,12 @@ static void saves_update(void) {
 }
 
 static void save_menu_update(void) {
+    bool paused = G.state == GS_PAUSED; /* over a run going on (pause_open) */
+    if (paused && G.in.pause_pressed) {
+        G.state = GS_PLAYING;
+        sfx_play(SFX_PAUSE);
+        return;
+    }
     if (G.in.pause_pressed && G.menu_slot == SAVE_DEV_SLOT) { /* DEV MODE: back to the main menu */
         G.menu_slot = 0;
         page_open(TP_MAIN, TM_DEV);
@@ -441,10 +448,16 @@ static void save_menu_update(void) {
     }
     switch (btn_update(&SAVE_MENU)) {
     case SM_RESUME:
-        if (save_load(G.menu_slot)) sfx_play(SFX_UI_START); /* G is now the saved run, at the start of its room */
+        if (paused) { /* the run in memory goes on where it stopped */
+            G.state = GS_PLAYING;
+            sfx_play(SFX_PAUSE);
+        } else if (save_load(G.menu_slot)) sfx_play(SFX_UI_START); /* G is now the saved run, at the start of its room */
         else sfx_play(SFX_DENIED);
         break;
-    case SM_NEW_RUN: char_select_open(); break; /* the run goes in this save (char_select_update) */
+    case SM_NEW_RUN: /* the run goes in this save (char_select_update); from a pause, ESC comes back to it */
+        if (paused) char_select_open_paused();
+        else char_select_open();
+        break;
     case SM_UNLOCKS:
         page_open(TP_UNLOCKS, 0);
         G.unl_sel = 0;
@@ -455,6 +468,11 @@ static void save_menu_update(void) {
         bestiary_open(-1);
         sfx_play(SFX_WEAPON_SWITCH);
         break;
+    case SM_MAIN_MENU: /* from the pause, out of the run: it stays saved at the start of its room */
+        title_open();
+        sfx_play(SFX_PAUSE);
+        break;
+    case SM_QUIT: G.quit = true; break; /* the game closes (the run saved at the start of its room) */
     default: break;
     }
 }
@@ -488,7 +506,7 @@ void title_unlocks_open(void) {
     G.unl_sel = 0;
 }
 
-bool title_world_hidden(void) { return G.state == GS_TITLE && G.title_page == TP_BESTIARY; }
+bool title_world_hidden(void) { return (G.state == GS_TITLE || G.state == GS_PAUSED) && G.title_page == TP_BESTIARY; }
 
 void title_bestiary_open(int type) {
     G.state = GS_TITLE;
@@ -519,6 +537,48 @@ static void unlocks_update(void) {
         page_open(TP_SAVE, SM_UNLOCKS);
         sfx_play(SFX_PAUSE);
     }
+}
+
+/* ---- The pause: the save's menu over the run going on ---------------------- */
+
+/* What the save's menu shows of the run: the one in memory (its save may be older: start of the room). */
+static void pause_cur(void) {
+    cur = (SaveInfo){.slot = G.save_slot, .ok = true, .has_run = true, .character = G.character, .depth = G.room.depth};
+}
+
+void pause_open(void) {
+    G.state = GS_PAUSED;
+    pause_cur();
+    page_open(TP_SAVE, SM_RESUME);
+    sfx_play(SFX_PAUSE);
+}
+
+void pause_open_new_run(void) {
+    pause_open();
+    G.title_sel = SM_NEW_RUN;
+}
+
+void pause_update(void) {
+    const Input *in = &G.in;
+    switch ((TitlePage)G.title_page) {
+    case TP_UNLOCKS: unlocks_update(); break;
+    case TP_BESTIARY:
+        if (!bestiary_update()) {
+            page_open(TP_SAVE, SM_BESTIARY);
+            sfx_play(SFX_PAUSE);
+        }
+        break;
+    default:
+        G.title_page = TP_SAVE;
+        pause_cur();
+        if (in->menu_pressed) upgrade_menu_open(); /* TAB: the upgrades menu, back here after */
+        else save_menu_update();
+        break;
+    }
+    G.title_up = in->up;
+    G.title_down = in->down;
+    G.sel_left = in->left;
+    G.sel_right = in->right;
 }
 
 void title_update(void) {
@@ -619,10 +679,12 @@ static void saves_draw(void) {
 
 static void save_menu_draw(void) {
     float x0 = (SCREEN_W - BTN_W) * 0.5f;
-    draw_rect(x0 - 200.0f, 150.0f, BTN_W + 400.0f, btn_y(&SAVE_MENU, SM_COUNT - 1) + BTN_H + 40.0f - 150.0f,
+    draw_rect(x0 - 200.0f, 150.0f, BTN_W + 400.0f, btn_y(&SAVE_MENU, SM_COUNT) - BTN_GAP + 40.0f - 150.0f,
               rgba(0.01f, 0.01f, 0.03f, 0.8f));
-    if (cur.slot == SAVE_DEV_SLOT) draw_text_centered(SCREEN_W * 0.5f, 185.0f, 5.0f, col_hex(0xffa040, 1), "DEV MODE");
-    else draw_text_centered(SCREEN_W * 0.5f, 185.0f, 5.0f, col_hex(0x66f0ff, 1), "SAVE %d", cur.slot);
+    bool paused = G.state == GS_PAUSED;
+    if (cur.slot == SAVE_DEV_SLOT) draw_text_centered(SCREEN_W * 0.5f, 185.0f, 5.0f, col_hex(0xffa040, 1), paused ? "DEV MODE - PAUSED" : "DEV MODE");
+    else if (cur.slot > 0) draw_text_centered(SCREEN_W * 0.5f, 185.0f, 5.0f, col_hex(0x66f0ff, 1), paused ? "SAVE %d - PAUSED" : "SAVE %d", cur.slot);
+    else draw_text_centered(SCREEN_W * 0.5f, 185.0f, 5.0f, col_hex(0x66f0ff, 1), "PAUSED"); /* a run outside any save */
     int pct = unlock_percent(profile_unlocked(&G.prof), unlocks_total());
     float gw = 500.0f, gx = (SCREEN_W - gw) * 0.5f;
     draw_rect(gx, 255.0f, gw, 16.0f, col_a(COL_WHITE, 0.12f));
@@ -632,14 +694,17 @@ static void save_menu_draw(void) {
                        G.prof.runs, G.prof.bosses, G.prof.best_depth);
     if (cur.has_run) {
         int ch = cur.character >= 0 && cur.character < CHAR_COUNT ? cur.character : 0;
-        draw_text_centered(SCREEN_W * 0.5f, 365.0f, 1.75f, col_hex(CHARACTERS[ch].color, 0.9f), "RUN GOING ON: %s, ROOM %d",
-                           CHARACTERS[ch].name, cur.depth);
+        draw_text_centered(SCREEN_W * 0.5f, 365.0f, 1.75f, col_hex(CHARACTERS[ch].color, 0.9f), "%s: %s, ROOM %d",
+                           paused ? "THIS RUN" : "RUN GOING ON", CHARACTERS[ch].name, cur.depth);
     }
     btn_draw(&SAVE_MENU);
     if (cur.has_run && G.title_sel == SM_NEW_RUN)
-        draw_text_centered(SCREEN_W * 0.5f, btn_y(&SAVE_MENU, SM_COUNT - 1) + BTN_H + 60.0f, 1.75f, col_hex(0xff6a7e, 0.9f),
+        draw_text_centered(SCREEN_W * 0.5f, btn_y(&SAVE_MENU, SM_COUNT) - BTN_GAP + 60.0f, 1.75f, col_hex(0xff6a7e, 0.9f),
                            "a new run replaces the one going on");
-    draw_text_centered(SCREEN_W * 0.5f, 1000.0f, 1.5f, col_a(COL_WHITE, 0.45f), "ARROWS / MOUSE  choose     ENTER / CLICK  confirm     ESC  back");
+    if (paused)
+        draw_text_centered(SCREEN_W * 0.5f, 1000.0f, 1.5f, col_a(COL_WHITE, 0.45f),
+                           "ARROWS / MOUSE  choose     ENTER / CLICK  confirm     ESC  resume     TAB  upgrades");
+    else draw_text_centered(SCREEN_W * 0.5f, 1000.0f, 1.5f, col_a(COL_WHITE, 0.45f), "ARROWS / MOUSE  choose     ENTER / CLICK  confirm     ESC  back");
 }
 
 /* Kind of upgrade, as the player sees it (never the word "weapon"). */
@@ -725,6 +790,20 @@ static void unlocks_draw(void) {
     }
     unlocks_detail(G.unl_sel);
     draw_text_centered(SCREEN_W * 0.5f, 1030.0f, 1.5f, col_a(COL_WHITE, 0.45f), "ARROWS / MOUSE  choose     ESC  back");
+}
+
+void pause_draw(void) {
+    switch ((TitlePage)G.title_page) {
+    case TP_UNLOCKS:
+        draw_rect(0, 0, SCREEN_W, SCREEN_H, rgba(0.01f, 0.01f, 0.03f, 0.6f));
+        unlocks_draw();
+        return;
+    case TP_BESTIARY: bestiary_draw(); return;
+    default:
+        draw_rect(0, 0, SCREEN_W, SCREEN_H, rgba(0.01f, 0.01f, 0.03f, 0.6f));
+        save_menu_draw();
+        return;
+    }
 }
 
 void title_draw(void) {

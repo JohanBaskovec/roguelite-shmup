@@ -81,8 +81,7 @@ void game_start_transition(int door) {
 
 static void update_playing(void) {
     if (G.in.pause_pressed) {
-        G.state = GS_PAUSED;
-        sfx_play(SFX_PAUSE);
+        pause_open();
         return;
     }
     if (G.in.menu_pressed && !G.transitioning) {
@@ -158,13 +157,7 @@ void game_update(void) {
         upgrade_menu_update(); /* the world stays frozen behind the menu */
         break;
     case GS_PAUSED:
-        if (G.in.menu_pressed) upgrade_menu_open();
-        else if (G.in.pause_pressed) {
-            G.state = GS_PLAYING;
-            sfx_play(SFX_PAUSE);
-        }
-        else if (G.in.restart_pressed) game_new_run();
-        else if (G.in.char_pressed) char_select_open();
+        pause_update(); /* the save's menu; the world stays frozen behind it */
         break;
     case GS_PLAYING:
         update_playing();

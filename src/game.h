@@ -902,6 +902,7 @@ void active_spawn_choices(V2 center);
 void character_apply(void); /* starting stats / weapon of G.character, after player_init's defaults */
 const char *character_option_name(int c); /* lowercase name for --char */
 void char_select_open(void);
+void char_select_open_paused(void); /* NEW RUN from the pause: ESC goes back to it */
 /* unlocks.c */
 void profile_fresh(Profile *p);       /* a new save: the first ship and the starting upgrades */
 void profile_unlock_all(Profile *p);  /* tests, demo: everything */
@@ -917,16 +918,16 @@ void unlocks_boss_beaten(void);       /* the next UNLOCK_BATCH upgrades (+ ships
 void bestiary_saw(EnemyType t);       /* an enemy shows up: met for the first time, marked and saved at once */
 int profile_seen(const Profile *p);   /* enemy types met */
 
-/* bestiary.c: every enemy, greyed until met; the one selected plays in a small screen (its own world,
- * swapped into G only for a moment each tick, the menu's demo paused meanwhile). */
+/* bestiary.c: every enemy, greyed until met; the one selected plays in a small screen (its own world
+ * in G while it is open, the real one - menu's demo or paused run - set aside and put back). */
 const char *enemy_title(EnemyType t); /* "CHASER", "THE OVERSEER"... */
 const char *enemy_desc(EnemyType t);  /* what it does, '|' between lines */
 void bestiary_open(int sel);          /* sel: the type to show (-1: the first met) */
 bool bestiary_update(void);           /* false once it is left (ESC) */
 void bestiary_draw(void);
-void bestiary_close(void);
+void bestiary_close(void);            /* the real world back as it was (path finder caches rebuilt) */
 int bestiary_world_type(void);        /* the type playing in the small screen (-1: closed) */
-bool title_world_hidden(void);        /* the bestiary: G holds its small world, not drawn full screen */            /* the real world back as it was (path finder caches rebuilt) */
+bool title_world_hidden(void);        /* the bestiary: G holds its small world, not drawn full screen */
 int unlocks_next(int *out, int max);  /* the upgrades the next boss will unlock (tests) */
 /* Main menu (title.c) with the bot-played demo run behind it. */
 void title_open(void);
@@ -936,6 +937,12 @@ void title_bestiary_open(int type); /* the bestiary on that enemy type (-1: the 
 bool title_save_menu(int slot);  /* the menu of a save (--save-menu) */
 void title_update(void);
 void title_draw(void);
+/* ESC in a run (GS_PAUSED): the save's menu over the frozen run - RESUME RUN goes on with it, NEW RUN,
+ * UNLOCKS, BESTIARY; TAB the upgrades menu, Q leaves the run (title_back). */
+void pause_open(void);
+void pause_open_new_run(void); /* back from the character select, on NEW RUN */
+void pause_update(void);
+void pause_draw(void);
 void demo_update(void);
 bool demo_visible(void); /* the world on screen is the demo (menu / character select over it) */
 void game_world_step(void); /* one tick of the world in a run (hitstop, transitions, every system) */

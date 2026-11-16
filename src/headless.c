@@ -2658,16 +2658,17 @@ static int save_test_run(const HeadlessOptions *o) {
     bool menu_ok = G.state == GS_TITLE && G.title_page == 2 && G.menu_slot == 50 && G.title_sel == 0 &&
               profile_upgrades_unlocked(&G.prof) == UNLOCK_START_COUNT + UNLOCK_BATCH;
     CHECK(menu_ok, "ENTER opens the save's menu (RESUME RUN first), its unlocks loaded");
-    /* down: NEW RUN, UNLOCKS, BESTIARY, then back to RESUME RUN */
-    int seen[4];
-    for (int k = 0; k < 4; k++) {
+    /* down: NEW RUN, UNLOCKS, BESTIARY, MAIN MENU, QUIT, then back to RESUME RUN */
+    int seen[6];
+    for (int k = 0; k < 6; k++) {
         G.in.down = true;
         STICK();
         G.in.down = false;
         STICK();
         seen[k] = G.title_sel;
     }
-    CHECK(seen[0] == 1 && seen[1] == 2 && seen[2] == 3 && seen[3] == 0, "save menu: NEW RUN, UNLOCKS, BESTIARY");
+    CHECK(seen[0] == 1 && seen[1] == 2 && seen[2] == 3 && seen[3] == 4 && seen[4] == 5 && seen[5] == 0,
+          "save menu: NEW RUN, UNLOCKS, BESTIARY, MAIN MENU, QUIT");
     G.in.down = true; /* NEW RUN */
     STICK();
     G.in.down = false;
@@ -2736,6 +2737,67 @@ static int save_test_run(const HeadlessOptions *o) {
     n = save_list(list, SAVE_SLOTS);
     CHECK(sel_ok && G.state == GS_PLAYING && G.character == CHAR_KNIGHT && G.save_slot == 50 && n == 2,
           "NEW RUN: the character select, the run starts in this save");
+    /* ESC in the run: the save's menu over the frozen run (NEW RUN, UNLOCKS, BESTIARY, TAB), ESC or
+     * RESUME RUN goes on with the run in memory, exactly where it was, nothing saved meanwhile. */
+    {
+        for (int t = 0; t < 240; t++) {
+            bot_input();
+            game_update();
+            clear_edges();
+        }
+        memset(&G.in, 0, sizeof G.in); /* the bot's keys released */
+        G.in.number = -1;
+        G.state = GS_PLAYING;
+        Rng rng_p = G.rng;
+        V2 pos_p = G.pl.pos;
+        int room_p = G.room.id, nen_p = G.nen, neb_p = G.neb, writes_p = save_writes();
+        G.in.pause_pressed = true;
+        STICK();
+        bool pause_ok = G.state == GS_PAUSED && G.title_page == 2 && G.title_sel == 0;
+        G.in.down = true; /* NEW RUN: the character select, ESC back to the pause */
+        STICK();
+        G.in.down = false;
+        G.in.confirm_pressed = true;
+        STICK();
+        pause_ok = pause_ok && G.state == GS_CHAR_SELECT;
+        G.in.pause_pressed = true;
+        STICK();
+        pause_ok = pause_ok && G.state == GS_PAUSED && G.title_page == 2 && G.title_sel == 1;
+        G.in.down = true; /* UNLOCKS */
+        STICK();
+        G.in.down = false;
+        G.in.confirm_pressed = true;
+        STICK();
+        pause_ok = pause_ok && G.state == GS_PAUSED && G.title_page == 3;
+        G.in.pause_pressed = true;
+        STICK();
+        G.in.down = true; /* BESTIARY */
+        STICK();
+        G.in.down = false;
+        G.in.confirm_pressed = true;
+        STICK();
+        pause_ok = pause_ok && G.state == GS_PAUSED && G.title_page == 4 && title_world_hidden() && bestiary_world_type() >= 0;
+        for (int t = 0; t < 240; t++) STICK();
+        G.in.pause_pressed = true;
+        STICK();
+        pause_ok = pause_ok && G.state == GS_PAUSED && G.title_page == 2 && G.title_sel == 3 && !title_world_hidden();
+        G.in.menu_pressed = true; /* TAB: the upgrades menu, ESC back to the pause */
+        STICK();
+        pause_ok = pause_ok && G.state == GS_UPGRADES;
+        G.in.pause_pressed = true;
+        STICK();
+        pause_ok = pause_ok && G.state == GS_PAUSED;
+        G.in.pause_pressed = true; /* ESC: the run goes on */
+        STICK();
+        pause_ok = pause_ok && G.state == GS_PLAYING && G.room.id == room_p && G.nen == nen_p && G.neb == neb_p && G.pl.pos.x == pos_p.x &&
+                   G.pl.pos.y == pos_p.y && !memcmp(&rng_p, &G.rng, sizeof rng_p) && save_writes() == writes_p && G.save_slot == 50 && !G.demo;
+        G.in.pause_pressed = true; /* and RESUME RUN does the same */
+        STICK();
+        G.in.confirm_pressed = true;
+        STICK();
+        pause_ok = pause_ok && G.state == GS_PLAYING && G.room.id == room_p && !memcmp(&rng_p, &G.rng, sizeof rng_p);
+        CHECK(pause_ok, "ESC in a run: the save's menu over it (new run, unlocks, bestiary, TAB); resume as it was");
+    }
     /* Q from the pause: the save's menu, RESUME RUN puts the run back. */
     G.state = GS_PAUSED;
     title_back();
@@ -2808,9 +2870,60 @@ static int save_test_run(const HeadlessOptions *o) {
         dev_ok = dev_ok && G.title_page == 2 && G.menu_slot == SAVE_DEV_SLOT && G.title_sel == 0;
         G.in.pause_pressed = true;
         STICK();
+       
         CHECK(dev_ok && G.title_page == 0 && G.title_sel == 2 && G.menu_slot == 0,
               "DEV MODE: its own save (not listed), everything unlocked, its runs in it");
         save_delete(SAVE_DEV_SLOT);
+    }
+    /* The pause's MAIN MENU leaves the run (saved at the start of its room) for the main menu; QUIT closes the game. */
+    {
+        bool mm_ok = save_load(50), quit_ok;
+        G.in.pause_pressed = true;
+        STICK();
+        for (int k = 0; k < 4; k++) { /* RESUME RUN -> NEW RUN -> UNLOCKS -> BESTIARY -> MAIN MENU */
+            G.in.down = true;
+            STICK();
+            G.in.down = false;
+            STICK();
+        }
+        mm_ok = mm_ok && G.state == GS_PAUSED && G.title_sel == 4;
+        G.in.confirm_pressed = true;
+        STICK();
+        STICK();
+        mm_ok = mm_ok && G.state == GS_TITLE && G.title_page == 0 && G.demo && G.save_slot == 0 && !G.quit;
+        quit_ok = save_load(50);
+        G.in.pause_pressed = true;
+        STICK();
+        G.in.up = true; /* wraps round to QUIT */
+        STICK();
+        G.in.up = false;
+        G.in.confirm_pressed = true;
+        STICK();
+        quit_ok = quit_ok && G.quit;
+        G.quit = false;
+        CHECK(mm_ok && quit_ok, "pause: MAIN MENU leaves the run for the main menu, QUIT closes the game");
+        /* The same two buttons in a save's menu opened from the main menu. */
+        bool title_ok = title_save_menu(50) && G.state == GS_TITLE && G.title_page == 2;
+        G.in.up = true; /* RESUME RUN -> (wraps) QUIT -> MAIN MENU */
+        STICK();
+        G.in.up = false;
+        STICK();
+        G.in.up = true;
+        STICK();
+        G.in.up = false;
+        title_ok = title_ok && G.title_sel == 4;
+        G.in.confirm_pressed = true;
+        STICK();
+        title_ok = title_ok && G.state == GS_TITLE && G.title_page == 0 && G.menu_slot == 0 && !G.quit;
+        title_ok = title_ok && title_save_menu(50);
+        G.in.up = true;
+        STICK();
+        G.in.up = false;
+        G.in.confirm_pressed = true;
+        STICK();
+        title_ok = title_ok && G.quit;
+        G.quit = false;
+        CHECK(title_ok, "a save's menu from the main menu: the same MAIN MENU and QUIT");
     }
 #undef CHECK
 #undef STICK

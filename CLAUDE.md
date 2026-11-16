@@ -147,14 +147,18 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   that). Something unlocked during a room is written at once (`save_profile_update`: the profile changes, the run
   part stays the start of the room; not counted as a save). **The ship destroyed ends the run, never the save**
   (`game_over` -> `save_end_run`: profile only); R / another ship (C) start a new run in the same file; Q (pause /
-  game over) goes back to that save's menu (`title_back`). Main menu: NEW SAVE (new file, fresh profile, the
+  game over) goes back to that save's menu (`title_back`). **ESC in a run** opens that same save menu over the frozen
+  run (`pause_open` / `pause_update` / `pause_draw`, `GS_PAUSED`): RESUME RUN / ESC go on with the run in memory (never
+  reloaded), NEW RUN's character select comes back to it on ESC (`char_select_open_paused`), UNLOCKS / BESTIARY as in
+  the menu (the bestiary sets the run aside like the demo), MAIN MENU (`title_open`) / QUIT (closes the game) as
+  in the menu (the save menu has the same buttons in both places), TAB the upgrades menu. Main menu: NEW SAVE (new file, fresh profile, the
   first ship's run at once) / DEV MODE (its own save, `SAVE_DEV_SLOT`, never listed: everything unlocked, every
   enemy met, opened on its save menu) / CONTINUE (saves list with unlock %: ENTER / click opens a save, DEL / the X twice
   deletes) -> save menu: RESUME RUN (only while a run goes on), NEW RUN (character select, the run goes in that
   save, `G.menu_slot`), UNLOCKS (every upgrade, locked ones greyed, the selected one in full: icon, kind,
   bonus, malus, toggle, synergies), BESTIARY (`src/bestiary.c`: every enemy / boss, greyed until met in that save -
   `Profile.seen`, set by `bestiary_saw` in `enemy_create`, written at once, never by the demo; the selected one plays in
-  a small screen with its description). Headless checks one save per room entered and
+  a small screen with its description), MAIN MENU, QUIT. Headless checks one save per room entered and
   none during a room (`--save-dir`), the save still there after a death (no run, same unlocks), and
   `--save-test` the load / replay / unlock / death / delete / menu flow.
   **`Game` must stay free of pointers** (it is written as is), and every piece of run state must live in `G`
