@@ -22,6 +22,7 @@ Preset `debug` disponible aussi (`build/debug`).
 | Bombe (efface toutes les balles) | Espace |
 | Prendre / acheter un objet, utiliser une machine (celui qui est encadré, marqué « E ») | E |
 | Menu des améliorations (activer / désactiver) | Tab |
+| Recommencer vite (même vaisseau) | Maintenir R 1 s en partie (une barre se remplit ; relâcher avant annule) |
 | Pause | Échap : le menu de la sauvegarde par-dessus la partie figée (Resume Run, New Run, Unlocks, Bestiary, Main Menu, Quit ; Échap reprend, Tab = améliorations) |
 | Couper le son | M |
 | Changer de vaisseau (game over) | C (en pause : New Run) |

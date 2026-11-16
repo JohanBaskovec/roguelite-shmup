@@ -88,6 +88,15 @@ static void update_playing(void) {
         upgrade_menu_open();
         return;
     }
+    /* R held down: a quick new run with the same ship (in the same save file, like R after a game over). */
+    /* After a restart R must be let go first (< 0), or holding it would restart again and again. */
+    if (!G.in.restart_held || G.demo) {
+        G.restart_hold = 0.0f;
+    } else if (G.restart_hold >= 0.0f && (G.restart_hold += DT) >= RESTART_HOLD_T) {
+        game_new_run();
+        G.restart_hold = -1.0f;
+        return;
+    }
     game_world_step();
 }
 
@@ -169,7 +178,10 @@ void game_update(void) {
         bullets_update();
         enemies_update();
         fx_update();
-        if (G.gameover_t > 0.8f && (G.in.restart_pressed || G.in.confirm_pressed)) game_new_run();
+        if (G.gameover_t > 0.8f && (G.in.restart_pressed || G.in.confirm_pressed)) {
+            game_new_run();
+            G.restart_hold = -1.0f; /* R still down: no second restart until it is let go */
+        }
         else if (G.gameover_t > 0.8f && G.in.char_pressed) char_select_open();
         break;
     }

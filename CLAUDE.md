@@ -353,6 +353,7 @@ invariants / a CTest entry in `CMakeLists.txt`.
   profile) carrying on; the path finder caches are rebuilt then. Drawn scaled into its rect through `draw_set_view` /
   `draw_clip` (`draw.c`). A new enemy needs a `DESC` line there (and a spawn group / wide view if it needs one);
   `--debug-rooms` checks every type shows up and fires in it and the real world comes back untouched.
-- Controls: SHIFT / right click = active items, SPACE = bomb, E = take / buy / use, TAB = upgrades menu. The
+- Controls: SHIFT / right click = active items, SPACE = bomb, E = take / buy / use, TAB = upgrades menu, R held
+  `RESTART_HOLD_T` in a run = a new run with the same ship (`Input.restart_held`, `G.restart_hold`: let go before the next one). The
   mouse is grabbed during a run (`SDL_SetWindowMouseGrab` in `main.c`, released in pause / menus / game over).
 - In-game text is English and ASCII only (SDL's debug font has no accents). The user writes in French.

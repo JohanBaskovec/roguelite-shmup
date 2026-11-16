@@ -22,6 +22,7 @@ enum {
 #define PLAYER_HIT_R 4.0f   /* tiny shmup hitbox for bullets */
 #define DOOR_HALF 60.0f
 #define TRANS_TIME 0.34f
+#define RESTART_HOLD_T 1.0f /* hold R that long in a run: a new run with the same ship */
 
 /* ---- Weapons & upgrades -------------------------------------------------- */
 
@@ -664,6 +665,7 @@ typedef enum { GS_TITLE, GS_CHAR_SELECT, GS_PLAYING, GS_PAUSED, GS_GAMEOVER, GS_
 
 typedef struct {
     bool up, down, left, right, fire;
+    bool restart_held; /* R kept down: held RESTART_HOLD_T in a run, a new run with the same ship */
     /* edge-triggered, cleared after each simulation tick */
     bool active_pressed, bomb_pressed, interact_pressed /* E: take / buy / use */, pause_pressed, restart_pressed, confirm_pressed, debug_pressed;
     bool char_pressed; /* C: back to the character select screen */
@@ -731,6 +733,7 @@ typedef struct {
     bool reveal_secrets; /* dev: mark hidden secrets permanently */
     int secret_shop_override, secret_ambush_override; /* dev (debug menu / tests): -1 random, 0 no, 1 yes */
     float gameover_t;
+    float restart_hold; /* how long R has been held in this run (RESTART_HOLD_T: a new run); < 0: let it go first */
     float last_enemy_damage_t; /* G.time of the last hit on an enemy (stall detection in tests) */
 
     bool quit, show_debug, god;

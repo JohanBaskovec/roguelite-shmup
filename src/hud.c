@@ -248,6 +248,13 @@ void hud_draw(void) {
 
     draw_upgrades_panel();
     if (G.show_stats) draw_stats_overlay();
+    if (G.restart_hold > 0.12f) { /* R held: the restart fills up (a quick tap shows nothing) */
+        float k = clampf(G.restart_hold / RESTART_HOLD_T, 0.0f, 1.0f), w = 360.0f, x = SCREEN_W * 0.5f - w * 0.5f, y = SCREEN_H * 0.5f;
+        draw_rect(x - 20.0f, y - 44.0f, w + 40.0f, 80.0f, col_hex(0x05060c, 0.85f));
+        draw_text_centered(SCREEN_W * 0.5f, y - 30.0f, 2.0f, col_hex(0xffd23f, 1), "RESTARTING...");
+        draw_rect(x, y + 6.0f, w, 12.0f, col_hex(0x1a2035, 1));
+        draw_rect(x, y + 6.0f, w * k, 12.0f, col_hex(0xffd23f, 1));
+    }
 
     if (audio_muted()) draw_text(SCREEN_W - 120.0f, SCREEN_H - 24.0f, 2.0f, col_a(COL_WHITE, 0.5f), "MUTED");
     if (G.show_debug)

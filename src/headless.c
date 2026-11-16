@@ -2922,6 +2922,39 @@ static int debug_rooms_run(const HeadlessOptions *o) {
                    powder_ok ? "OK" : "FAILED", storm_ok ? "OK" : "FAILED", comp_ok ? "OK" : "FAILED");
             failures += !doors_mod_ok + !wager_ok + !horde_ok + !elite_ok + !powder_ok + !storm_ok + !comp_ok;
         }
+
+        /* R held RESTART_HOLD_T in a run: a new run with the same ship; a short press does nothing; holding on
+         * does not restart again until R is let go. */
+        {
+            game_init(o->seed);
+            G.character = CHAR_SHOTGUNNER;
+            game_new_run();
+            debug_teleport(ROOM_COMBAT, RW_COINS, 7, true);
+            G.state = GS_PLAYING;
+            G.god = true;
+            int run_room = G.room.id;
+            in->restart_held = true;
+            for (int t = 0; t < (int)(RESTART_HOLD_T * 0.5f * TICK_RATE); t++) BTICK();
+            in->restart_held = false;
+            BTICK();
+            bool tap_ok = G.room.id == run_room && G.room.depth == 7 && G.restart_hold == 0.0f;
+            in->restart_held = true;
+            bool restarted = false;
+            for (int t = 0; t < (int)(RESTART_HOLD_T * TICK_RATE) + 4 && !restarted; t++) {
+                BTICK();
+                restarted = G.room.depth == 0 && G.room.type == ROOM_START; /* the launch bay */
+            }
+            bool hold_ok = restarted && G.character == CHAR_SHOTGUNNER && G.state == GS_PLAYING && G.pl.upg_count[UPG_W_SCATTER] > 0;
+            int new_room = G.room.id;
+            for (int t = 0; t < (int)(RESTART_HOLD_T * 2.0f * TICK_RATE); t++) BTICK(); /* still held */
+            bool once_ok = G.room.id == new_room;
+            in->restart_held = false;
+            BTICK();
+            G.god = false;
+            printf("scripted hold R: a tap does nothing -> %s, held -> new run, same ship -> %s, held on -> no second restart -> %s\n",
+                   tap_ok ? "OK" : "FAILED", hold_ok ? "OK" : "FAILED", once_ok ? "OK" : "FAILED");
+            failures += !tap_ok + !hold_ok + !once_ok;
+        }
 #undef BTICK
 #undef BFRESH
 #undef BDUMMY

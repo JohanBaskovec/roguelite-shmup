@@ -235,6 +235,7 @@ static void sample_held_input(SDL_Renderer *r) {
     SDL_RenderCoordinatesFromWindow(r, wx, wy, &lx, &ly);
     in->mouse = v2(lx, ly);
     in->fire = (buttons & SDL_BUTTON_LMASK) != 0;
+    in->restart_held = ks[SDL_GetScancodeFromKey(SDLK_R, NULL)]; /* the letter R, whatever the layout */
 }
 
 static void handle_event(const SDL_Event *e, SDL_Window *win, bool bot) {
