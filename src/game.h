@@ -526,6 +526,7 @@ typedef struct {
     bool active_pressed, bomb_pressed, interact_pressed /* E: take / buy / use */, pause_pressed, restart_pressed, confirm_pressed, debug_pressed;
     bool char_pressed; /* C: back to the character select screen */
     bool menu_pressed; /* TAB: upgrades menu */
+    bool delete_pressed; /* DEL / BACKSPACE: delete (load screen) */
     bool click_pressed; /* left click (also sets confirm_pressed) */
     int number;        /* number key pressed, 0-based (-1 = none) */
     int wheel;         /* mouse wheel: -1 up, +1 down */
@@ -545,6 +546,9 @@ typedef struct {
     int demo_room_id;
     int title_sel;
     bool title_up, title_down;
+    int title_page;   /* 0: main menu, 1: load screen */
+    int load_sel;     /* load screen: highlighted save (index in the list) */
+    int load_confirm; /* load screen: slot waiting for a second press to be deleted (0: none) */
     Player pl;
     Room room;
 
@@ -585,6 +589,7 @@ typedef struct {
     bool quit, show_debug, god;
     bool show_stats; /* F2: semi-transparent stats overlay (hidden by default) */
     int character;   /* CharId of the current / next run (kept across restarts) */
+    int save_slot;   /* save file of this run (save.c; 0: none - the demo, tests, saving off) */
     int char_hover;  /* character select screen: highlighted card */
     bool sel_left, sel_right; /* character select: previous held state, for edge detection */
     V2 sel_mouse;

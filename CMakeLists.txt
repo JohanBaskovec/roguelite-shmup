@@ -41,7 +41,8 @@ add_executable(neon_breach
     src/workshop.c
     src/actives.c
     src/maluses.c
-    src/synergies.c)
+    src/synergies.c
+    src/save.c)
 
 target_link_libraries(neon_breach PRIVATE SDL3::SDL3)
 
@@ -326,6 +327,13 @@ if(SHMUP_BUILD_TESTS)
     add_test(NAME render_offscreen
              COMMAND neon_breach --shot ${_out}/render.bmp --depth 4 --seed 4 --frames 30)
     add_test(NAME sfx_synthesis COMMAND neon_breach --dump-sfx ${_out}/sfx)
+    # Save files: saved on entering each room (never during one), loading replays the room exactly,
+    # death takes the save away, the load screen lists / deletes / loads (each test its own folder).
+    add_test(NAME sim_save_load COMMAND neon_breach --headless --save-test --seed 3 --save-dir ${_out}/saves_test)
+    add_test(NAME sim_save_runs
+             COMMAND neon_breach --headless --seed 31 --runs 4 --save-dir ${_out}/saves_runs --expect-rooms 3)
+    add_test(NAME render_load_menu
+             COMMAND neon_breach --shot ${_out}/render_load_menu.bmp --load-menu --save-dir ${_out}/saves_render --seed 4 --frames 30)
 
     # The asan preset halves the simulations (NEON_TICK_SCALE=0.5): sanitizers find their bugs early, and
     # the all-upgrades / dense-blocks stress tests are at their peak from the first room. Long runs that
@@ -379,6 +387,9 @@ if(SHMUP_BUILD_TESTS)
         if(_t MATCHES "god_seed|mortal|deep_rooms")
             list(APPEND _labels runs)
         endif()
+        if(_t MATCHES "save|load_menu")
+            list(APPEND _labels save)
+        endif()
         if(_t MATCHES "^sfx_")
             list(APPEND _labels audio)
         endif()
@@ -392,5 +403,5 @@ if(SHMUP_BUILD_TESTS)
     set_property(TEST sim_debug_teleports sim_god_seed1 sim_knight_mortal sim_all_upgrades sim_stats_rooms sim_shop_rooms
                       sim_secret_rooms sim_workshop sim_boss sim_active_rooms sim_active_multi sim_knight sim_shotgunner
                       sim_toggle_upgrades sim_dense_blocks sim_enemies_knight sim_weapon_laser render_offscreen
-                      render_stats_room sfx_synthesis APPEND PROPERTY LABELS quick)
+                      render_stats_room sfx_synthesis sim_save_load APPEND PROPERTY LABELS quick)
 endif()

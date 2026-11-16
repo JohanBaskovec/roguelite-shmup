@@ -120,6 +120,18 @@ All graphics and sounds are generated in code. See README.md for controls and ar
 - After a room is cleared the player chooses between 3 doors; each door previews what the next
   room gives. One door may be locked (costs a key). The 3 doors are always different (no reward or
   special room behind two doors, locked or not).
+- **Save files** (`src/save.c`): the game saves itself **only on entering a new screen** (`save_autosave()` in the
+  room transition of `game_world_step`, plus the launch bay in `game_new_run`), never during a room. One file per
+  run (`save_<slot>.sav`, `G.save_slot`) in the user's data folder (`SDL_GetPrefPath`; headless / `--shot` only with
+  `--save-dir`). A save is a snapshot of the whole `Game` taken right after the room is set up: loading it puts the
+  ship at the start of that room, enemies about to show up, and the room then plays exactly as it did (the bot's
+  memory is per room for that). The ship destroyed = its save deleted (`game_over`); R / another ship (C) replace
+  the run in the same file; Q (pause / game over) goes back to the menu, the save staying. Main menu: NEW GAME /
+  LOAD (load screen: ENTER / click loads, DEL / the X twice deletes). Headless checks one save per room entered and
+  none during a room (`--save-dir`), and `--save-test` the load / replay / delete / menu flow.
+  **`Game` must stay free of pointers** (it is written as is), and every piece of run state must live in `G`
+  (state kept elsewhere is lost on load). A save whose layout fingerprint differs is listed as an old version (can
+  only be deleted); bump `SAVE_VERSION` when saved data changes meaning without changing its layout.
 - **Boss rooms** (`ROOM_BOSS`, every `BOSS_EVERY` = 10 rooms: depth 10, 20...): the room before has a
   single, never locked door, the boss room (`gen_doors`; the only room without 3 doors). Like every room
   it starts with its fight: one wave, the boss (`EN_BOSS`, THE OVERSEER, `update_boss` in `enemies.c`),
@@ -243,7 +255,8 @@ invariants / a CTest entry in `CMakeLists.txt`.
 - **Main menu** (`src/title.c`, `GS_TITLE`): a demo run played by the bot runs behind it in the normal world
   (`G.demo`), on its own generator (`G.demo_rng`, swapped with `G.rng` for each demo tick) with sounds
   suppressed (`audio_suppress`) and no HUD (`demo_visible()`); `game_new_run` wipes it. Any new per-run
-  state must be reset by `game_new_run` (the demo leaves its own behind). `--title` renders the menu.
+  state must be reset by `game_new_run` (the demo leaves its own behind). `--title` renders the menu,
+  `--load-menu --save-dir DIR` the load screen (sample saves written into an empty folder).
 - Controls: SHIFT / right click = active items, SPACE = bomb, E = take / buy / use, TAB = upgrades menu. The
   mouse is grabbed during a run (`SDL_SetWindowMouseGrab` in `main.c`, released in pause / menus / game over).
 - In-game text is English and ASCII only (SDL's debug font has no accents). The user writes in French.

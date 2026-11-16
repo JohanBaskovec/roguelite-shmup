@@ -6,6 +6,7 @@
 #include "draw.h"
 #include "game.h"
 #include "headless.h"
+#include "save.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -49,6 +50,9 @@ typedef struct {
     int frames;            /* --frames N (with --bot: quit after N frames) */
     bool frames_given;
     int depth;             /* --depth N: start directly in a combat room of that depth */
+    const char *save_dir;  /* --save-dir DIR: where the save files go (the real game: the user's data folder) */
+    bool load_menu;        /* --load-menu: open the load screen (fills an empty save folder with sample saves) */
+    bool save_test;        /* --save-test (headless): saving / loading / deleting checks */
     bool fx;               /* --fx: headless keeps the particles (e.g. for a --fail-shot) */
     bool bot;              /* --bot: autopilot (also implied by --shot) */
     bool god;              /* --god: player takes no damage (testing) */
@@ -152,6 +156,9 @@ static void parse_args(int argc, char **argv, Options *o) {
         else if (!strcmp(a, "--expect-rooms") && more) o->expect_rooms = atoi(argv[++i]);
         else if (!strcmp(a, "--bot")) o->bot = true;
         else if (!strcmp(a, "--fx")) o->fx = true;
+        else if (!strcmp(a, "--save-dir") && more) o->save_dir = argv[++i];
+        else if (!strcmp(a, "--load-menu")) o->load_menu = true;
+        else if (!strcmp(a, "--save-test")) o->save_test = true;
         else if (!strcmp(a, "--trace-bot") && more) bot_trace_from(atoi(argv[++i])); /* per tick, from tick N of each run */
         else if (!strcmp(a, "--god")) o->god = true;
         else if (!strcmp(a, "--novsync")) o->novsync = true;
@@ -167,13 +174,13 @@ static void parse_args(int argc, char **argv, Options *o) {
             o->expect_rooms = (int)(o->expect_rooms * k);
         }
     }
-    if ((o->shot_path || o->record) && !o->char_select && !o->title && !o->no_bot) o->bot = true; /* the bot would confirm the select screen at once */
+    if ((o->shot_path || o->record) && !o->char_select && !o->title && !o->load_menu && !o->no_bot) o->bot = true; /* the bot would confirm the select screen at once */
 }
 
 static void clear_edges(void) {
     Input *in = &G.in;
     in->active_pressed = in->bomb_pressed = in->interact_pressed = in->pause_pressed = in->restart_pressed = in->confirm_pressed = false;
-    in->debug_pressed = in->char_pressed = in->menu_pressed = in->click_pressed = false;
+    in->debug_pressed = in->char_pressed = in->menu_pressed = in->click_pressed = in->delete_pressed = false;
     in->number = -1;
     in->wheel = 0;
 }
@@ -210,6 +217,8 @@ static void handle_event(const SDL_Event *e, SDL_Window *win, bool bot) {
         case SDL_SCANCODE_RETURN:
         case SDL_SCANCODE_KP_ENTER: in->confirm_pressed = true; break;
         case SDL_SCANCODE_TAB: in->menu_pressed = true; break;
+        case SDL_SCANCODE_DELETE:
+        case SDL_SCANCODE_BACKSPACE: in->delete_pressed = true; break;
         case SDL_SCANCODE_F2: G.show_stats = !G.show_stats; break;
         case SDL_SCANCODE_F3: in->debug_pressed = true; break;
         case SDL_SCANCODE_F11:
@@ -224,7 +233,7 @@ static void handle_event(const SDL_Event *e, SDL_Window *win, bool bot) {
         if (e->key.key == SDLK_R) in->restart_pressed = true;
         if (e->key.key == SDLK_M) audio_toggle_mute();
         if (e->key.key == SDLK_C) in->char_pressed = true;
-        if (e->key.key == SDLK_Q && G.state == GS_PAUSED) G.quit = true;
+        if (e->key.key == SDLK_Q && (G.state == GS_PAUSED || (G.state == GS_GAMEOVER && G.gameover_t > 0.8f))) title_open(); /* the run stays saved */
         break;
     case SDL_EVENT_MOUSE_BUTTON_DOWN:
         if (e->button.button == SDL_BUTTON_LEFT) in->confirm_pressed = in->click_pressed = true;
@@ -288,7 +297,7 @@ int main(int argc, char **argv) {
             .shop_room = opt.shop_room, .coins = opt.coins, .debug_rooms = opt.debug_rooms, .secret = opt.secret,
             .all_upgrades = opt.all_upgrades, .hp = opt.hp, .character = opt.character, .workshop_room = opt.workshop_room, .boss_room = opt.boss_room,
             .actives = opt.actives, .active_room = opt.active_room, .weapons = opt.weapons, .upgrades = opt.upgrades, .nupgrades = opt.nupgrades, .toggle_upgrades = opt.toggle_upgrades, .god = opt.god, .expect_rooms = opt.expect_rooms, .fail_shot = opt.fail_shot,
-            .fx = opt.fx, .argc = argc, .argv = (const char *const *)argv,
+            .fx = opt.fx, .save_dir = opt.save_dir, .save_test = opt.save_test, .argc = argc, .argv = (const char *const *)argv,
         };
         return headless_run(&h);
     }
@@ -304,6 +313,13 @@ int main(int argc, char **argv) {
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         SDL_Log("SDL_Init failed: %s", SDL_GetError());
         return 1;
+    }
+    /* Saves: the user's data folder when playing; screenshots / recordings only with --save-dir. */
+    if (opt.save_dir) save_set_dir(opt.save_dir);
+    else if (!offscreen) {
+        char *pref = SDL_GetPrefPath("neonbreach", "neon-breach");
+        if (pref) save_set_dir(pref);
+        SDL_free(pref);
     }
 
     SDL_Window *win = NULL;
@@ -366,6 +382,29 @@ int main(int argc, char **argv) {
         if (opt.cleared) room_debug_clear();
     }
 
+    if (opt.load_menu) {
+        SaveInfo tmp[1];
+        if (save_enabled() && save_list(tmp, 1) == 0) { /* sample saves to show */
+            const int depths[] = {14, 6, 23};
+            for (int k = 0; k < 3; k++) {
+                G.character = k % CHAR_COUNT;
+                game_new_run();
+                for (int n = depths[k] / 3; n > 0; n--) {
+                    int u = upgrade_roll();
+                    if (u >= 0) upgrade_apply(u);
+                }
+                room_enter(ROOM_COMBAT, RW_UPGRADE, depths[k]);
+                G.rooms_cleared = depths[k] - 1;
+                G.run_time = 41.0f * (float)depths[k];
+                save_write(G.save_slot);
+                G.save_slot = 0;
+            }
+        }
+        game_init(seed);
+        title_open();
+        G.title_sel = 1;
+        G.in.confirm_pressed = true; /* LOAD */
+    }
     if (opt.char_select) char_select_open();
     if (opt.upgrades_menu) upgrade_menu_open();
     if (opt.debug_menu) debug_menu_open();

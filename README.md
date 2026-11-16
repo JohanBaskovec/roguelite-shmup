@@ -22,7 +22,7 @@ Preset `debug` disponible aussi (`build/debug`).
 | Bombe (efface toutes les balles) | Espace |
 | Prendre / acheter un objet, utiliser une machine (celui qui est encadré, marqué « E ») | E |
 | Menu des améliorations (activer / désactiver) | Tab |
-| Pause | Échap (R = restart, Q = quitter) |
+| Pause | Échap (R = restart, C = changer de vaisseau, Q = menu principal) |
 | Couper le son | M |
 | Changer de vaisseau (pause / game over) | C |
 | Plein écran | F11 |
@@ -33,9 +33,11 @@ Pendant une partie, le curseur est capturé dans la fenêtre (relâché en pause
 
 ## Personnages
 
-**Menu principal** (`src/title.c`) : le nom du jeu en haut et quatre boutons, **Play**, **Options**, **Unlocks** (grisés pour l'instant) et **Quit** (flèches / molette / souris, Entrée ou clic ; Échap quitte). En fond, **une vraie partie jouée par le bot** : un vaisseau avec quelques améliorations, quelques salles plus loin, qui enchaîne les salles et recommence à sa mort. Cette démo est muette, n'affiche pas le HUD et tire ses nombres aléatoires de son propre générateur : elle ne change rien à la vraie partie. Elle continue derrière l'écran de sélection.
+**Menu principal** (`src/title.c`) : le nom du jeu en haut et cinq boutons, **New Game**, **Load** (grisé sans sauvegarde), **Options**, **Unlocks** (grisés pour l'instant) et **Quit** (flèches / molette / souris, Entrée ou clic ; Échap quitte). En fond, **une vraie partie jouée par le bot** : un vaisseau avec quelques améliorations, quelques salles plus loin, qui enchaîne les salles et recommence à sa mort. Cette démo est muette, n'affiche pas le HUD et tire ses nombres aléatoires de son propre générateur : elle ne change rien à la vraie partie. Elle continue derrière l'écran de sélection.
 
-Play mène au choix du vaisseau (A / D, 1-3 ou souris, puis clic / Entrée ; Échap revient au menu). Le choix est gardé pour les parties suivantes ; C (en pause ou au game over) ramène à l'écran de sélection. Table `CHARACTERS` dans `src/characters.c`.
+**Sauvegardes** (`src/save.c`) : le jeu se sauvegarde tout seul **à chaque entrée dans une nouvelle salle** (jamais pendant une salle), un fichier par partie dans le dossier de données de l'utilisateur (`~/.local/share/neonbreach/neon-breach/` sous Linux). Une sauvegarde est une photo complète de la partie prise juste après l'arrivée dans la salle : la charger remet le vaisseau au début de cette salle, au moment où les ennemis vont apparaître (et la salle se rejoue exactement pareil si l'on joue pareil). L'écran **Load** liste les parties (vaisseau, salle, PV, améliorations, temps de jeu, date) : Entrée / clic pour charger, Suppr / la croix deux fois pour supprimer. Le vaisseau détruit, sa sauvegarde est effacée ; R (restart) ou C (autre vaisseau) remplacent la partie dans le même fichier ; Q (pause / game over) revient au menu en gardant la sauvegarde. Une sauvegarde d'une version du jeu incompatible est signalée et ne peut qu'être supprimée.
+
+New Game mène au choix du vaisseau (A / D, 1-3 ou souris, puis clic / Entrée ; Échap revient au menu). Le choix est gardé pour les parties suivantes ; C (en pause ou au game over) ramène à l'écran de sélection. Table `CHARACTERS` dans `src/characters.c`.
 
 | Vaisseau | Forme | PV | Particularités | Amélioration au départ |
 |---|---|---|---|---|
@@ -184,7 +186,8 @@ Play mène au choix du vaisseau (A / D, 1-3 ou souris, puis clic / Entrée ; Éc
 | `stats.c` | Stats échangeables des salles Stats (gains, pertes, bornes) |
 | `audio.c/h` | Synthèse procédurale des sons + mixeur (voix, panoramique, limitation de fréquence) |
 | `hud.c` | HUD, overlay des stats (F2), écrans (pause, game over) |
-| `title.c` | Menu principal et partie de démo jouée par le bot en fond |
+| `title.c` | Menu principal (New Game / Load), écran des sauvegardes et partie de démo jouée par le bot en fond |
+| `save.c` | Sauvegarde automatique à l'entrée de chaque salle, chargement, suppression |
 | `characters.c` | Personnages (stats et amélioration de départ) et écran de sélection |
 | `debug_menu.c` | Menu de debug F3 : téléportation dans chaque type de salle (avec / sans ennemis), cheats |
 
@@ -201,7 +204,7 @@ ctest --preset asan         # même suite sous AddressSanitizer + UBSan, simulat
 
 Aucun test n'ouvre de fenêtre :
 
-- **Simulation headless** (`--headless`) : pas de vidéo ni d'audio, un autopilote (`bot.c`) joue aussi vite que le CPU le permet (~1000x le temps réel, sans les particules : elles n'influencent jamais la partie, `--fx` les garde). Des invariants sont vérifiés à chaque tick (positions finies et dans l'arène, PV cohérents, stats toujours égales à la base + les améliorations actives, amélioration désactivée sans aucun effet, amélioration jamais possédée deux fois ni proposée une fois possédée, aucun objet au sol avant la fin d'une salle (pas de drop d'ennemi), shop à 5 objets, portes toujours uniques, objets activables (aucun au départ, 3 objets distincts, ceux qu'on possède seulement s'ils peuvent encore monter de niveau, objet désactivé sans effet, Chaos ne prête que des améliorations non possédées et les retire toutes), machines et augments du workshop, ennemis toujours aux PV de leur type, vaisseau replacé en fin de salle, 3 choix dans les salles d'amélioration, salle de boss toutes les 10 salles derrière l'unique porte de la salle d'avant, boss qui ne saute jamais une phase et laisse 3 améliorations au choix, butin et retour des salles secrètes, plans de salle connexes (murs seuls, chaque case libre et chaque porte accessibles au vaisseau), murs jamais cassés pendant le combat, salle nettoyée vide d'obstacles et de feu, aucune récompense avant la fin du bris de verre, aucun objet pris sans appuyer sur E, aucune balle ennemie restante une fois la salle nettoyée, pas de salle bloquée — aucun ennemi touché pendant 60 s —, pas de salle nettoyée jamais quittée). Comme un joueur dans le menu Tab, le bot désactive une de ses améliorations de tir quand ses tirs n'ont rien touché depuis 10 s (combinaison inadaptée). En cas d'échec, `--fail-shot` enregistre l'image de l'instant fautif (rendue offscreen). Chaque partie d'un lot (`--runs`) se rejoue seule à l'identique (le bot repart de zéro à chaque partie) : une partie en échec affiche la commande qui la rejoue (`replay it alone: ...`), avec `--trace-bot T` qui écrit à chaque tick à partir de T ce que le bot voit et décide.
+- **Simulation headless** (`--headless`) : pas de vidéo ni d'audio, un autopilote (`bot.c`) joue aussi vite que le CPU le permet (~1000x le temps réel, sans les particules : elles n'influencent jamais la partie, `--fx` les garde). Des invariants sont vérifiés à chaque tick (positions finies et dans l'arène, PV cohérents, stats toujours égales à la base + les améliorations actives, amélioration désactivée sans aucun effet, amélioration jamais possédée deux fois ni proposée une fois possédée, aucun objet au sol avant la fin d'une salle (pas de drop d'ennemi), shop à 5 objets, portes toujours uniques, objets activables (aucun au départ, 3 objets distincts, ceux qu'on possède seulement s'ils peuvent encore monter de niveau, objet désactivé sans effet, Chaos ne prête que des améliorations non possédées et les retire toutes), machines et augments du workshop, ennemis toujours aux PV de leur type, vaisseau replacé en fin de salle, 3 choix dans les salles d'amélioration, salle de boss toutes les 10 salles derrière l'unique porte de la salle d'avant, boss qui ne saute jamais une phase et laisse 3 améliorations au choix, butin et retour des salles secrètes, plans de salle connexes (murs seuls, chaque case libre et chaque porte accessibles au vaisseau), murs jamais cassés pendant le combat, salle nettoyée vide d'obstacles et de feu, aucune récompense avant la fin du bris de verre, aucun objet pris sans appuyer sur E, aucune balle ennemie restante une fois la salle nettoyée, avec `--save-dir` une sauvegarde par salle entrée et aucune pendant une salle, sauvegarde effacée à la mort, pas de salle bloquée — aucun ennemi touché pendant 60 s —, pas de salle nettoyée jamais quittée). Comme un joueur dans le menu Tab, le bot désactive une de ses améliorations de tir quand ses tirs n'ont rien touché depuis 10 s (combinaison inadaptée). En cas d'échec, `--fail-shot` enregistre l'image de l'instant fautif (rendue offscreen). Chaque partie d'un lot (`--runs`) se rejoue seule à l'identique (le bot repart de zéro à chaque partie) : une partie en échec affiche la commande qui la rejoue (`replay it alone: ...`), avec `--trace-bot T` qui écrit à chaque tick à partir de T ce que le bot voit et décide.
 - **Rendu** : `--shot` dessine dans le pilote vidéo `offscreen` de SDL et sauve un BMP.
 - **Audio** : `--dump-sfx` synthétise tous les sons en WAV.
 - **Enregistrement / trailer** : `--record PREFIX --frames N` rend la partie du bot hors écran en 1920x1080 à 60 images/s et écrit les images brutes (`PREFIX.rgb`), les sons du jeu mixés hors ligne (`PREFIX.wav`) et la position du vaisseau (`PREFIX.txt`) ; `--record-from F` / `--record-step S` pour n'en garder qu'une partie. `tools/trailer/make_trailer.sh` en tire le trailer (montage, effets VHS, musique synthwave générée en Python, encodage WebM avec GStreamer).
@@ -245,6 +248,9 @@ neon_breach --char knight --depth 3                     # joue un personnage (no
 neon_breach --headless --char knight --runs 20          # simulations avec un personnage
 neon_breach --shot sel.bmp --char-select                # capture de l'écran de sélection
 neon_breach --shot menu.bmp --title --frames 1500       # capture du menu principal (la démo joue derrière)
+neon_breach --shot load.bmp --load-menu --save-dir /tmp/s   # capture de l'écran Load (sauvegardes d'exemple si le dossier est vide)
+neon_breach --headless --save-test --save-dir /tmp/s    # teste sauvegarde / chargement / suppression / menus
+neon_breach --save-dir /tmp/s                           # jouer avec les sauvegardes dans un autre dossier
 neon_breach --headless --debug-rooms                    # teste les téléportations du menu de debug
 neon_breach --headless --god --all-upgrades             # démarre avec toutes les améliorations
 neon_breach --headless --dense-blocks --runs 10         # salles bourrées de blocs (budget de blocs maximal)

@@ -3,6 +3,7 @@
 #include "bot.h"
 #include "draw.h"
 #include "game.h"
+#include "save.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -380,7 +381,7 @@ static int count_pedestals(void) {
 static void clear_edges(void) {
     Input *in = &G.in;
     in->active_pressed = in->bomb_pressed = in->interact_pressed = in->pause_pressed = in->restart_pressed = in->confirm_pressed = false;
-    in->debug_pressed = in->char_pressed = in->menu_pressed = in->click_pressed = false;
+    in->debug_pressed = in->char_pressed = in->menu_pressed = in->click_pressed = in->delete_pressed = false;
     in->number = -1;
     in->wheel = 0;
 }
@@ -1716,17 +1717,17 @@ static int debug_rooms_run(const HeadlessOptions *o) {
             demo_ok = demo_ok && G.state == GS_TITLE && G.demo && demo_visible();
         }
         demo_ok = demo_ok && G.rng.s == rng0 && G.room.id != rooms0; /* it played on, through rooms */
-        in->down = true; /* PLAY -> (OPTIONS, UNLOCKS greyed) -> QUIT */
+        in->down = true; /* NEW GAME -> (LOAD: no save; OPTIONS, UNLOCKS greyed) -> QUIT */
         game_update();
         clear_edges();
         in->down = false;
-        bool grey_ok = G.title_sel == 3;
-        in->mouse = v2(SCREEN_W * 0.5f, 470.0f + 86.0f + 30.0f); /* click on OPTIONS */
+        bool grey_ok = G.title_sel == 4;
+        in->mouse = v2(SCREEN_W * 0.5f, 430.0f + 2.0f * 78.0f + 30.0f); /* click on OPTIONS */
         in->click_pressed = in->confirm_pressed = true;
         game_update();
         clear_edges();
         grey_ok = grey_ok && G.state == GS_TITLE && !G.quit;
-        in->up = true; /* back to PLAY */
+        in->up = true; /* back to NEW GAME */
         game_update();
         clear_edges();
         in->up = false;
@@ -2036,7 +2037,147 @@ static void print_repro(const HeadlessOptions *o, uint64_t seed, int fail_tick) 
     printf("\n");
 }
 
+/* --save-test: the game saves on entering each room and only then, a loaded save puts the ship at
+ * the start of that room and plays on exactly like the run it was taken from, death takes the save
+ * away, and the load screen lists / deletes / loads them. */
+static int save_test_run(const HeadlessOptions *o) {
+    int failures = 0;
+#define CHECK(cond, what)                                                       \
+    do {                                                                       \
+        bool ok_ = (cond);                                                     \
+        printf("%-72s -> %s\n", what, ok_ ? "OK" : "FAILED");                  \
+        failures += !ok_;                                                      \
+    } while (0)
+#define STICK() do { game_update(); clear_edges(); } while (0)
+    if (!save_enabled()) {
+        printf("--save-test needs --save-dir\n");
+        return 1;
+    }
+    for (int s = 1; s <= SAVE_SLOTS; s++) save_delete(s);
+    SaveInfo list[SAVE_SLOTS];
+
+    game_init(o->seed);
+    G.god = true;
+    G.character = o->character;
+    game_new_run();
+    int slot = G.save_slot, n = save_list(list, SAVE_SLOTS);
+    CHECK(slot == 1 && n == 1 && list[0].slot == 1 && list[0].ok && list[0].depth == 0, "a new run is saved at once (launch bay)");
+
+    /* Play: one save per room entered, never during a room. The save of the 3rd room is kept. */
+    int writes = save_writes(), room = G.room.id, entered = 0, wrong = 0, entry_tick = -1, entry_kills = 0, entry_room = -1;
+    for (int t = 0; t < 120 * 400 && entry_tick < 0; t++) {
+        bot_input();
+        game_update();
+        clear_edges();
+        if (G.room.id != room) {
+            room = G.room.id;
+            wrong += save_writes() != writes + 1;
+            if (++entered == 3) {
+                save_copy(slot, 50);
+                entry_tick = G.ticks, entry_kills = G.kills, entry_room = G.room.id;
+            }
+        } else {
+            wrong += save_writes() != writes;
+        }
+        writes = save_writes();
+    }
+    n = save_list(list, SAVE_SLOTS);
+    CHECK(entry_tick >= 0 && wrong == 0 && n == 2 && list[0].depth == 3, "saved on entering each room, never during a room");
+
+    /* Go on 20 s, then load the save of the 3rd room and play the same 20 s again. */
+    const int span = 120 * 20;
+    for (int t = 0; G.ticks < entry_tick + span && t < span + 10; t++) {
+        bot_input();
+        game_update();
+        clear_edges();
+    }
+    Rng rng0 = G.rng;
+    V2 pos0 = G.pl.pos;
+    int sig0[6] = {G.kills, G.room.id, G.nen, G.neb, G.pl.hp, G.ticks};
+    bool loaded = save_load(50);
+    CHECK(loaded && G.state == GS_PLAYING && G.ticks == entry_tick && G.room.id == entry_room && G.kills == entry_kills &&
+              !G.room.cleared && G.save_slot == 50,
+          "loading puts the ship at the start of the room, enemies to come");
+    for (int t = 0; G.ticks < entry_tick + span && t < span + 10; t++) {
+        bot_input();
+        game_update();
+        clear_edges();
+    }
+    int sig1[6] = {G.kills, G.room.id, G.nen, G.neb, G.pl.hp, G.ticks};
+    bool same = !memcmp(&rng0, &G.rng, sizeof rng0) && pos0.x == G.pl.pos.x && pos0.y == G.pl.pos.y && !memcmp(sig0, sig1, sizeof sig0);
+    printf("  (%d kills in the room after 20 s: %d / %d)\n", sig0[0] - entry_kills, sig0[0], sig1[0]);
+    CHECK(same && sig0[0] > entry_kills, "a loaded save plays on exactly like the run it was taken from");
+
+    game_over();
+    char path[600];
+    save_path(50, path, sizeof path);
+    FILE *f = fopen(path, "rb");
+    if (f) fclose(f);
+    CHECK(!f && G.save_slot == 0, "the ship destroyed: its save goes with it");
+
+    /* Another run: a new file; deleting one leaves the other. */
+    game_init(o->seed + 1);
+    game_new_run();
+    n = save_list(list, SAVE_SLOTS);
+    CHECK(G.save_slot == 2 && n == 2 && list[0].slot == 2 && list[1].slot == 1, "a new run gets its own file, listed first");
+    save_delete(1);
+    n = save_list(list, SAVE_SLOTS);
+    CHECK(n == 1 && list[0].slot == 2, "a save can be deleted");
+
+    /* A file from another version: listed, never loaded. */
+    save_path(7, path, sizeof path);
+    f = fopen(path, "wb");
+    if (f) {
+        const char junk[64] = "NBSV\x7f";
+        fwrite(junk, sizeof junk, 1, f);
+        fclose(f);
+    }
+    int room_before = G.room.id;
+    n = save_list(list, SAVE_SLOTS);
+    CHECK(n == 2 && list[1].slot == 7 && !list[1].ok && !save_load(7) && G.room.id == room_before && G.state == GS_PLAYING,
+          "a save from another version is listed but never loaded");
+
+    /* The menus, like a player: LOAD, delete the old one (DEL twice), load the other. */
+    title_open();
+    G.in.mouse = G.sel_mouse = v2(0, 0);
+    STICK();
+    G.in.down = true;
+    STICK();
+    G.in.down = false;
+    STICK();
+    bool on_load = G.title_sel == 1;
+    G.in.confirm_pressed = true;
+    STICK();
+    bool page = G.title_page == 1 && G.load_sel == 0;
+    G.in.down = true;
+    STICK();
+    G.in.down = false;
+    STICK();
+    G.in.delete_pressed = true;
+    STICK();
+    f = fopen(path, "rb");
+    bool asked = f && G.load_confirm == 7;
+    if (f) fclose(f);
+    G.in.delete_pressed = true;
+    STICK();
+    f = fopen(path, "rb");
+    if (f) fclose(f);
+    bool deleted = !f && G.load_confirm == 0 && G.load_sel == 0;
+    G.in.confirm_pressed = true;
+    STICK();
+    CHECK(on_load && page, "main menu: LOAD opens the list of saves");
+    CHECK(asked && deleted, "load screen: DEL asks, DEL again deletes");
+    CHECK(G.state == GS_PLAYING && G.save_slot == 2 && G.room.type == ROOM_START, "load screen: ENTER loads the save");
+#undef CHECK
+#undef STICK
+    printf("save files - %s\n", failures ? "FAILED" : "OK");
+    return failures ? 1 : 0;
+}
+
 int headless_run(const HeadlessOptions *o) {
+    save_set_dir(o->save_dir);
+    if (o->save_test) return save_test_run(o);
+    for (int s = 1; s <= SAVE_SLOTS && save_enabled(); s++) save_delete(s); /* a clean folder */
 
     if (o->debug_rooms) return debug_rooms_run(o);
     g_fx_off = !o->fx;
@@ -2085,6 +2226,8 @@ int headless_run(const HeadlessOptions *o) {
         else if (o->depth > 0) room_enter(ROOM_COMBAT, RW_UPGRADE, o->depth);
 
         int room_id = G.room.id, secret_parent = -1;
+        int run_slot = G.save_slot, saves_seen = save_writes(); /* --save-dir: one save per room entered */
+        const char *save_err = save_enabled() && run_slot <= 0 ? "saving on but the run got no save file" : NULL;
         int stats_rooms = G.room.type == ROOM_STATS, shops = G.room.type == ROOM_SHOP, secrets = 0;
         int workshops = G.room.type == ROOM_WORKSHOP;
         int bosses = G.room.type == ROOM_BOSS, bosses_beaten = 0, boss_hits = 0, hits_at_entry = 0;
@@ -2113,6 +2256,14 @@ int headless_run(const HeadlessOptions *o) {
                 taken_side = G.room.doors[G.trans_door].side;
             hits += G.pl.hp + G.pl.shield < life; /* hull or shield damage taken this tick */
             life = G.pl.hp + G.pl.shield;
+            if (save_enabled() && G.state != GS_GAMEOVER) {
+                int want = saves_seen + (G.room.id != room_id);
+                if (save_writes() != want) {
+                    err = G.room.id != room_id ? "a new room was not saved (exactly once)" : "the game saved during a room";
+                    break;
+                }
+                saves_seen = save_writes();
+            }
             if (G.room.id != room_id) {
                 int from = room_id;
                 room_id = G.room.id;
@@ -2180,6 +2331,15 @@ int headless_run(const HeadlessOptions *o) {
             }
             room_time += DT;
             if ((err = check_invariants(room_time)) != NULL) break;
+        }
+        if (!err && save_err) err = save_err;
+        if (!err && save_enabled()) { /* died: the save is gone; otherwise it holds the room the ship is in */
+            SaveInfo list[SAVE_SLOTS];
+            int n = save_list(list, SAVE_SLOTS), found = -1;
+            for (int i = 0; i < n; i++)
+                if (list[i].slot == run_slot) found = i;
+            if (G.state == GS_GAMEOVER ? found >= 0 : found < 0 || list[found].depth != G.room.depth || !list[found].ok)
+                err = G.state == GS_GAMEOVER ? "the ship was destroyed but its save is still there" : "the save does not hold the room the ship is in";
         }
         total_ticks += tick;
         if (G.room.type == ROOM_BOSS && !G.room.cleared) { /* died (or ran out of time) against the boss */

@@ -2,6 +2,7 @@
 
 #include "audio.h"
 #include "bot.h"
+#include "save.h"
 #include "draw.h"
 
 #include <string.h>
@@ -48,10 +49,17 @@ void game_new_run(void) {
     G.entry_side = SIDE_BOTTOM; /* the launch bay: in from the bottom */
     room_enter(ROOM_START, RW_NONE, 0);
     G.state = GS_PLAYING;
+    /* A restart (or another ship) replaces the run it abandons; from the menu, a new save file. */
+    if (G.save_slot <= 0) G.save_slot = save_new_slot();
+    save_autosave();
     sfx_play(SFX_UI_START);
 }
 
 void game_over(void) {
+    if (!G.demo && G.save_slot > 0) { /* the run is over: its save goes with it */
+        save_delete(G.save_slot);
+        G.save_slot = 0;
+    }
     G.state = GS_GAMEOVER;
     G.gameover_t = 0.0f;
     G.hitstop = 0.0f;
@@ -101,6 +109,7 @@ void game_world_step(void) {
                 G.entry_side = side_opposite(d.side); /* out on the right: in on the left */
                 room_enter(d.type, d.reward, G.room.depth + 1);
             }
+            save_autosave(); /* a new screen, its enemies about to show up: the only time the game saves */
         }
         if (G.trans_t >= TRANS_TIME) G.transitioning = false;
         fx_update();

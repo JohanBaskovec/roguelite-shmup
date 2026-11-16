@@ -335,7 +335,7 @@ void overlay_draw(void) {
         dim(0.75f);
         draw_text_centered(SCREEN_W * 0.5f, 280.0f, 8.0f, COL_WHITE, "PAUSED");
         draw_stats(420.0f);
-        draw_text_centered(SCREEN_W * 0.5f, 820.0f, 2.0f, col_a(COL_WHITE, 0.7f), "ESC resume    TAB upgrades    R restart    C change ship    Q quit");
+        draw_text_centered(SCREEN_W * 0.5f, 820.0f, 2.0f, col_a(COL_WHITE, 0.7f), "ESC resume    TAB upgrades    R restart    C change ship    Q main menu");
         break;
     case GS_GAMEOVER: {
         dim(fminf(G.gameover_t, 0.75f));
@@ -348,7 +348,7 @@ void overlay_draw(void) {
         if (G.gameover_t > 0.8f) {
             float pulse = 0.5f + 0.5f * sinf(G.time * 3.0f);
             draw_text_centered(SCREEN_W * 0.5f, 840.0f, 3.0f, col_a(COL_WHITE, 0.4f + 0.6f * pulse), "CLICK OR R TO RETRY");
-            draw_text_centered(SCREEN_W * 0.5f, 895.0f, 2.0f, col_a(COL_WHITE, 0.6f), "C   change ship");
+            draw_text_centered(SCREEN_W * 0.5f, 895.0f, 2.0f, col_a(COL_WHITE, 0.6f), "C   change ship     Q   main menu");
         }
     } break;
     case GS_CHAR_SELECT:

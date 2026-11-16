@@ -19,6 +19,7 @@ static struct {
     struct { V2 spot; float t; int h, room; } commit;                         /* barrel shot */
     struct { int h, room; } last_h;                                           /* drum picked */
     struct { V2 ref, side; float still, slip; int room; } slip;              /* unstick */
+    int room;                                                                 /* room it was in */
     int trace_from;                                                           /* --trace-bot */
 } B = {.trace_from = -1};
 
@@ -34,6 +35,7 @@ void bot_reset(void) {
     B.commit.h = B.commit.room = -1;
     B.last_h.h = B.last_h.room = -1;
     B.slip.room = -1;
+    B.room = -1;
 }
 
 void bot_trace_from(int tick) { B.trace_from = tick; }
@@ -169,6 +171,12 @@ void bot_input(void) {
         return;
     }
     if (G.state == GS_DEBUG || G.state == GS_UPGRADES) return;
+    /* What it remembers only holds for one room: a new one starts afresh (a loaded save, taken on
+     * entering the room, then plays exactly like the run it was taken from). */
+    if (G.room.id != B.room) {
+        bot_reset();
+        B.room = G.room.id;
+    }
     /* --toggle-upgrades: every 4 s, turn a random upgrade or active item off (or back on), like the TAB menu. */
     if (G.bot_toggles && G.state == GS_PLAYING && G.ticks % (4 * TICK_RATE) == 0) {
         int list[UPG_COUNT], acts[ACT_COUNT];
