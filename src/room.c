@@ -561,7 +561,7 @@ void doors_roll_counts(void) {
         d->count = 0;
         d->alt = RW_NONE;
         if (d->type == ROOM_COMBAT) d->count = (uint8_t)reward_roll_count(d->reward, d->mods);
-        else if (d->type >= ROOM_TRADER && d->type <= ROOM_INFIRMARY && d->type != ROOM_VAULT) {
+        else if ((d->type >= ROOM_TRADER && d->type <= ROOM_INFIRMARY && d->type != ROOM_VAULT) || d->type == ROOM_SHOP || d->type == ROOM_BAPHOMET) {
             d->alt = (RewardType)irand(RW_COINS, RW_HEART); /* coins, keys, bombs or hearts, as if it were a room of that kind */
             d->count = (uint8_t)reward_roll_count(d->alt, 0);
         }
@@ -807,17 +807,18 @@ static void room_reveal(void) {
     Room *r = &G.room;
     doors_roll_counts();
     if (r->reward_count <= 0 && r->reward != RW_NONE) r->reward_count = reward_roll_count(r->reward, r->mods); /* (no door said: a debug room) */
-    if (r->type == ROOM_SHOP) spawn_shop_items();
+    bool shop_empty = (r->type == ROOM_SHOP || r->type == ROOM_BAPHOMET) && special_room_empty(r->type); /* nothing to sell / no pact to sign: a resource instead */
+    if (r->type == ROOM_SHOP) { if (!shop_empty) spawn_shop_items(); }
     else if (r->type == ROOM_WORKSHOP) workshop_spawn();
     else if (r->type == ROOM_CASINO) casino_spawn();
-    else if (r->type == ROOM_BAPHOMET) baphomet_spawn();
+    else if (r->type == ROOM_BAPHOMET) { if (!shop_empty) baphomet_spawn(); }
     else if (r->type == ROOM_TRADER) trader_spawn();
     else if (r->type == ROOM_PURIFIER) purifier_spawn();
     else if (r->type == ROOM_VAULT) vault_reveal();
     else if (r->type == ROOM_FORGE) forge_spawn();
     else if (r->type == ROOM_KEYS) keys_room_spawn();
     else if (r->type == ROOM_INFIRMARY) infirmary_spawn();
-    if (r->type >= ROOM_TRADER && r->type <= ROOM_INFIRMARY && r->type != ROOM_VAULT && G.nmc == 0) /* the ship cannot use it any more (its door was rolled for another state) */
+    if (shop_empty || (r->type >= ROOM_TRADER && r->type <= ROOM_INFIRMARY && r->type != ROOM_VAULT && G.nmc == 0)) /* the ship cannot use it any more (its door was rolled for another state) */
     { /* (no door said: a debug room: any resource) */
         if (r->alt_reward == RW_NONE) r->alt_reward = (RewardType)irand(RW_COINS, RW_HEART);
         if (r->reward_count <= 0) r->reward_count = reward_roll_count(r->alt_reward, 0);
@@ -1269,6 +1270,29 @@ static const char *resource_name(RewardType r, int n) {
     }
 }
 
+/* Next to the door of a shop with too few coins for an upgrade (or for anything): a window says so, before the ship walks in. */
+#define SHOP_ALERT_R 240.0f
+static void draw_shop_alert(void) {
+    const Room *r = &G.room;
+    if (!r->cleared || r->clear_t < DOORS_AT || G.transitioning) return;
+    for (int i = 0; i < r->ndoors; i++) {
+        const Door *d = &r->doors[i];
+        if (d->type != ROOM_SHOP || v2_dist(G.pl.pos, d->pos) > SHOP_ALERT_R) continue;
+        G.room.depth++; /* (the price of the shop it leads to) */
+        int price = shop_price(PK_UPGRADE, 0);
+        G.room.depth--;
+        if (G.pl.coins >= price) return;
+        bool closed = G.pl.coins < SHOP_MIN_COINS;
+        float w = 640.0f, h = closed ? 150.0f : 120.0f, x = ARENA_CX - w * 0.5f, y = ARENA_CY - 60.0f;
+        draw_rect(x, y, w, h, col_hex(0x14060a, 0.92f));
+        draw_rect_outline(x, y, w, h, 3.0f, col_hex(0xff2a3a, 0.9f));
+        draw_text_centered(ARENA_CX, y + 22.0f, 3.0f, col_hex(0xff5f7e, 1), "NOT ENOUGH COINS");
+        draw_text_centered(ARENA_CX, y + 62.0f, 2.0f, col_hex(0xffffff, 0.9f), "an upgrade costs %d, you have %d", price, G.pl.coins);
+        if (closed) draw_text_centered(ARENA_CX, y + 98.0f, 2.0f, col_hex(COLOR_SHOP, 0.95f), "this shop gives a resource instead");
+        return;
+    }
+}
+
 static void draw_door(const Door *d, bool cleared, bool entry) {
     Side side = d->side;
     V2 p = d->pos;
@@ -1429,6 +1453,7 @@ void room_draw_walls(void) {
     bool open = r->cleared && r->clear_t >= DOORS_AT; /* not while the room shatters, nor right after */
     draw_door(&entry, open, !(r->secret_open || r->type == ROOM_SECRET));
     for (int i = 0; i < r->ndoors; i++) draw_door(&r->doors[i], open, false);
+    draw_shop_alert();
     mods_draw_under(); /* the storm's strikes */
     crush_draw(); /* the closing walls, over everything they cover */
 }

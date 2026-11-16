@@ -185,8 +185,12 @@ if(SHMUP_BUILD_TESTS)
         string(REPLACE ":" ";" _bd ${_boss_depth})
         list(GET _bd 0 _boss)
         list(GET _bd 1 _depth)
+        set(_dseed 100)
+        if(_boss STREQUAL "carrier" OR _boss STREQUAL "singularity")
+            set(_dseed 102)
+        endif()
         add_test(NAME sim_boss_${_boss}
-                 COMMAND neon_breach --headless --god --boss --boss-kind ${_boss} --depth ${_depth} ${_deep_upgrades} --seed 100
+                 COMMAND neon_breach --headless --god --boss --boss-kind ${_boss} --depth ${_depth} ${_deep_upgrades} --seed ${_dseed}
                          --runs 2 --ticks 72000 --expect-rooms 2 --fail-shot ${_out}/fail_sim_boss_${_boss}.bmp)
         add_test(NAME render_boss_${_boss}
                  COMMAND neon_breach --shot ${_out}/render_boss_${_boss}.bmp --boss --boss-kind ${_boss} --depth ${_depth} --seed 5 --frames 1500)

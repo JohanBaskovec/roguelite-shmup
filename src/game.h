@@ -828,6 +828,7 @@ extern const StatDef STATS[ST_COUNT];
 #define SAFE_TIME 18.0f       /* seconds from the first enemies for the bonus to melt away */
 #define SAFE_MIN_COINS 6      /* paid at the last second... */
 #define SAFE_MAX_COINS 48     /* ...and at the first (linear in between) */
+#define SHOP_MIN_COINS 6 /* a shop is only worth entering with that many coins (its cheapest supply): with fewer it drops a random resource instead */
 #define SHOP_ITEMS 5 /* a shop always sells exactly this many items (upgrades, stat trades) */
 #define SHOP_SUPPLIES 3 /* ...plus a supply counter: a heart, a bomb, a key (shop_supply_spot) */
 V2 shop_supply_spot(int i);
@@ -935,6 +936,7 @@ const char *upgrade_desc(int u);
 int upgrade_by_name(const char *name);
 /* Baphomet: a random exclusive upgrade of this tier not owned yet, or -1. */
 int upgrade_roll_exclusive(int tier);
+bool baphomet_pact_possible(void);
 /* DEFLECTOR SHELLS: a big player bullet turns the enemy bullets it touches. */
 void upg_reflect(PBullet *b);
 void upg_on_volley(V2 muzzle, float aim, float dmg, SDL_FColor col);

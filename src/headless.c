@@ -507,6 +507,9 @@ static const char *check_room_reward(void) {
     static char buf[128];
     const char *special = check_special_room();
     if (special) return special;
+    bool shop_closed = G.room.type == ROOM_SHOP && G.pl.coins < SHOP_MIN_COINS; /* too poor: it drops a resource instead */
+    if (shop_closed && (shop_count(false) != 0 || shop_count(true) != 0)) return "shop with fewer coins than its cheapest supply still sells";
+    if (shop_closed) return G.npk > 0 && G.room.alt_reward >= RW_COINS && G.room.alt_reward <= RW_HEART ? NULL : "closed shop dropped no resource";
     if ((G.room.type == ROOM_SHOP || G.room.secret_shop) && (shop_count(false) != SHOP_ITEMS || shop_count(true) != SHOP_SUPPLIES)) {
         snprintf(buf, sizeof buf, "shop opened with %d items + %d supplies for sale instead of %d + %d", shop_count(false),
                  shop_count(true), SHOP_ITEMS, SHOP_SUPPLIES);
@@ -565,7 +568,11 @@ static const char *check_room_reward(void) {
                 if (G.mc[i].prize == PK_UPGRADE && G.mc[j].prize == PK_UPGRADE && G.mc[i].prize_sub == G.mc[j].prize_sub)
                     return "two slot machines show the same upgrade";
     }
-    if (G.room.type == ROOM_BAPHOMET) {
+    if (G.room.type == ROOM_BAPHOMET && G.npk > 0 && G.pk[0].type != PK_AUGMENT) { /* no pact to sign: the resource its door named */
+        for (int i = 0; i < G.npk; i++)
+            if (G.room.alt_reward < RW_COINS || G.room.alt_reward > RW_HEART || G.pk[i].type != reward_icon(G.room.alt_reward))
+                return "Baphomet room offers something else than pacts (or the resource its door named)";
+    } else if (G.room.type == ROOM_BAPHOMET) {
         int pads = 0, tier1_left = 0;
         for (int i = 0; i < G.npk; i++) {
             pads += G.pk[i].type == PK_AUGMENT;
@@ -573,7 +580,7 @@ static const char *check_room_reward(void) {
         }
         for (int u = 0; u < UPG_COUNT; u++) tier1_left += UPGRADES[u].tier == 1 && !upgrade_capped(u) && upgrade_unlocked(u);
         if (pads > 3) return "Baphomet room offers more than 3 pacts";
-        if (pads == 0 && G.pl.max_hp >= 4 && tier1_left > 0) return "Baphomet room offers no pact although the player can pay one";
+        if (pads == 0 && G.pl.max_hp >= 4 && tier1_left > 0 && baphomet_pact_possible()) return "Baphomet room offers no pact although the player can pay one";
     }
     if (G.room.type == ROOM_SECRET) {
         int items = 0, resources = 0;
@@ -961,6 +968,7 @@ static int debug_rooms_run(const HeadlessOptions *o) {
      * (STORM -> WAGER -> HARD -> VERY HARD -> EXTREME -> IMPOSSIBLE -> LAUNCH BAY -> COMBAT -> SHOP), right (NO ENEMIES), Enter. */
     game_init(o->seed);
     game_new_run();
+    G.pl.coins = 100; /* (a shop with fewer than SHOP_MIN_COINS drops a resource instead) */
     Input *in = &G.in;
     in->mouse = v2(0, 0);
     const char *steps = "F..U.U.U.U.U.U.U.E.D.D.D.D.D.D.D.D.R.E";
@@ -1950,6 +1958,7 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         game_init(o->seed);
         G.god = true;
         game_new_run();
+        G.pl.coins = 100; /* (a shop with fewer than SHOP_MIN_COINS drops a resource instead) */
         debug_teleport(ROOM_SHOP, RW_NONE, 3, false);
         G.state = GS_PLAYING;
         pl->coins = 100;
@@ -3194,16 +3203,17 @@ static int debug_rooms_run(const HeadlessOptions *o) {
 
             /* The doors say what the room gives: the count rolled with the door is the count dropped (coins / keys / bombs / hearts), and a machine
              * room the ship cannot use (a purifier with no upgrade) drops the resource its door showed. */
-            bool counts_ok = special_room_empty(ROOM_PURIFIER) && special_room_empty(ROOM_TRADER) && special_room_empty(ROOM_FORGE) && !special_room_empty(ROOM_VAULT);
+            bool counts_ok = special_room_empty(ROOM_SHOP) && special_room_empty(ROOM_PURIFIER) && special_room_empty(ROOM_TRADER) && special_room_empty(ROOM_FORGE) && !special_room_empty(ROOM_VAULT);
             static const struct { RoomType type; RewardType reward; PickupType pk; } GIVES[] = {
                 {ROOM_COMBAT, RW_COINS, PK_COIN}, {ROOM_COMBAT, RW_KEY, PK_KEY}, {ROOM_COMBAT, RW_BOMBS, PK_BOMB}, {ROOM_COMBAT, RW_HEART, PK_HEART},
-                {ROOM_PURIFIER, RW_NONE, PK_COIN}, {ROOM_TRADER, RW_NONE, PK_KEY}, {ROOM_FORGE, RW_NONE, PK_BOMB}, {ROOM_PURIFIER, RW_NONE, PK_HEART},
+                {ROOM_SHOP, RW_NONE, PK_COIN}, {ROOM_BAPHOMET, RW_NONE, PK_KEY}, {ROOM_PURIFIER, RW_NONE, PK_COIN}, {ROOM_TRADER, RW_NONE, PK_KEY}, {ROOM_FORGE, RW_NONE, PK_BOMB}, {ROOM_PURIFIER, RW_NONE, PK_HEART},
             };
             for (int g = 0; g < (int)ARRAY_LEN(GIVES); g++) {
                 game_init(o->seed);
                 game_new_run();
                 G.entry_count = 7;
                 if (GIVES[g].type != ROOM_COMBAT) G.entry_alt = GIVES[g].pk == PK_COIN ? RW_COINS : GIVES[g].pk == PK_KEY ? RW_KEY : GIVES[g].pk == PK_BOMB ? RW_BOMBS : RW_HEART;
+                if (GIVES[g].type == ROOM_BAPHOMET) G.pl.max_hp = 3, G.pl.hp = 3; /* too few hearts to pay any pact */
                 room_enter(GIVES[g].type, GIVES[g].reward, 5);
                 G.state = GS_PLAYING;
                 G.god = true;
@@ -3214,7 +3224,7 @@ static int debug_rooms_run(const HeadlessOptions *o) {
                 counts_ok = counts_ok && got == 7;
                 for (int i = 0; i < G.room.ndoors; i++) { /* every door of the cleared room: a count where it has something to say */
                     const Door *d = &G.room.doors[i];
-                    bool says = d->type == ROOM_COMBAT ? (d->reward >= RW_COINS && d->reward <= RW_HEART) : (d->type >= ROOM_TRADER && d->type <= ROOM_INFIRMARY && d->type != ROOM_VAULT);
+                    bool says = d->type == ROOM_COMBAT ? (d->reward >= RW_COINS && d->reward <= RW_HEART) : ((d->type >= ROOM_TRADER && d->type <= ROOM_INFIRMARY && d->type != ROOM_VAULT) || d->type == ROOM_SHOP || d->type == ROOM_BAPHOMET);
                     counts_ok = counts_ok && (says ? d->count > 0 : d->count == 0);
                     if (d->type != ROOM_COMBAT) counts_ok = counts_ok && (says ? d->alt >= RW_COINS && d->alt <= RW_HEART : d->alt == RW_NONE);
                 }
@@ -3321,6 +3331,7 @@ static int debug_rooms_run(const HeadlessOptions *o) {
 
             SPECIAL(ROOM_PURIFIER, 6);
             purify_ok = G.nmc == 3 && G.mc[0].price > 0;
+            if (G.mc[1].arg[0] == UPG_MULTI) G.mc[1].arg[0] = G.mc[0].arg[0]; /* (never the same upgrade on two machines) */
             G.mc[0].arg[0] = UPG_MULTI; /* -15% damage */
             float dmg0 = pl->dmg_mult;
             int coins0 = pl->coins, price = G.mc[0].price;

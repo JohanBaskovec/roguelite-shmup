@@ -97,12 +97,19 @@ static void shuffle(int *a, int n) {
     }
 }
 
+static int special_price(float k) {
+    int p = (int)roundf((float)shop_price(PK_UPGRADE, 0) * k);
+    return p > 1 ? p : 1;
+}
+
 /* The machine room has nothing for this ship (a purifier when no upgrade has a malus to buy off...): it drops a random resource instead (coins, keys, bombs or hearts). */
 bool special_room_empty(RoomType t) {
     int pool[UPG_COUNT];
     switch (t) {
     case ROOM_TRADER: return collect(upgrade_tradable, pool) < TRADE_COST;
-    case ROOM_PURIFIER: return collect(purifiable, pool) == 0;
+    case ROOM_SHOP: return G.pl.coins < SHOP_MIN_COINS;
+    case ROOM_BAPHOMET: return !baphomet_pact_possible(); /* no pact to sign: unlocked, not owned, payable in hearts */
+    case ROOM_PURIFIER: return collect(purifiable, pool) == 0 || G.pl.coins < special_price(PURIFY_PRICE_K); /* nothing to purify, or not the coins to pay */
     case ROOM_FORGE: {
         int n = collect(fusable, pool), nr = 0;
         for (int i = 0; i < n; i++) nr += malus_removable(pool[i]);
@@ -120,11 +127,6 @@ void upgrade_remove(int u) {
     p->malus_off[u] = false;
     p->chaos[u] = false;
     player_recompute();
-}
-
-static int special_price(float k) {
-    int p = (int)roundf((float)shop_price(PK_UPGRADE, 0) * k);
-    return p > 1 ? p : 1;
 }
 
 /* ---- Spawning -------------------------------------------------------------------------------------------- */
@@ -159,6 +161,7 @@ void trader_spawn(void) {
 void purifier_spawn(void) {
     G.nmc = 0;
     int pool[UPG_COUNT], n = collect(purifiable, pool);
+    if (special_room_empty(ROOM_PURIFIER)) return; /* no machine: the room drops a resource (room_reveal) */
     shuffle(pool, n);
     int offers = n < PURIFY_OFFERS ? n : PURIFY_OFFERS;
     for (int i = 0; i < offers; i++) {

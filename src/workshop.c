@@ -85,6 +85,16 @@ void casino_spawn(void) {
 }
 
 /* Baphomet: one pact per tier the player can pay for (never the last heart container), centred. */
+/* Some pact the ship could pay for and has not got (unlocked, not owned, enough hearts left): without one the room drops a resource. */
+bool baphomet_pact_possible(void) {
+    for (int tier = 1; tier <= 3; tier++) {
+        if (G.pl.max_hp - 2 * tier < 2) continue;
+        for (int u = 0; u < UPG_COUNT; u++)
+            if (UPGRADES[u].tier == tier && upgrade_unlocked(u) && !upgrade_capped(u)) return true;
+    }
+    return false;
+}
+
 void baphomet_spawn(void) {
     V2 c = centre();
     G.nmc = 0;
