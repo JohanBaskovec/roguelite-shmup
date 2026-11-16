@@ -1976,20 +1976,30 @@ static int debug_rooms_run(const HeadlessOptions *o) {
             demo_ok = demo_ok && G.state == GS_TITLE && G.demo && demo_visible();
         }
         demo_ok = demo_ok && G.rng.s == rng0 && G.room.id != rooms0; /* it played on, through rooms */
-        in->down = true; /* NEW SAVE -> (CONTINUE: no save; OPTIONS greyed) -> QUIT */
-        game_update();
-        clear_edges();
-        in->down = false;
-        bool grey_ok = G.title_sel == 3;
-        in->mouse = v2(SCREEN_W * 0.5f, 430.0f + 2.0f * 78.0f + 30.0f); /* click on OPTIONS */
+        int sel[2];
+        for (int k = 0; k < 2; k++) { /* NEW SAVE -> (CONTINUE: no save) DEV MODE -> (OPTIONS greyed) QUIT */
+            in->down = true;
+            game_update();
+            clear_edges();
+            in->down = false;
+            game_update();
+            clear_edges();
+            sel[k] = G.title_sel;
+        }
+        bool grey_ok = sel[0] == 2 && sel[1] == 4;
+        in->mouse = v2(SCREEN_W * 0.5f, 430.0f + 3.0f * 78.0f + 30.0f); /* click on OPTIONS */
         in->click_pressed = in->confirm_pressed = true;
         game_update();
         clear_edges();
         grey_ok = grey_ok && G.state == GS_TITLE && !G.quit;
-        in->up = true; /* back to NEW SAVE: nothing unlocked yet, the run starts at once */
-        game_update();
-        clear_edges();
-        in->up = false;
+        for (int k = 0; k < 2; k++) { /* back to NEW SAVE: nothing unlocked yet, the run starts at once */
+            in->up = true;
+            game_update();
+            clear_edges();
+            in->up = false;
+            game_update();
+            clear_edges();
+        }
         in->confirm_pressed = true;
         game_update();
         clear_edges();
@@ -2343,6 +2353,62 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         failures += !(same && kills[0] > 0);
     }
 
+    { /* Bestiary: every enemy plays in its small screen (it shows up, moves, fires) and the real
+       * world behind the menu (the demo) is exactly as it was once it closes. */
+        game_init(o->seed);
+        title_open();
+        for (int t = 0; t < 600; t++) {
+            game_update();
+            clear_edges();
+        }
+        Rng rng0 = G.rng, demo0 = G.demo_rng;
+        int room0 = G.room.id, nen0 = G.nen, neb0 = G.neb, slot0 = G.save_slot;
+        V2 pos0 = G.pl.pos;
+        Profile prof0 = G.prof;
+        bool all_ok = true;
+        const float secs = 15.0f;
+        for (int ty = 0; ty < EN_COUNT; ty++) {
+            title_bestiary_open(ty);
+            int live = 0, shots = 0, deaths = 0, ticks = (int)(secs * TICK_RATE);
+            bool was = false, menu_ok = true;
+            for (int t = 0; t < ticks; t++) {
+                game_update();
+                clear_edges();
+                bool here = false;
+                for (int i = 0; i < G.nen; i++) /* a splitter's show goes on with its splitlings */
+                    here = here || (((int)G.en[i].type == ty || (ty == EN_SPLITTER && G.en[i].type == EN_SPLITLING)) && G.en[i].hp > 0.0f);
+                live += here;
+                deaths += was && !here;
+                was = here;
+                shots = G.neb > shots ? G.neb : shots;
+                menu_ok = menu_ok && G.state == GS_TITLE && title_world_hidden() && bestiary_world_type() == ty;
+            }
+            float frac = (float)live / (float)ticks;
+            /* the chaser, swarm and splitling only rush; the hunter, rammer and leaper hit with their body */
+            bool fires = ty == EN_CHASER || ty == EN_SWARM || ty == EN_SPLITLING || ty == EN_HUNTER || ty == EN_RAMMER || shots > 0;
+            bool ok = menu_ok && frac > 0.6f && fires;
+            all_ok = all_ok && ok;
+            if (!ok || getenv("NEON_BESTIARY_LOG"))
+                printf("bestiary %-16s on screen %3.0f%%, %3d bullets at most, %d deaths%s -> %s\n", enemy_title(ty), (double)(frac * 100.0f), shots,
+                       deaths, menu_ok ? "" : " (menu lost)", ok ? "OK" : "FAILED");
+        }
+        bestiary_close(); /* what ESC does first: the real world back, as it was */
+        bool back = bestiary_world_type() < 0 && G.room.id == room0 && G.nen == nen0 && G.neb == neb0 && G.save_slot == slot0 &&
+                    pos0.x == G.pl.pos.x && pos0.y == G.pl.pos.y && !memcmp(&rng0, &G.rng, sizeof rng0) &&
+                    !memcmp(&demo0, &G.demo_rng, sizeof demo0) && !memcmp(&prof0, &G.prof, sizeof prof0);
+        G.in.pause_pressed = true; /* ESC: back to the save's menu */
+        game_update();
+        clear_edges();
+        back = back && G.state == GS_TITLE && !title_world_hidden() && bestiary_world_type() < 0;
+        for (int t = 0; t < 1200; t++) { /* the demo plays on (path finder caches rebuilt) */
+            game_update();
+            clear_edges();
+        }
+        printf("bestiary: every enemy plays in its small screen -> %s, the real world untouched -> %s\n", all_ok ? "OK" : "FAILED",
+               back ? "OK" : "FAILED");
+        failures += !all_ok + !back;
+    }
+
     printf("debug teleports - %s\n", failures ? "FAILED" : "OK");
     return failures ? 1 : 0;
 }
@@ -2393,6 +2459,14 @@ static int save_test_run(const HeadlessOptions *o) {
     game_init(o->seed);
     title_open();
     G.in.mouse = G.sel_mouse = v2(0, 0);
+    /* The demo behind the menu meets enemies, never for the bestiary. */
+    profile_fresh(&G.prof);
+    int demo_met = 0;
+    for (int t = 0; t < 120 * 15; t++) {
+        STICK();
+        demo_met = G.nen > demo_met ? G.nen : demo_met;
+    }
+    CHECK(G.demo && demo_met > 0 && profile_seen(&G.prof) == 0, "the menu's demo meets enemies, none counted for the bestiary");
     G.in.confirm_pressed = true;
     STICK();
     G.god = true;
@@ -2432,6 +2506,12 @@ static int save_test_run(const HeadlessOptions *o) {
     }
     n = save_list(list, SAVE_SLOTS);
     CHECK(entry_tick >= 0 && wrong == 0 && n == 2 && list[0].depth == 3, "saved on entering each room, never during a room");
+    {
+        bool met = profile_seen(&G.prof) > 0;
+        for (int i = 0; i < G.nen; i++) met = met && G.prof.seen[G.en[i].type];
+        CHECK(met && save_load_profile(slot, &saved) && !memcmp(saved.seen, G.prof.seen, sizeof saved.seen),
+              "every enemy met is in the bestiary, written at once");
+    }
 
     /* Go on 20 s, then load the save of the 3rd room and play the same 20 s again. */
     const int span = 120 * 20;
@@ -2462,7 +2542,7 @@ static int save_test_run(const HeadlessOptions *o) {
     G.entry_side = SIDE_BOTTOM;
     room_enter(ROOM_BOSS, RW_UPGRADE, BOSS_EVERY);
     save_autosave();
-    int boss_room = G.room.id, pw = save_profile_writes();
+    int boss_room = G.room.id, pw = save_profile_writes(), seen0 = profile_seen(&G.prof);
     writes = save_writes();
     int next[UNLOCK_BATCH];
     unlocks_next(next, UNLOCK_BATCH);
@@ -2480,7 +2560,7 @@ static int save_test_run(const HeadlessOptions *o) {
     CHECK(batch && character_unlocked(CHAR_KNIGHT) && profile_upgrades_unlocked(&G.prof) == UNLOCK_START_COUNT + UNLOCK_BATCH &&
               G.prof.bosses == 1,
           "a boss beaten unlocks 6 upgrades and the Knight at once");
-    CHECK(save_profile_writes() == pw + 1 && save_writes() == writes && save_load_profile(50, &saved) &&
+    CHECK(save_profile_writes() == pw + 1 + (profile_seen(&G.prof) - seen0) && G.prof.seen[G.room.boss] && save_writes() == writes && save_load_profile(50, &saved) &&
               !memcmp(&saved, &G.prof, sizeof saved) && i50 >= 0 && list[i50].has_run && list[i50].depth == BOSS_EVERY,
           "...written at once, the run part still the start of the boss room");
     Profile after_boss = G.prof;
@@ -2570,7 +2650,7 @@ static int save_test_run(const HeadlessOptions *o) {
     bool menu_ok = G.state == GS_TITLE && G.title_page == 2 && G.menu_slot == 50 && G.title_sel == 0 &&
               profile_upgrades_unlocked(&G.prof) == UNLOCK_START_COUNT + UNLOCK_BATCH;
     CHECK(menu_ok, "ENTER opens the save's menu (RESUME RUN first), its unlocks loaded");
-    /* down: NEW RUN, UNLOCKS, then BESTIARY (greyed) is skipped: back to RESUME RUN */
+    /* down: NEW RUN, UNLOCKS, BESTIARY, then back to RESUME RUN */
     int seen[4];
     for (int k = 0; k < 4; k++) {
         G.in.down = true;
@@ -2579,7 +2659,11 @@ static int save_test_run(const HeadlessOptions *o) {
         STICK();
         seen[k] = G.title_sel;
     }
-    CHECK(seen[0] == 1 && seen[1] == 2 && seen[2] == 0 && seen[3] == 1, "save menu: NEW RUN, UNLOCKS; BESTIARY greyed (skipped)");
+    CHECK(seen[0] == 1 && seen[1] == 2 && seen[2] == 3 && seen[3] == 0, "save menu: NEW RUN, UNLOCKS, BESTIARY");
+    G.in.down = true; /* NEW RUN */
+    STICK();
+    G.in.down = false;
+    STICK();
     G.in.down = true; /* UNLOCKS */
     STICK();
     G.in.down = false;
@@ -2598,7 +2682,40 @@ static int save_test_run(const HeadlessOptions *o) {
     G.in.pause_pressed = true;
     STICK();
     CHECK(unl && G.title_page == 2 && G.title_sel == 2, "UNLOCKS: every upgrade listed, arrows move, ESC back");
+    /* BESTIARY: the enemies met, the first one playing; the arrows only stop on those met. */
+    {
+        int room = G.room.id, nen = G.nen, met = profile_seen(&G.prof);
+        G.in.down = true;
+        STICK();
+        G.in.down = false;
+        G.in.confirm_pressed = true;
+        STICK();
+        int first = bestiary_world_type();
+        bool bes = G.title_page == 4 && title_world_hidden() && first >= 0 && G.prof.seen[first] && met > 1;
+        int types[3] = {first, -1, -1};
+        for (int k = 1; k < 3; k++) {
+            G.in.down = true;
+            STICK();
+            G.in.down = false;
+            STICK();
+            types[k] = bestiary_world_type();
+        }
+        bes = bes && types[1] >= 0 && G.prof.seen[types[1]] && types[1] != first && (met < 3 || (types[2] >= 0 && G.prof.seen[types[2]] && types[2] != types[1]));
+        bool live = false;
+        for (int t = 0; t < 240; t++) {
+            STICK();
+            live = live || G.nen > 0;
+        }
+        G.in.pause_pressed = true;
+        STICK();
+        CHECK(bes && live && G.title_page == 2 && G.title_sel == 3 && !title_world_hidden() && G.room.id == room && G.nen == nen,
+              "BESTIARY: the enemies met, each playing in its screen; ESC back, the world as it was");
+    }
     /* NEW RUN: the character select, the run goes in this save (no new file). */
+    G.in.up = true;
+    STICK();
+    G.in.up = false;
+    STICK();
     G.in.up = true;
     STICK();
     G.in.up = false;
@@ -2647,6 +2764,46 @@ static int save_test_run(const HeadlessOptions *o) {
     STICK();
     CHECK(fresh_menu && sel_ok && G.state == GS_TITLE && G.title_page == 2 && G.menu_slot == 2,
           "a new save: locked ships greyed and refused, ESC back to the save's menu");
+    /* DEV MODE: its own save, never listed, everything unlocked and every enemy met; ESC: the main menu. */
+    {
+        title_open();
+        int listed0 = save_list(list, SAVE_SLOTS);
+        for (int k = 0; k < 2; k++) { /* NEW SAVE -> CONTINUE -> DEV MODE */
+            G.in.down = true;
+            STICK();
+            G.in.down = false;
+            STICK();
+        }
+        G.in.confirm_pressed = true;
+        STICK();
+        SaveInfo dev;
+        bool dev_ok = G.state == GS_TITLE && G.title_page == 2 && G.menu_slot == SAVE_DEV_SLOT && save_info(SAVE_DEV_SLOT, &dev) &&
+                      dev.ok && dev.percent == 100 && profile_unlocked(&G.prof) == unlocks_total() && profile_seen(&G.prof) == EN_COUNT &&
+                      save_list(list, SAVE_SLOTS) == listed0;
+        G.in.down = true; /* NEW RUN (no run yet: first) is selected; ENTER, then the Shotgunner */
+        STICK();
+        G.in.down = false;
+        STICK();
+        G.in.up = true;
+        STICK();
+        G.in.up = false;
+        G.in.confirm_pressed = true;
+        STICK();
+        G.in.number = CHAR_SHOTGUNNER;
+        G.in.confirm_pressed = true;
+        STICK();
+        dev_ok = dev_ok && G.state == GS_PLAYING && G.save_slot == SAVE_DEV_SLOT && G.character == CHAR_SHOTGUNNER &&
+                 save_info(SAVE_DEV_SLOT, &dev) && dev.has_run && save_list(list, SAVE_SLOTS) == listed0;
+        G.state = GS_PAUSED;
+        title_back(); /* Q: DEV MODE's menu, RESUME RUN first; ESC: the main menu, on DEV MODE */
+        STICK();
+        dev_ok = dev_ok && G.title_page == 2 && G.menu_slot == SAVE_DEV_SLOT && G.title_sel == 0;
+        G.in.pause_pressed = true;
+        STICK();
+        CHECK(dev_ok && G.title_page == 0 && G.title_sel == 2 && G.menu_slot == 0,
+              "DEV MODE: its own save (not listed), everything unlocked, its runs in it");
+        save_delete(SAVE_DEV_SLOT);
+    }
 #undef CHECK
 #undef STICK
     printf("save files - %s\n", failures ? "FAILED" : "OK");

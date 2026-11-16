@@ -136,7 +136,7 @@ void game_update(void) {
     G.ticks++;
     fx_timers();
 
-    if (G.in.debug_pressed) {
+    if (G.in.debug_pressed && !title_world_hidden()) { /* not over the bestiary's small world */
         if (G.state == GS_DEBUG) debug_menu_close();
         else debug_menu_open();
         return;
@@ -181,11 +181,8 @@ void game_update(void) {
     }
 }
 
-void game_render(void) {
-    SDL_Renderer *r = draw_renderer();
-    SDL_SetRenderDrawColorFloat(r, 0.015f, 0.015f, 0.035f, 1.0f);
-    SDL_RenderClear(r);
-
+/* The world, full screen (shaken). */
+static void render_world(void) {
     float tr = G.shake * G.shake * 18.0f;
     draw_set_offset(v2(rng_range(&vis_rng, -tr, tr), rng_range(&vis_rng, -tr, tr)));
 
@@ -211,6 +208,13 @@ void game_render(void) {
         fx_draw_popups();
         hud_draw();
     }
+}
+
+void game_render(void) {
+    SDL_Renderer *r = draw_renderer();
+    SDL_SetRenderDrawColorFloat(r, 0.015f, 0.015f, 0.035f, 1.0f);
+    SDL_RenderClear(r);
+    if (!title_world_hidden()) render_world(); /* the bestiary: G holds its small world, drawn in its screen */
     overlay_draw();
     draw_flush();
 }

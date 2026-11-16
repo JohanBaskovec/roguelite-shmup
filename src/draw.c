@@ -13,6 +13,7 @@ static SDL_Vertex verts[MAX_VERTS];
 static int indices[MAX_INDICES];
 static int nverts, nindices;
 static V2 offset;
+static float view_scale = 1.0f; /* the bestiary's small screen draws the world scaled down */
 static SDL_BlendMode blend = SDL_BLENDMODE_BLEND;
 static float ctab[CIRCLE_SEG + 1], stab[CIRCLE_SEG + 1];
 
@@ -28,6 +29,21 @@ void draw_init(SDL_Renderer *r) {
 SDL_Renderer *draw_renderer(void) { return R; }
 
 void draw_set_offset(V2 off) { offset = off; }
+
+void draw_set_view(V2 off, float scale) {
+    offset = off;
+    view_scale = scale;
+}
+
+void draw_clip(const SDL_FRect *r) {
+    draw_flush();
+    if (!r) {
+        SDL_SetRenderClipRect(R, NULL);
+        return;
+    }
+    SDL_Rect c = {(int)r->x, (int)r->y, (int)r->w, (int)r->h};
+    SDL_SetRenderClipRect(R, &c);
+}
 
 void draw_flush(void) {
     if (nindices > 0) {
@@ -55,8 +71,8 @@ static inline void ensure(int nv, int ni) {
 
 static inline int vtx(float x, float y, SDL_FColor c) {
     SDL_Vertex *v = &verts[nverts];
-    v->position.x = x + offset.x;
-    v->position.y = y + offset.y;
+    v->position.x = x * view_scale + offset.x;
+    v->position.y = y * view_scale + offset.y;
     v->color = c;
     v->tex_coord.x = 0.0f;
     v->tex_coord.y = 0.0f;

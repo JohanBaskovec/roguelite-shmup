@@ -55,6 +55,7 @@ typedef struct {
     bool load_menu;        /* --load-menu: open the load screen (fills an empty save folder with sample saves) */
     bool save_menu;        /* --save-menu: like --load-menu, then open the most recent save's menu */
     bool unlocks_menu;     /* --unlocks-menu: open the unlocks screen (a new save's unlocks + one boss) */
+    int bestiary;          /* --bestiary NAME: open the bestiary on that enemy (the first rooms' ones met, and it); -1: no */
     bool fresh_profile;    /* --fresh-profile: a new save's unlocks instead of everything unlocked */
     bool save_test;        /* --save-test (headless): saving / loading / deleting checks */
     bool fx;               /* --fx: headless keeps the particles (e.g. for a --fail-shot) */
@@ -67,6 +68,7 @@ typedef struct {
 
 static void parse_args(int argc, char **argv, Options *o) {
     memset(o, 0, sizeof *o);
+    o->bestiary = -1;
     o->frames = 300;
     o->shot_draw_every = 32;
     o->ticks = 120 * 600;
@@ -172,6 +174,13 @@ static void parse_args(int argc, char **argv, Options *o) {
         else if (!strcmp(a, "--save-dir") && more) o->save_dir = argv[++i];
         else if (!strcmp(a, "--load-menu")) o->load_menu = true;
         else if (!strcmp(a, "--unlocks-menu")) o->unlocks_menu = true;
+        else if (!strcmp(a, "--bestiary") && more) {
+            o->bestiary = enemy_by_name(argv[++i]);
+            if (o->bestiary < 0) {
+                fprintf(stderr, "unknown enemy '%s'\n", argv[i]);
+                exit(2);
+            }
+        }
         else if (!strcmp(a, "--save-menu")) o->save_menu = o->load_menu = true;
         else if (!strcmp(a, "--fresh-profile")) o->fresh_profile = true;
         else if (!strcmp(a, "--save-test")) o->save_test = true;
@@ -190,7 +199,7 @@ static void parse_args(int argc, char **argv, Options *o) {
             o->expect_rooms = (int)(o->expect_rooms * k);
         }
     }
-    if ((o->shot_path || o->record) && !o->char_select && !o->title && !o->load_menu && !o->unlocks_menu && !o->no_bot) o->bot = true; /* the bot would confirm the select screen at once */
+    if ((o->shot_path || o->record) && !o->char_select && !o->title && !o->load_menu && !o->unlocks_menu && o->bestiary < 0 && !o->no_bot) o->bot = true; /* the bot would confirm the select screen at once */
 }
 
 static void clear_edges(void) {
@@ -445,6 +454,14 @@ int main(int argc, char **argv) {
         title_open();
         title_unlocks_open();
         G.unl_sel = UPG_W_LASER;
+    }
+    if (opt.bestiary >= 0) {
+        profile_fresh(&G.prof);
+        for (int t = 0; t < EN_COUNT; t++) G.prof.seen[t] = !type_is_boss(t) && ENEMIES[t].min_depth <= 12;
+        G.prof.seen[EN_BOSS] = 1;
+        G.prof.seen[opt.bestiary] = 1;
+        title_open();
+        title_bestiary_open(opt.bestiary);
     }
     if (opt.char_select) char_select_open();
     if (opt.upgrades_menu) upgrade_menu_open();

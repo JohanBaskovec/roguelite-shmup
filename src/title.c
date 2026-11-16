@@ -13,7 +13,10 @@
  *   CONTINUE   the list of save files (unlock %, run in progress): ENTER / click opens one, DEL / the X
  *              (twice) deletes it. A save opens its own menu: RESUME RUN (a run is going on), NEW RUN
  *              (character select, locked ships greyed), UNLOCKS (every upgrade, locked ones greyed;
- *              the one selected shown in full), BESTIARY (later).
+ *              the one selected shown in full), BESTIARY (every enemy met, the one selected playing in a
+ *              small screen of its own: bestiary.c; the demo behind pauses meanwhile);
+ *   DEV MODE   a save of its own (SAVE_DEV_SLOT, never listed), everything unlocked and every enemy
+ *              met, opened on its menu (ESC: back to the main menu).
  * The save is saved on entering each room (save.c) and keeps its unlocks when the ship is destroyed.
  *
  * The background demo lives in the normal world (G), flagged G.demo, and runs on its own
@@ -22,10 +25,10 @@
  * keeps playing behind the character select screen opened from the menu.
  */
 
-typedef enum { TP_MAIN, TP_SAVES, TP_SAVE, TP_UNLOCKS } TitlePage;
+typedef enum { TP_MAIN, TP_SAVES, TP_SAVE, TP_UNLOCKS, TP_BESTIARY } TitlePage;
 
-enum { TM_NEW, TM_CONTINUE, TM_OPTIONS, TM_QUIT, TM_COUNT };
-static const char *const TITLE_ITEMS[TM_COUNT] = {"NEW SAVE", "CONTINUE", "OPTIONS", "QUIT"};
+enum { TM_NEW, TM_CONTINUE, TM_DEV, TM_OPTIONS, TM_QUIT, TM_COUNT };
+static const char *const TITLE_ITEMS[TM_COUNT] = {"NEW SAVE", "CONTINUE", "DEV MODE", "OPTIONS", "QUIT"};
 enum { SM_RESUME, SM_NEW_RUN, SM_UNLOCKS, SM_BESTIARY, SM_COUNT };
 static const char *const SAVE_ITEMS[SM_COUNT] = {"RESUME RUN", "NEW RUN", "UNLOCKS", "BESTIARY"};
 
@@ -42,10 +45,10 @@ static void refresh_saves(void) {
 }
 
 /* Options: later. CONTINUE needs a save file. */
-static bool main_enabled(int i) { return i == TM_NEW || i == TM_QUIT || (i == TM_CONTINUE && nsaves > 0); }
-/* RESUME RUN only while a run is going on (hidden otherwise); the bestiary comes later. */
+static bool main_enabled(int i) { return i == TM_NEW || i == TM_DEV || i == TM_QUIT || (i == TM_CONTINUE && nsaves > 0); }
+/* RESUME RUN only while a run is going on (hidden otherwise). */
 static bool save_item_shown(int i) { return i != SM_RESUME || cur.has_run; }
-static bool save_enabled_item(int i) { return save_item_shown(i) && i != SM_BESTIARY; }
+static bool save_enabled_item(int i) { return save_item_shown(i); }
 
 #define BTN_W 420.0f
 #define BTN_H 60.0f
@@ -278,14 +281,12 @@ void title_open(void) {
 /* The save menu of the save G.menu_slot (re-read: a run may have been played since). */
 static bool save_menu_open(int sel) {
     refresh_saves();
-    for (int i = 0; i < nsaves; i++)
-        if (saves[i].slot == G.menu_slot && saves[i].ok && save_load_profile(G.menu_slot, &G.prof)) {
-            cur = saves[i];
-            G.state = GS_TITLE;
-            page_open(TP_SAVE, sel >= 0 && save_enabled_item(sel) ? sel : btn_first(&SAVE_MENU));
-            return true;
-        }
-    return false;
+    SaveInfo info; /* read on its own: DEV MODE's save is not in the list */
+    if (!save_info(G.menu_slot, &info) || !info.ok || !save_load_profile(G.menu_slot, &G.prof)) return false;
+    cur = info;
+    G.state = GS_TITLE;
+    page_open(TP_SAVE, sel >= 0 && save_enabled_item(sel) ? sel : btn_first(&SAVE_MENU));
+    return true;
 }
 
 /* Out of a run (Q) or of the character select (ESC): the menu of the save played, if any. */
@@ -316,6 +317,30 @@ static void saves_close(void) {
     sfx_play(SFX_PAUSE);
 }
 
+/* DEV MODE: its own save (SAVE_DEV_SLOT, never listed), everything unlocked and every enemy met
+ * (made so again each time, its runs and records kept), opened on its menu. Without saving
+ * (headless, screenshots): a run at once, everything unlocked. */
+static void dev_mode(void) {
+    Profile old, all;
+    SaveInfo info;
+    if (!(save_info(SAVE_DEV_SLOT, &info) && info.ok && save_load_profile(SAVE_DEV_SLOT, &old))) profile_fresh(&old);
+    profile_unlock_all(&all);
+    all.runs = old.runs, all.deaths = old.deaths, all.bosses = old.bosses, all.best_depth = old.best_depth;
+    if (!save_enabled()) {
+        G.prof = all;
+        G.save_slot = G.menu_slot = 0;
+        game_new_run();
+        return;
+    }
+    G.menu_slot = SAVE_DEV_SLOT;
+    if (!save_write_profile(SAVE_DEV_SLOT, &all) || !save_menu_open(-1)) {
+        G.menu_slot = 0;
+        sfx_play(SFX_DENIED);
+        return;
+    }
+    sfx_play(SFX_UI_START);
+}
+
 /* NEW SAVE: a new file, nothing unlocked yet: the first ship's run starts at once. */
 static void new_save(void) {
     int slot = save_new_slot();
@@ -333,6 +358,7 @@ static void main_activate(int item) {
     switch (item) {
     case TM_NEW: new_save(); break;
     case TM_CONTINUE: saves_open(); break;
+    case TM_DEV: dev_mode(); break;
     case TM_QUIT: G.quit = true; break;
     default: break;
     }
@@ -398,6 +424,12 @@ static void saves_update(void) {
 }
 
 static void save_menu_update(void) {
+    if (G.in.pause_pressed && G.menu_slot == SAVE_DEV_SLOT) { /* DEV MODE: back to the main menu */
+        G.menu_slot = 0;
+        page_open(TP_MAIN, TM_DEV);
+        sfx_play(SFX_PAUSE);
+        return;
+    }
     if (G.in.pause_pressed) { /* back to the list, on this save */
         int slot = G.menu_slot;
         G.menu_slot = 0;
@@ -416,6 +448,11 @@ static void save_menu_update(void) {
     case SM_UNLOCKS:
         page_open(TP_UNLOCKS, 0);
         G.unl_sel = 0;
+        sfx_play(SFX_WEAPON_SWITCH);
+        break;
+    case SM_BESTIARY:
+        page_open(TP_BESTIARY, 0);
+        bestiary_open(-1);
         sfx_play(SFX_WEAPON_SWITCH);
         break;
     default: break;
@@ -451,6 +488,14 @@ void title_unlocks_open(void) {
     G.unl_sel = 0;
 }
 
+bool title_world_hidden(void) { return G.state == GS_TITLE && G.title_page == TP_BESTIARY; }
+
+void title_bestiary_open(int type) {
+    G.state = GS_TITLE;
+    page_open(TP_BESTIARY, 0);
+    bestiary_open(type);
+}
+
 static void unl_select(int u) {
     u = u < 0 ? 0 : u >= UPG_COUNT ? UPG_COUNT - 1 : u;
     if (u != G.unl_sel) sfx_play(SFX_WEAPON_SWITCH);
@@ -484,6 +529,12 @@ void title_update(void) {
     case TP_SAVES: saves_update(); break;
     case TP_SAVE: save_menu_update(); break;
     case TP_UNLOCKS: unlocks_update(); break;
+    case TP_BESTIARY:
+        if (!bestiary_update()) {
+            page_open(TP_SAVE, SM_BESTIARY);
+            sfx_play(SFX_PAUSE);
+        }
+        break;
     case TP_MAIN:
     default:
         if (in->pause_pressed) G.quit = true;
@@ -494,7 +545,8 @@ void title_update(void) {
     G.title_down = in->down;
     G.sel_left = in->left;
     G.sel_right = in->right;
-    if (G.state == GS_TITLE || G.state == GS_CHAR_SELECT) demo_update(); /* not once a run started */
+    /* Not once a run started, nor behind the bestiary (its small world owns the path finder's caches). */
+    if ((G.state == GS_TITLE && G.title_page != TP_BESTIARY) || G.state == GS_CHAR_SELECT) demo_update();
 }
 
 static void format_duration(char *buf, size_t n, float t) {
@@ -569,7 +621,8 @@ static void save_menu_draw(void) {
     float x0 = (SCREEN_W - BTN_W) * 0.5f;
     draw_rect(x0 - 200.0f, 150.0f, BTN_W + 400.0f, btn_y(&SAVE_MENU, SM_COUNT - 1) + BTN_H + 40.0f - 150.0f,
               rgba(0.01f, 0.01f, 0.03f, 0.8f));
-    draw_text_centered(SCREEN_W * 0.5f, 185.0f, 5.0f, col_hex(0x66f0ff, 1), "SAVE %d", cur.slot);
+    if (cur.slot == SAVE_DEV_SLOT) draw_text_centered(SCREEN_W * 0.5f, 185.0f, 5.0f, col_hex(0xffa040, 1), "DEV MODE");
+    else draw_text_centered(SCREEN_W * 0.5f, 185.0f, 5.0f, col_hex(0x66f0ff, 1), "SAVE %d", cur.slot);
     int pct = unlock_percent(profile_unlocked(&G.prof), unlocks_total());
     float gw = 500.0f, gx = (SCREEN_W - gw) * 0.5f;
     draw_rect(gx, 255.0f, gw, 16.0f, col_a(COL_WHITE, 0.12f));
@@ -681,6 +734,7 @@ void title_draw(void) {
     case TP_SAVES: saves_draw(); return;
     case TP_SAVE: save_menu_draw(); return;
     case TP_UNLOCKS: unlocks_draw(); return;
+    case TP_BESTIARY: bestiary_draw(); return;
     default: break;
     }
     float x0 = (SCREEN_W - BTN_W) * 0.5f;

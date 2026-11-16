@@ -21,7 +21,8 @@
  */
 
 #define SAVE_VERSION 2
-#define SAVE_SLOTS 99 /* save_1.sav .. save_99.sav */
+#define SAVE_SLOTS 99     /* save_1.sav .. save_99.sav */
+#define SAVE_DEV_SLOT 100 /* save_100.sav: DEV MODE's save (everything unlocked, every enemy met), never listed */
 
 typedef struct {
     int slot;
@@ -47,8 +48,12 @@ void save_end_run(void);
 void save_profile_update(void);
 /* Unlocks of a save (save menu, before its run is resumed or a new one started). */
 bool save_load_profile(int slot, Profile *out);
-/* Every save file, most recent first. */
+/* Every save file, most recent first (DEV MODE's left out). */
 int save_list(SaveInfo *out, int max);
+/* The header of one save (false: no such file). */
+bool save_info(int slot, SaveInfo *out);
+/* Writes these unlocks into a save (created without a run if missing; its run, if any, kept). */
+bool save_write_profile(int slot, const Profile *p);
 /* Replaces the game with the save's run (false, game untouched, if missing / incompatible / no run). */
 bool save_load(int slot);
 bool save_delete(int slot);

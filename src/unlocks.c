@@ -65,6 +65,20 @@ void profile_unlock_all(Profile *p) {
     memset(p, 0, sizeof *p);
     memset(p->upg, 1, sizeof p->upg);
     memset(p->chr, 1, sizeof p->chr);
+    memset(p->seen, 1, sizeof p->seen);
+}
+
+int profile_seen(const Profile *p) {
+    int n = 0;
+    for (int t = 0; t < EN_COUNT; t++) n += p->seen[t] != 0;
+    return n;
+}
+
+/* Not in the demo (nor the bestiary's own little world, flagged as a demo too). */
+void bestiary_saw(EnemyType t) {
+    if (G.demo || t < 0 || t >= EN_COUNT || G.prof.seen[t]) return;
+    G.prof.seen[t] = 1;
+    save_profile_update(); /* at once, like an unlock: met even if the run ends in this room */
 }
 
 bool upgrade_unlocked(int u) { return u >= 0 && u < UPG_COUNT && G.prof.upg[u]; }

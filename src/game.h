@@ -559,6 +559,7 @@ extern const CharDef CHARACTERS[CHAR_COUNT];
 #define UNLOCK_SHOTGUNNER_DEPTH 5 /* reaching this room unlocks the Shotgunner; a boss beaten, the Knight */
 typedef struct {
     uint8_t upg[UPG_COUNT], chr[CHAR_COUNT];
+    uint8_t seen[EN_COUNT]; /* bestiary: every enemy type met at least once (written at once) */
     int32_t runs, deaths, bosses, best_depth;
 } Profile;
 
@@ -602,6 +603,7 @@ typedef struct {
     int load_confirm; /* load screen: slot waiting for a second press to be deleted (0: none) */
     int menu_slot;    /* save menu (CONTINUE): the save file chosen, its run started / resumed from there */
     int unl_sel;      /* unlocks screen: highlighted upgrade */
+    int bes_sel;      /* bestiary: highlighted entry (index in its list, -1: none met) */
     Profile prof;     /* unlocks of the current save (unlocks.c) */
     Player pl;
     Room room;
@@ -911,11 +913,25 @@ int unlock_percent(int unlocked, int total);
 const char *character_unlock_hint(int c); /* how a locked ship is unlocked */
 void unlocks_on_room(int depth);      /* room_enter: ships unlocked by depth, best depth */
 void unlocks_boss_beaten(void);       /* the next UNLOCK_BATCH upgrades (+ ships), saved at once */
+void bestiary_saw(EnemyType t);       /* an enemy shows up: met for the first time, marked and saved at once */
+int profile_seen(const Profile *p);   /* enemy types met */
+
+/* bestiary.c: every enemy, greyed until met; the one selected plays in a small screen (its own world,
+ * swapped into G only for a moment each tick, the menu's demo paused meanwhile). */
+const char *enemy_title(EnemyType t); /* "CHASER", "THE OVERSEER"... */
+const char *enemy_desc(EnemyType t);  /* what it does, '|' between lines */
+void bestiary_open(int sel);          /* sel: the type to show (-1: the first met) */
+bool bestiary_update(void);           /* false once it is left (ESC) */
+void bestiary_draw(void);
+void bestiary_close(void);
+int bestiary_world_type(void);        /* the type playing in the small screen (-1: closed) */
+bool title_world_hidden(void);        /* the bestiary: G holds its small world, not drawn full screen */            /* the real world back as it was (path finder caches rebuilt) */
 int unlocks_next(int *out, int max);  /* the upgrades the next boss will unlock (tests) */
 /* Main menu (title.c) with the bot-played demo run behind it. */
 void title_open(void);
 void title_back(void);          /* Q / character select ESC: the menu of the save played, else the main menu */
 void title_unlocks_open(void);   /* the unlocks screen of G.prof (--unlocks-menu) */
+void title_bestiary_open(int type); /* the bestiary on that enemy type (-1: the first met; --bestiary-menu) */
 bool title_save_menu(int slot);  /* the menu of a save (--save-menu) */
 void title_update(void);
 void title_draw(void);

@@ -33,6 +33,7 @@ add_executable(neon_breach
     src/upgrade_menu.c
     src/bullets.c
     src/enemies.c
+    src/bestiary.c
     src/bosses.c
     src/pickups.c
     src/hud.c
@@ -373,6 +374,11 @@ if(SHMUP_BUILD_TESTS)
              COMMAND neon_breach --shot ${_out}/render_save_menu.bmp --save-menu --save-dir ${_out}/saves_render_menu --seed 4 --frames 30)
     add_test(NAME render_unlocks_menu
              COMMAND neon_breach --shot ${_out}/render_unlocks_menu.bmp --unlocks-menu --seed 4 --frames 30)
+    # The bestiary: an enemy, then a boss, playing in the small screen.
+    add_test(NAME render_bestiary
+             COMMAND neon_breach --shot ${_out}/render_bestiary.bmp --bestiary mirror --seed 4 --frames 600)
+    add_test(NAME render_bestiary_boss
+             COMMAND neon_breach --shot ${_out}/render_bestiary_boss.bmp --bestiary carrier --seed 4 --frames 900)
     add_test(NAME render_char_select_locked
              COMMAND neon_breach --shot ${_out}/render_char_select_locked.bmp --char-select --fresh-profile --seed 4 --frames 30)
 

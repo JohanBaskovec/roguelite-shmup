@@ -14,6 +14,8 @@ SDL_Renderer *draw_renderer(void);
 
 /* World-space offset (screen shake). Text is never offset. */
 void draw_set_offset(V2 off);
+void draw_set_view(V2 off, float scale); /* shapes drawn at p land on p * scale + off (text is not scaled) */
+void draw_clip(const SDL_FRect *r);       /* only draw inside r (NULL: everywhere) */
 
 void draw_blend_add(void);
 void draw_blend_alpha(void);

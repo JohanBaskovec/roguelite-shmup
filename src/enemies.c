@@ -99,6 +99,7 @@ static void enemy_create(EnemyType type, V2 pos) {
     e->angle = frand(0.0f, TAU_F);
     e->spin_dir = chance(0.5f) ? 1 : -1;
     if (type != EN_CRAWLER) room_collide_circle(&e->pos, e->radius, NULL); /* the crawler finds its own spot on the wall */
+    bestiary_saw(type);
     sfx_play_at(SFX_ENEMY_APPEAR, e->pos);
     fx_particle(e->pos, v2(0, 0), 0.25f, e->radius * 3.0f, col_hex(d->color, 1), 0.0f, PT_RING);
 }

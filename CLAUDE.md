@@ -64,7 +64,7 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   offers them.
 - **Enemies never scale with depth**: each type always has the same HP / speed / fire pattern
   (`ENEMIES` table). Difficulty only comes from more enemies, more waves and new, harder types.
-  A new enemy: enum + `ENEMIES` entry (cost, min_depth), an `update_<name>` function, its drawing,
+  A new enemy: enum + `ENEMIES` entry (cost, min_depth), an `update_<name>` function, its drawing, its bestiary line,
   bot support if it needs a special answer (`bot.c`: hazards, charge lines, MIRROR flanking), a
   `sim_enemy_<name>` CTest (`--enemy NAME`, repeatable: waves of only those types) and, for a new
   mechanic, a scripted check in `debug_rooms_run`. Untouchable states go through `enemy_untouchable()`
@@ -148,10 +148,13 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   part stays the start of the room; not counted as a save). **The ship destroyed ends the run, never the save**
   (`game_over` -> `save_end_run`: profile only); R / another ship (C) start a new run in the same file; Q (pause /
   game over) goes back to that save's menu (`title_back`). Main menu: NEW SAVE (new file, fresh profile, the
-  first ship's run at once) / CONTINUE (saves list with unlock %: ENTER / click opens a save, DEL / the X twice
+  first ship's run at once) / DEV MODE (its own save, `SAVE_DEV_SLOT`, never listed: everything unlocked, every
+  enemy met, opened on its save menu) / CONTINUE (saves list with unlock %: ENTER / click opens a save, DEL / the X twice
   deletes) -> save menu: RESUME RUN (only while a run goes on), NEW RUN (character select, the run goes in that
   save, `G.menu_slot`), UNLOCKS (every upgrade, locked ones greyed, the selected one in full: icon, kind,
-  bonus, malus, toggle, synergies), BESTIARY (greyed, to do). Headless checks one save per room entered and
+  bonus, malus, toggle, synergies), BESTIARY (`src/bestiary.c`: every enemy / boss, greyed until met in that save -
+  `Profile.seen`, set by `bestiary_saw` in `enemy_create`, written at once, never by the demo; the selected one plays in
+  a small screen with its description). Headless checks one save per room entered and
   none during a room (`--save-dir`), the save still there after a death (no run, same unlocks), and
   `--save-test` the load / replay / unlock / death / delete / menu flow.
   **`Game` must stay free of pointers** (it is written as is), and every piece of run state must live in `G`
@@ -298,7 +301,14 @@ invariants / a CTest entry in `CMakeLists.txt`.
   suppressed (`audio_suppress`) and no HUD (`demo_visible()`); `game_new_run` wipes it. Any new per-run
   state must be reset by `game_new_run` (the demo leaves its own behind). `--title` renders the menu,
   `--load-menu --save-dir DIR` the saves list (sample saves written into an empty folder), `--save-menu` a save's
-  menu, `--unlocks-menu` the unlocks screen, `--char-select --fresh-profile` the locked ships.
+  menu, `--unlocks-menu` the unlocks screen, `--bestiary NAME` the bestiary on an enemy, `--char-select --fresh-profile`
+  the locked ships.
+- **Bestiary small screen**: while it is open, G's world (room, entities, ship, rng) IS the small world (`world_reset` /
+  `world_step` in `bestiary.c`, flagged `G.demo`, sounds off): the real one (the menu's demo, paused and not drawn,
+  `title_world_hidden`) is copied aside on opening and put back by `bestiary_close`, the menu's fields (input, page,
+  profile) carrying on; the path finder caches are rebuilt then. Drawn scaled into its rect through `draw_set_view` /
+  `draw_clip` (`draw.c`). A new enemy needs a `DESC` line there (and a spawn group / wide view if it needs one);
+  `--debug-rooms` checks every type shows up and fires in it and the real world comes back untouched.
 - Controls: SHIFT / right click = active items, SPACE = bomb, E = take / buy / use, TAB = upgrades menu. The
   mouse is grabbed during a run (`SDL_SetWindowMouseGrab` in `main.c`, released in pause / menus / game over).
 - In-game text is English and ASCII only (SDL's debug font has no accents). The user writes in French.

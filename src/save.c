@@ -140,47 +140,56 @@ void save_end_run(void) {
     else SDL_Log("Could not save the game in %s", dir);
 }
 
-void save_profile_update(void) {
-    if (G.demo || G.save_slot <= 0 || !save_enabled()) return;
-    /* The run part stays the snapshot of the start of the room; only the unlocks change. */
+/* The save's unlocks written, its run part (if any) left as it was: still the start of its room. */
+static bool write_profile(int slot, const Profile *p) {
     char path[600];
-    slot_path(path, sizeof path, G.save_slot, "sav");
+    slot_path(path, sizeof path, slot, "sav");
     size_t n = 0;
     uint8_t *data = SDL_LoadFile(path, &n);
     SaveHeader old, h;
     bool run = data && n == sizeof old + sizeof(Profile) + sizeof(Game);
     if (run) memcpy(&old, data, sizeof old);
     run = run && header_ok(&old) && old.has_run;
-    header_profile(&h, &G.prof);
+    header_profile(&h, p);
     if (run) {
         int64_t at = h.saved_at;
         h = old;
-        h.unlocked = profile_unlocked(&G.prof), h.unlock_total = unlocks_total();
-        h.runs = G.prof.runs, h.bosses = G.prof.bosses, h.best_depth = G.prof.best_depth;
+        h.unlocked = profile_unlocked(p), h.unlock_total = unlocks_total();
+        h.runs = p->runs, h.bosses = p->bosses, h.best_depth = p->best_depth;
         h.saved_at = at;
     }
-    if (write_file(G.save_slot, &h, &G.prof, run ? data + sizeof old + sizeof(Profile) : NULL)) profile_writes++;
-    else SDL_Log("Could not save the game in %s", dir);
+    bool ok = write_file(slot, &h, p, run ? data + sizeof old + sizeof(Profile) : NULL);
+    if (ok) profile_writes++;
     SDL_free(data);
+    return ok;
 }
+
+void save_profile_update(void) {
+    if (G.demo || G.save_slot <= 0 || !save_enabled()) return;
+    if (!write_profile(G.save_slot, &G.prof)) SDL_Log("Could not save the game in %s", dir);
+}
+
+bool save_write_profile(int slot, const Profile *p) { return save_enabled() && slot > 0 && write_profile(slot, p); }
 
 int save_profile_writes(void) { return profile_writes; }
 
+bool save_info(int slot, SaveInfo *i) {
+    SaveHeader h;
+    if (!save_enabled() || slot <= 0 || !read_header(slot, &h)) return false;
+    *i = (SaveInfo){.slot = slot, .ok = header_ok(&h), .has_run = h.has_run == 1, .unlocked = h.unlocked,
+                    .unlock_total = h.unlock_total, .runs = h.runs, .bosses = h.bosses, .best_depth = h.best_depth,
+                    .character = h.character, .depth = h.depth, .rooms_cleared = h.rooms_cleared, .kills = h.kills,
+                    .hp = h.hp, .max_hp = h.max_hp, .upgrades = h.upgrades, .run_time = h.run_time, .saved_at = h.saved_at};
+    i->percent = unlock_percent(i->unlocked, i->unlock_total);
+    if (!i->ok) i->has_run = false;
+    if (i->character < 0 || i->character >= CHAR_COUNT) i->character = 0;
+    return true;
+}
+
 int save_list(SaveInfo *out, int max) {
     int n = 0;
-    if (!save_enabled()) return 0;
-    SaveHeader h;
-    for (int s = 1; s <= SAVE_SLOTS && n < max; s++) {
-        if (!read_header(s, &h)) continue;
-        SaveInfo *i = &out[n++];
-        *i = (SaveInfo){.slot = s, .ok = header_ok(&h), .has_run = h.has_run == 1, .unlocked = h.unlocked,
-                        .unlock_total = h.unlock_total, .runs = h.runs, .bosses = h.bosses, .best_depth = h.best_depth,
-                        .character = h.character, .depth = h.depth, .rooms_cleared = h.rooms_cleared, .kills = h.kills,
-                        .hp = h.hp, .max_hp = h.max_hp, .upgrades = h.upgrades, .run_time = h.run_time, .saved_at = h.saved_at};
-        i->percent = unlock_percent(i->unlocked, i->unlock_total);
-        if (!i->ok) i->has_run = false;
-        if (i->character < 0 || i->character >= CHAR_COUNT) i->character = 0;
-    }
+    for (int s = 1; s <= SAVE_SLOTS && n < max; s++) /* the dev mode's save (SAVE_DEV_SLOT) is never listed */
+        n += save_info(s, &out[n]);
     for (int a = 1; a < n; a++) /* most recent first */
         for (int b = a; b > 0 && out[b].saved_at > out[b - 1].saved_at; b--) {
             SaveInfo t = out[b];
