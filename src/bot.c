@@ -81,7 +81,7 @@ static V2 free_spot_near(V2 p) {
     for (float rad = 16.0f; rad <= 240.0f; rad += 16.0f)
         for (int k = 0; k < 16; k++) {
             V2 q = v2_add(p, v2_scale(v2_angle((float)k * TAU_F / 16.0f), rad));
-            if (q.x < ARENA_X0 + NAV_MARGIN || q.x > ARENA_X1 - NAV_MARGIN || q.y < ARENA_Y0 + NAV_MARGIN || q.y > ARENA_Y1 - NAV_MARGIN)
+            if (q.x < room_x0() + NAV_MARGIN || q.x > room_x1() - NAV_MARGIN || q.y < room_y0() + NAV_MARGIN || q.y > room_y1() - NAV_MARGIN)
                 continue;
             if (!hits_obstacle(q, NAV_MARGIN + 2.0f)) return q;
         }
@@ -105,14 +105,14 @@ static V2 vantage_point(const Enemy *e, V2 ship) {
     B.vp.uid = e->uid, B.vp.room = G.room.id, B.vp.t = G.time, B.vp.at = e->pos;
     V2 cached = e->pos;
     float best = 1e30f;
-    for (float y = ARENA_Y0 + GRID * 0.5f; y < ARENA_Y1; y += GRID)
-        for (float x = ARENA_X0 + GRID * 0.5f; x < ARENA_X1; x += GRID) {
+    for (float y = room_y0() + GRID * 0.5f; y < room_y1(); y += GRID)
+        for (float x = room_x0() + GRID * 0.5f; x < room_x1(); x += GRID) {
             V2 c = v2(x, y);
             float d = v2_dist(c, e->pos);
             /* only where the goal can really be (it is pulled off the edges): on the first row of cells,
              * the spot it would stand on is not the one checked, a barrel may be too close from there */
-            if (c.x < ARENA_X0 + NAV_MARGIN + 6.0f || c.x > ARENA_X1 - NAV_MARGIN - 6.0f || c.y < ARENA_Y0 + NAV_MARGIN + 6.0f ||
-                c.y > ARENA_Y1 - NAV_MARGIN - 6.0f)
+            if (c.x < room_x0() + NAV_MARGIN + 6.0f || c.x > room_x1() - NAV_MARGIN - 6.0f || c.y < room_y0() + NAV_MARGIN + 6.0f ||
+                c.y > room_y1() - NAV_MARGIN - 6.0f)
                 continue;
             if (d < 140.0f || d > 750.0f || hits_obstacle(c, NAV_MARGIN + 4.0f) || !shot_clear(c, e) || hazard_in_aim(c, e->pos) >= 0)
                 continue;
@@ -139,8 +139,8 @@ static bool hazard_spot(int h, V2 ship, V2 *out) {
     const Obstacle *o = &G.room.obs[h];
     V2 hc = v2(o->r.x + o->r.w * 0.5f, o->r.y + o->r.h * 0.5f);
     float reach = hazard_reach(o) + 15.0f, best = 1e30f;
-    for (float y = ARENA_Y0 + GRID * 0.5f; y < ARENA_Y1; y += GRID)
-        for (float x = ARENA_X0 + GRID * 0.5f; x < ARENA_X1; x += GRID) {
+    for (float y = room_y0() + GRID * 0.5f; y < room_y1(); y += GRID)
+        for (float x = room_x0() + GRID * 0.5f; x < room_x1(); x += GRID) {
             V2 c = v2(x, y);
             float d = v2_dist(c, hc), dist = v2_dist(c, ship);
             if (d < reach || d > reach + 300.0f || dist > 500.0f || hits_obstacle(c, PLAYER_BODY_R + 6.0f)) continue;
@@ -244,7 +244,7 @@ void bot_input(void) {
     }
     /* Point-blank shots still connect (enemy hits are resolved before walls). */
     in->mouse = melee && nearest ? nearest->pos
-              : t ? t->pos : over ? over->pos : hidden ? hidden->pos : v2(ARENA_CX, ARENA_Y0 + 120.0f);
+              : t ? t->pos : over ? over->pos : hidden ? hidden->pos : v2(ARENA_CX, room_y0() + 120.0f);
     /* Nothing left to shoot (cleared room): stop firing, recoil would only get in the way of the doors. */
     /* Only at something it can hit (or past blocks it can shoot down): shots into a wall do
      * nothing but recoil, and some upgrades push the ship back on every shot. */
@@ -375,14 +375,14 @@ void bot_input(void) {
         /* Its front plate stops the shots: go around it. */
         float side = (t->uid & 1) ? 2.3f : -2.3f;
         goal = v2_add(t->pos, v2_scale(v2_angle(t->angle + side), 320.0f));
-        goal.x = clampf(goal.x, ARENA_X0 + 60.0f, ARENA_X1 - 60.0f);
-        goal.y = clampf(goal.y, ARENA_Y0 + 60.0f, ARENA_Y1 - 60.0f);
+        goal.x = clampf(goal.x, room_x0() + 60.0f, room_x1() - 60.0f);
+        goal.y = clampf(goal.y, room_y0() + 60.0f, room_y1() - 60.0f);
     } else if (t && (t->type == EN_JUGGERNAUT || t->type == EN_SPONGE || t->type == EN_BEETLE) && enemy_resistant(t)) {
         /* Armoured front (shell, sponge, plates): go round to its back, like the MIRROR. */
         float side = (t->uid & 1) ? 2.4f : -2.4f;
         goal = v2_add(t->pos, v2_scale(v2_angle(t->angle + side), t->radius + 260.0f));
-        goal.x = clampf(goal.x, ARENA_X0 + 60.0f, ARENA_X1 - 60.0f);
-        goal.y = clampf(goal.y, ARENA_Y0 + 60.0f, ARENA_Y1 - 60.0f);
+        goal.x = clampf(goal.x, room_x0() + 60.0f, room_x1() - 60.0f);
+        goal.y = clampf(goal.y, room_y0() + 60.0f, room_y1() - 60.0f);
     } else if (t && v2_dist(pl->pos, t->pos) > gun_reach() * 0.85f) {
         /* in sight but out of reach (a crawler across the room): close in */
         V2 to = v2_sub(t->pos, pl->pos);
@@ -404,7 +404,7 @@ void bot_input(void) {
             const Enemy *e = &G.en[irand(0, G.nen - 1)];
             B.roam.at = vantage_point(e, pl->pos);
             for (int k = 0; k < 20 && v2_dist2(B.roam.at, e->pos) < 1.0f; k++) {
-                V2 p = v2(frand(ARENA_X0 + 100.0f, ARENA_X1 - 100.0f), frand(ARENA_Y0 + 100.0f, ARENA_Y1 - 100.0f));
+                V2 p = v2(frand(room_x0() + 100.0f, room_x1() - 100.0f), frand(room_y0() + 100.0f, room_y1() - 100.0f));
                 if (!hits_obstacle(p, NAV_MARGIN + 10.0f)) B.roam.at = p;
             }
         }
@@ -420,8 +420,8 @@ void bot_input(void) {
     /* A spot hugging the arena edge (a crawler on the wall) is off the path finder's map: aim for
      * the floor in front of it (walls now jut out of the edges, a straight run would get stuck). */
     if (!G.room.cleared) {
-        goal.x = clampf(goal.x, ARENA_X0 + NAV_MARGIN + 6.0f, ARENA_X1 - NAV_MARGIN - 6.0f);
-        goal.y = clampf(goal.y, ARENA_Y0 + NAV_MARGIN + 6.0f, ARENA_Y1 - NAV_MARGIN - 6.0f);
+        goal.x = clampf(goal.x, room_x0() + NAV_MARGIN + 6.0f, room_x1() - NAV_MARGIN - 6.0f);
+        goal.y = clampf(goal.y, room_y0() + NAV_MARGIN + 6.0f, room_y1() - NAV_MARGIN - 6.0f);
         goal = free_spot_near(goal); /* e.g. in the corner between a spur and the edge */
     }
     /* The way is blocked: plan through the breakable blocks and shoot (or slash) the first one on it. */
@@ -599,6 +599,7 @@ void bot_input(void) {
     BossHazard hz[64];
     int nhz = boss_hazards(hz, 16);
     nhz += enemy_hazards(hz + nhz, ARRAY_LEN(hz) - nhz); /* beams, tethers, orbs, strikes... */
+    nhz += crush_hazards(hz + nhz, ARRAY_LEN(hz) - nhz); /* the walls closing in */
     for (int i = 0; i < nhz; i++) {
         V2 ab = v2_sub(hz[i].b, hz[i].a);
         float l2 = v2_len2(ab), k = l2 > 1e-6f ? clampf(v2_dot(v2_sub(pl->pos, hz[i].a), ab) / l2, 0.0f, 1.0f) : 0.0f;

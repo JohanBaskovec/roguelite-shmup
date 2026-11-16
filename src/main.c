@@ -156,6 +156,7 @@ static void parse_args(int argc, char **argv, Options *o) {
             if (!g_only_enemies[t]) g_only_count++;
             g_only_enemies[t] = true;
         }
+        else if (!strcmp(a, "--wave-time") && more) g_wave_time_override = (float)atof(argv[++i]);
         else if (!strcmp(a, "--boss-kind") && more) {
             int t = enemy_by_name(argv[++i]);
             if (!type_is_boss(t)) {

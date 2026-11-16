@@ -100,7 +100,31 @@ static const char *check_invariants(float room_time) {
             walls = room_count_obstacles(OB_WALL);
             if (!room_walls_connected()) return "room layout: walls cut off a door or a part of the room";
         }
+        if (G.room.crushing) walls = room_count_obstacles(OB_WALL); /* only the closing walls grind them */
         if (!G.room.cleared && room_count_obstacles(OB_WALL) != walls) return "a wall was broken (walls are indestructible)";
+        { /* Closing walls: only once the last wave's timer ran out, never a boss room; everything inside. */
+            const Room *r = &G.room;
+            bool in = false;
+            for (int s = 0; s < 4; s++) in = in || r->crush_in[s] != 0.0f;
+            if (in && !r->crushing) return "the room's bounds are moved in without closing walls";
+            if (r->crushing && (r->cleared || r->type == ROOM_BOSS || r->wave < r->nwaves || r->peaceful))
+                return "walls closing in a boss room, a cleared room or before the last wave";
+            if (!r->cleared && r->type != ROOM_BOSS && r->wave > 0 && r->wave < r->nwaves && r->wave_t < -0.05f)
+                return "a wave's timer ran out and the next wave did not come";
+            if (r->crushing) {
+                float x0 = room_x0() - 1.0f, x1 = room_x1() + 1.0f, y0 = room_y0() - 1.0f, y1 = room_y1() + 1.0f;
+                if (x1 - x0 < CRUSH_MIN_W * GRID || y1 - y0 < CRUSH_MIN_H * GRID) return "closing walls beyond their smallest box";
+                if (p->pos.x < x0 || p->pos.x > x1 || p->pos.y < y0 || p->pos.y > y1) return "ship behind the closing walls";
+                for (int i = 0; i < G.nen; i++)
+                    if (G.en[i].hp > 0.0f && (G.en[i].pos.x < x0 || G.en[i].pos.x > x1 || G.en[i].pos.y < y0 || G.en[i].pos.y > y1))
+                        return "enemy behind the closing walls";
+                for (int i = 0; i < r->nobs; i++) {
+                    const SDL_FRect *o = &r->obs[i].r;
+                    if (o->x < x0 || o->y < y0 || o->x + o->w > x1 || o->y + o->h > y1)
+                        return "obstacle left behind the closing walls";
+                }
+            }
+        }
         if (G.room.nobs < 0 || G.room.nobs > MAX_OBSTACLES || G.room.nfires < 0 || G.room.nfires > MAX_FIRES) return "obstacle / fire count out of range";
         for (int i = 0; i < G.room.nobs; i++) {
             const Obstacle *o = &G.room.obs[i];
@@ -276,7 +300,7 @@ static const char *check_invariants(float room_time) {
     for (int i = 0; i < G.nen; i++) { /* crawlers live on the wall (separation may nudge them a little) */
         const Enemy *c = &G.en[i];
         if (c->type != EN_CRAWLER || c->t < 0.05f) continue;
-        float edge = fminf(fminf(c->pos.x - ARENA_X0, ARENA_X1 - c->pos.x), fminf(c->pos.y - ARENA_Y0, ARENA_Y1 - c->pos.y));
+        float edge = fminf(fminf(c->pos.x - room_x0(), room_x1() - c->pos.x), fminf(c->pos.y - room_y0(), room_y1() - c->pos.y));
         if (edge > 2.0f * c->radius + 4.0f) {
             static char cmsg[160];
             snprintf(cmsg, sizeof cmsg, "a crawler left the wall (at %.0f,%.0f, %.0f px in, t %.2f, hp %.0f, time stop %d)", (double)c->pos.x,
@@ -2645,6 +2669,85 @@ static int debug_rooms_run(const HeadlessOptions *o) {
         printf("scripted room end: ship stays -> %s, doors open after %.2f s -> %s, items taken with E only -> %s\n",
                stayed ? "OK" : "FAILED", (double)opened, doors_ok ? "OK" : "FAILED", take_ok ? "OK" : "FAILED");
         failures += !stayed + !doors_ok + !take_ok;
+
+        /* Wave timers: a wave's timer running out brings the next one whatever is left alive; the last
+         * wave's brings the walls in, one cell a step, down to their smallest box around the ship:
+         * obstacles burst, ship and enemies stay inside, touching a closing wall hurts, TIME STOP
+         * holds them, the room cleared puts everything back. Never in a boss room. */
+        BFRESH();
+        G.god = true;
+        G.room.wave = 1, G.room.nwaves = 3; /* wave 1 of 3 still there */
+        G.room.last_wave_size = 8;
+        for (int k = 0; k < 8; k++) BDUMMY(ARENA_CX - 400.0f + (float)k * 100.0f, ARENA_Y0 + 200.0f, 22.0f);
+        G.room.wave_t = G.room.wave_time = 0.5f;
+        for (int t = 0; t < 50; t++) BTICK();
+        bool timer_ok = G.room.wave == 1 && !G.room.crushing;
+        for (int t = 0; t < 20; t++) BTICK();
+        timer_ok = timer_ok && G.room.wave == 2 && G.nen + G.nsp > 8 && G.room.wave_t > 5.0f && G.room.wave_time >= G.room.wave_t;
+        timer_ok = timer_ok && !G.room.crushing;
+
+        BFRESH();
+        G.god = true;
+        test_block(ARENA_CX, ARENA_CY, OB_CRATE);
+        test_block(ARENA_X0 + 90.0f, ARENA_Y0 + 90.0f, OB_CRATE);
+        G.room.wave = G.room.nwaves = 1; /* the last wave */
+        BDUMMY(ARENA_X1 - 100.0f, ARENA_Y0 + 100.0f, 22.0f);
+        BDUMMY(ARENA_X0 + 100.0f, ARENA_Y0 + 100.0f, 22.0f);
+        G.room.last_wave_size = 2;
+        G.room.wave_t = G.room.wave_time = 0.5f;
+        pl->pos = v2(ARENA_CX + 300.0f, ARENA_CY);
+        for (int t = 0; t < 50; t++) BTICK();
+        bool crush_ok = !G.room.crushing && G.room.nobs == 2;
+        for (int t = 0; t < 20; t++) BTICK();
+        crush_ok = crush_ok && G.room.crushing;
+        for (int t = 0; t < (int)(3.0f * TICK_RATE); t++) BTICK(); /* a few steps in */
+        float in0 = G.room.crush_in[0];
+        crush_ok = crush_ok && in0 >= 2.0f * GRID && G.room.nobs == 1; /* the corner crate is gone, not the middle one */
+        active_give(ACT_TIME_STOP);
+        in->active_pressed = true;
+        BTICK();
+        for (int t = 0; t < 100; t++) BTICK();
+        bool hold_ok = active_time_stop_on() && G.room.crush_in[0] <= in0 + GRID;
+        float held = G.room.crush_in[0];
+        for (int t = 0; t < 60; t++) BTICK();
+        hold_ok = hold_ok && (!active_time_stop_on() || G.room.crush_in[0] == held);
+        memset(pl->act, 0, sizeof pl->act);
+        for (int t = 0; t < (int)(30.0f * TICK_RATE); t++) BTICK(); /* all the way */
+        float bw = room_x1() - room_x0(), bh = room_y1() - room_y0();
+        bool inside = true;
+        for (int i = 0; i < G.nen; i++)
+            inside = inside && G.en[i].pos.x > room_x0() && G.en[i].pos.x < room_x1() && G.en[i].pos.y > room_y0() && G.en[i].pos.y < room_y1();
+        crush_ok = crush_ok && fabsf(bw - CRUSH_MIN_W * GRID) < 0.5f && fabsf(bh - CRUSH_MIN_H * GRID) < 0.5f && G.room.nobs == 0 && inside &&
+                   G.nen == 2 && pl->pos.x > room_x0() && pl->pos.x < room_x1() && pl->pos.y > room_y0() && pl->pos.y < room_y1();
+        G.god = false; /* against a closing wall: hurt */
+        pl->invuln = 0.0f;
+        int crush_hp0 = pl->hp + pl->shield;
+        pl->pos = v2(room_x0() + PLAYER_BODY_R, (room_y0() + room_y1()) * 0.5f);
+        pl->vel = v2(0, 0);
+        BTICK();
+        bool hurt_ok = pl->hp + pl->shield < crush_hp0;
+        G.god = true;
+        for (int i = 0; i < G.nen; i++) enemy_damage(&G.en[i], 1e6f, v2(0, 0));
+        for (int t = 0; t < 30; t++) BTICK();
+        bool back_ok = G.room.cleared && !G.room.crushing && room_x0() == ARENA_X0 && room_x1() == ARENA_X1 && room_y0() == ARENA_Y0 && room_y1() == ARENA_Y1;
+
+        game_init(o->seed);
+        game_new_run();
+        debug_teleport(ROOM_BOSS, RW_UPGRADE, BOSS_EVERY, true);
+        G.state = GS_PLAYING;
+        G.god = true;
+        bool boss_ok = true;
+        for (int t = 0; t < (int)(40.0f * TICK_RATE); t++) {
+            in->up = in->down = in->left = in->right = in->fire = false;
+            BTICK();
+            boss_ok = boss_ok && !G.room.crushing;
+        }
+        boss_ok = boss_ok && !G.room.cleared && boss_alive() != NULL;
+        printf("scripted wave timers: timer out -> next wave -> %s, last wave -> walls close in -> %s, TIME STOP holds them -> %s, "
+               "touching hurts -> %s, cleared -> room whole again -> %s, never a boss room -> %s\n",
+               timer_ok ? "OK" : "FAILED", crush_ok ? "OK" : "FAILED", hold_ok ? "OK" : "FAILED", hurt_ok ? "OK" : "FAILED",
+               back_ok ? "OK" : "FAILED", boss_ok ? "OK" : "FAILED");
+        failures += !timer_ok + !crush_ok + !hold_ok + !hurt_ok + !back_ok + !boss_ok;
 #undef BTICK
 #undef BFRESH
 #undef BDUMMY

@@ -346,12 +346,12 @@ void enemy_fire_fan(V2 pos, float angle, int n, float spread, float speed, float
  * state lives in Enemy (state, state_t, fire_t, aux, alt...), bullets in EBulletKind.
  */
 
-/* Perimeter of the arena (inset by r), as a loop: s in [0, perimeter). */
-static float perim_len(float r) { return 2.0f * ((ARENA_X1 - ARENA_X0 - 2.0f * r) + (ARENA_Y1 - ARENA_Y0 - 2.0f * r)); }
+/* Perimeter of the room's live bounds (the arena, less while the walls close in; inset by r), as a loop: s in [0, perimeter). */
+static float perim_len(float r) { return 2.0f * ((room_x1() - room_x0() - 2.0f * r) + (room_y1() - room_y0() - 2.0f * r)); }
 
 static V2 perim_point(float s, float r, V2 *inward) {
-    float w = ARENA_X1 - ARENA_X0 - 2.0f * r, h = ARENA_Y1 - ARENA_Y0 - 2.0f * r;
-    float x0 = ARENA_X0 + r, y0 = ARENA_Y0 + r;
+    float w = room_x1() - room_x0() - 2.0f * r, h = room_y1() - room_y0() - 2.0f * r;
+    float x0 = room_x0() + r, y0 = room_y0() + r;
     float L = perim_len(r);
     s = fmodf(s, L);
     if (s < 0.0f) s += L;
@@ -367,8 +367,8 @@ static V2 perim_point(float s, float r, V2 *inward) {
 
 /* Closest perimeter coordinate to p. */
 static float perim_coord(V2 p, float r) {
-    float w = ARENA_X1 - ARENA_X0 - 2.0f * r, h = ARENA_Y1 - ARENA_Y0 - 2.0f * r;
-    float x0 = ARENA_X0 + r, y0 = ARENA_Y0 + r;
+    float w = room_x1() - room_x0() - 2.0f * r, h = room_y1() - room_y0() - 2.0f * r;
+    float x0 = room_x0() + r, y0 = room_y0() + r;
     float px = clampf(p.x, x0, x0 + w), py = clampf(p.y, y0, y0 + h);
     float dt = p.y - y0, db = y0 + h - p.y, dl = p.x - x0, dr = x0 + w - p.x;
     float m = fminf(fminf(dt, db), fminf(dl, dr));
@@ -464,6 +464,7 @@ static bool crawler_blocked(float s, float r) {
 static void update_crawler(Enemy *e, float aim) {
     const EnemyDef *d = &ENEMIES[e->type];
     float L = perim_len(e->radius);
+    if (G.room.crushing) e->spin = perim_coord(e->pos, e->radius); /* the walls move: rides the closing one */
     if (e->t <= DT * 1.5f) { /* spin = position along the wall, off any wall jutting out of it */
         e->spin = perim_coord(e->pos, e->radius);
         for (float k = 0.0f; k < L * 0.5f && crawler_blocked(e->spin, e->radius); k += 10.0f) {

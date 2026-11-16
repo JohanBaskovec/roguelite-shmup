@@ -40,6 +40,7 @@ add_executable(neon_breach
     src/hud.c
     src/upgrades.c
     src/upgrades2.c
+    src/crush.c
     src/debug_menu.c
     src/characters.c
     src/workshop.c
@@ -191,10 +192,23 @@ if(SHMUP_BUILD_TESTS)
                octopus buzzsaw sentry torch zapper beamer engineer jelly scorpion linker swapper spotter lodestone sponge
                parry bubbler drummer trickster hydra mantis flail mole crystal necro berserker fungus weaver juggernaut
                idol blackstar sentinel)
+        set(_ticks 24000)
+        if(_e STREQUAL "juggernaut") # the slowest to kill: its waves pile up and the walls close in every room
+            set(_ticks 36000)
+        endif()
         add_test(NAME sim_enemy_${_e}
-                 COMMAND neon_breach --headless --god --enemy ${_e} --depth 6 --seed 31 --runs 2 --ticks 24000 --expect-rooms 3
+                 COMMAND neon_breach --headless --god --enemy ${_e} --depth 6 --seed 31 --runs 2 --ticks ${_ticks} --expect-rooms 3
                          --fail-shot ${_out}/fail_sim_enemy_${_e}.bmp)
     endforeach()
+    # Wave timers cut to 3 s: waves pile up and the walls close in in nearly every room (god, then mortal).
+    add_test(NAME sim_rooms_closing_walls
+             COMMAND neon_breach --headless --god --wave-time 3 --seed 90 --runs 4 --ticks 36000 --expect-rooms 4
+                     --fail-shot ${_out}/fail_sim_rooms_closing_walls.bmp)
+    add_test(NAME sim_rooms_closing_walls_mortal
+             COMMAND neon_breach --headless --wave-time 3 --seed 94 --runs 12
+                     --fail-shot ${_out}/fail_sim_rooms_closing_walls_mortal.bmp)
+    add_test(NAME render_rooms_closing_walls
+             COMMAND neon_breach --shot ${_out}/closing_walls.bmp --frames 1500 --depth 6 --seed 3 --wave-time 2 --god --no-bot)
     # Mixed rooms of the newest ones, mortal: supports with the ones they help, the hard ones together.
     add_test(NAME sim_enemies_support
              COMMAND neon_breach --headless --god --depth 10 --seed 33 --runs 2 --ticks 36000 --expect-rooms 3

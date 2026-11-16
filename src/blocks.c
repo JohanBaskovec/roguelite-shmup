@@ -936,6 +936,35 @@ static void shatter(const Obstacle *o) {
     sfx_play_at(SFX_SHATTER, c);
 }
 
+/* The closing walls (crush.c) reached them: every obstacle not strictly inside box (a free cell all
+ * round, so what is left never cuts the room in two) bursts into glass, whole - all of them when
+ * `all` (the walls have come to a stop) - and the fire out there goes out. */
+void room_crush_grind(SDL_FRect box, bool all) {
+    Room *r = &G.room;
+    float x0 = box.x + GRID - 0.5f, y0 = box.y + GRID - 0.5f, x1 = box.x + box.w - GRID + 0.5f, y1 = box.y + box.h - GRID + 0.5f;
+    shatter_origin = rect_center(box); /* the shards fly back out */
+    int w = 0;
+    bool changed = false;
+    for (int i = 0; i < r->nobs; i++) {
+        const Obstacle *o = &r->obs[i];
+        if (!all && o->r.x >= x0 && o->r.y >= y0 && o->r.x + o->r.w <= x1 && o->r.y + o->r.h <= y1) {
+            r->obs[w++] = *o; /* untouched */
+            continue;
+        }
+        changed = true;
+        shatter(o);
+    }
+    r->nobs = w;
+    int f = 0;
+    for (int i = 0; i < r->nfires; i++) {
+        V2 c = r->fires[i].pos;
+        if (c.x > box.x && c.x < box.x + box.w && c.y > box.y && c.y < box.y + box.h) r->fires[f++] = r->fires[i];
+        else changed = true;
+    }
+    r->nfires = f;
+    if (changed) room_nav_reset(); /* the paths and the cell map changed */
+}
+
 void blocks_update(void) {
     Room *r = &G.room;
     struct {

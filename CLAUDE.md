@@ -145,6 +145,19 @@ All graphics and sounds are generated in code. See README.md for controls and ar
   `ROOM_REVEAL_T` (`Room.clear_t` goes from -1.2 to 0) does `room_reveal()` spawn the reward / shop /
   machines and the doors open. A cleared room is therefore always empty: rewards and pedestals never need
   to dodge the layout (headless checks no obstacle / fire once revealed and no reward before).
+- **Every wave has a timer** (`Room.wave_t` / `wave_time`, set by `spawn_wave`: `WAVE_TIME_BASE` + `WAVE_TIME_PER_ENEMY`
+  per enemy, `WAVE_TIME_MAX`; the bar at the bottom of the screen, `draw_wave_bar`). When it runs out the next wave
+  comes in whatever is left alive (killing 3/4 of a wave still brings it sooner). **When the last wave's runs out
+  (`WAVE_TIME_LAST` longer) the walls close in on the ship from every side** (`src/crush.c`, `Room.crushing`): one
+  floor cell per `CRUSH_STEP_T`, each side until a `CRUSH_MIN_W` x `CRUSH_MIN_H` box around where the ship was.
+  `Room.crush_in[]` moves the room's **live bounds** (`room_x0()` .. `room_y1()`: what `room_collide_obstacle`, the
+  bullets, the crawlers' perimeter and the bot use - code that keeps something inside the room uses them, not
+  `ARENA_*`); `crush_update` keeps ship, enemies and spawns inside, a closing wall hurts the ship on touch, and
+  every obstacle not strictly inside the box (all of them at the last step) bursts whole (`room_crush_grind`), so
+  what is left never cuts the box in two. TIME STOP holds the timer and the walls. Cleared: `crush_end` (the room
+  is whole again before the reward). **Never in a boss room**, nor without `wave_time` (bestiary, scripted fights).
+  The bot keeps off the closing walls (`crush_hazards`). `--wave-time S` forces every timer (tests:
+  `sim_rooms_closing_walls*`); headless checks all of it (inside the box, last wave only, no boss room).
 - After a room is cleared the player chooses between 3 doors; each door previews what the next
   room gives. One door may be locked (costs a key). The 3 doors are always different (no reward or
   special room behind two doors, locked or not).

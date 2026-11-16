@@ -422,6 +422,14 @@ typedef struct {
     int wave, nwaves, last_wave_size;
     float boss_trail;             /* boss bar: hp fraction shown by the white damage trail */
     float wave_t, since_wave;
+    float wave_time;     /* length of the current wave's timer (the bar at the bottom: wave_t / wave_time); 0 = none */
+    /* The last wave's timer ran out (never a boss room): the walls close in on the ship, one cell per
+     * CRUSH_STEP_T (crush.c). crush_in = how far each side (left, top, right, bottom) has come, in px;
+     * the room's live bounds (room_x0()...) follow it. */
+    bool crushing;
+    float crush_in[4];
+    int crush_from[4], crush_cell[4], crush_goal[4]; /* cells each side has come: before the step, now, at the end */
+    float crush_t, crush_slide;                      /* time to the next step; 0..1 along the current one */
     bool cleared;
     float clear_t;       /* time since cleared; < 0 while the room shatters (reward, doors at 0) */
     V2 last_death;       /* where the last enemy died: the shatter wave starts there */
@@ -716,6 +724,12 @@ typedef struct {
 
 extern Game G;
 
+/* The room's live bounds: the arena, or less while its walls close in (crush.c). */
+static inline float room_x0(void) { return ARENA_X0 + G.room.crush_in[0]; }
+static inline float room_y0(void) { return ARENA_Y0 + G.room.crush_in[1]; }
+static inline float room_x1(void) { return ARENA_X1 - G.room.crush_in[2]; }
+static inline float room_y1(void) { return ARENA_Y1 - G.room.crush_in[3]; }
+
 static inline float frand(float lo, float hi) { return rng_range(&G.rng, lo, hi); }
 static inline int irand(int lo, int hi) { return rng_int(&G.rng, lo, hi); }
 static inline bool chance(float p) { return rng_chance(&G.rng, p); }
@@ -936,6 +950,19 @@ void room_nav_reset(void);
 bool room_occupancy_ok(void);
 void room_shatter_start(V2 origin); /* the room is cleared: crack every obstacle, in a wave from origin */
 void room_obstacles_vanish(void);   /* every obstacle gone at once, no effect (debug clear) */
+void room_crush_grind(SDL_FRect box, bool all); /* the closing walls: obstacles they reach (all: every one) burst into glass */
+
+/* Closing walls (crush.c): the last wave's timer ran out. */
+#define CRUSH_STEP_T 0.9f  /* one cell closer every... */
+#define CRUSH_SLIDE_T 0.3f /* ...sliding in this long */
+#define CRUSH_MIN_W 10     /* the walls stop at a box this many cells wide... */
+#define CRUSH_MIN_H 8      /* ...and high, around where the ship was */
+void crush_start(void);
+void crush_update(void);  /* a step every CRUSH_STEP_T, then everything is kept inside (room_update) */
+void crush_end(void);     /* the room is cleared: the closing walls burst too */
+int crush_hazards(BossHazard *out, int max); /* their inner edges, for the bot */
+void crush_draw(void);
+void draw_wave_bar(void); /* hud: the wave timer at the bottom */
 extern bool g_fx_off; /* no particles (headless): the game plays the same without them */
 extern bool g_dense_blocks; /* --dense-blocks: as many blocks and gates as possible (test) */
 V2 door_position(Side side);
@@ -1123,6 +1150,7 @@ bool boss_armor_line(V2 a, V2 b, float r); /* the WYRM's body lies across a-b (b
 int boss_hazards(BossHazard *out, int max);
 bool boss_cover_spot(V2 from, V2 *out);   /* LIGHTHOUSE beams: a spot hidden from them (bot) */
 void boss_on_death(Enemy *e);
+extern float g_wave_time_override;        /* tests (--wave-time S): every wave's timer that long, 0 = normal */
 extern int g_boss_override;               /* dev / tests (--boss-kind, debug menu): -1 random, else the EnemyType */
 /* A few boss states the tests set (bosses.c has the full lists, checked against these). */
 enum { BOSS_STATE_REST = 0, LH_STATE_WARN = 1, WY_STATE_BURROW = 1, FG_STATE_JUMP = 1, SG_STATE_REVERSE = 5 };

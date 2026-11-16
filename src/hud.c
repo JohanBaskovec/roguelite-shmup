@@ -225,6 +225,7 @@ void hud_draw(void) {
         draw_boss_bar();
     } else if (!r->cleared) {
         draw_text_centered(SCREEN_W * 0.5f, 52.0f, 2.0f, col_hex(0xff5f7e, 1), "WAVE %d / %d", r->wave, r->nwaves);
+        draw_wave_bar();
     } else {
         bool offers = false, items = false;
         int noffers = 0;

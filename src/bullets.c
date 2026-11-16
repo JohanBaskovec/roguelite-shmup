@@ -73,10 +73,11 @@ void ebullets_clear(bool with_fx) {
 
 static bool arena_collide(V2 *p, float r, V2 *normal) {
     V2 n = v2(0, 0);
-    if (p->x < ARENA_X0 + r) { p->x = ARENA_X0 + r; n.x = 1; }
-    if (p->x > ARENA_X1 - r) { p->x = ARENA_X1 - r; n.x = -1; }
-    if (p->y < ARENA_Y0 + r) { p->y = ARENA_Y0 + r; n.y = 1; }
-    if (p->y > ARENA_Y1 - r) { p->y = ARENA_Y1 - r; n.y = -1; }
+    float x0 = room_x0(), x1 = room_x1(), y0 = room_y0(), y1 = room_y1(); /* the closing walls too */
+    if (p->x < x0 + r) { p->x = x0 + r; n.x = 1; }
+    if (p->x > x1 - r) { p->x = x1 - r; n.x = -1; }
+    if (p->y < y0 + r) { p->y = y0 + r; n.y = 1; }
+    if (p->y > y1 - r) { p->y = y1 - r; n.y = -1; }
     *normal = v2_norm(n);
     return n.x != 0.0f || n.y != 0.0f;
 }

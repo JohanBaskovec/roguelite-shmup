@@ -7,7 +7,14 @@
 #define ARENA_W (ARENA_X1 - ARENA_X0)
 #define ARENA_H (ARENA_Y1 - ARENA_Y0)
 
-#define WAVE_TIMER 16.0f      /* a wave forces the next one after that long (if the room is thin enough) */
+#define WAVE_TIMER 16.0f      /* boss rooms: unused (a single wave) */
+/* Every wave has a timer (the bar at the bottom): when it runs out the next wave comes in, whatever is
+ * left of this one; the last wave's timer brings in the walls (crush.c). Longer for bigger waves. */
+#define WAVE_TIME_BASE 9.0f
+#define WAVE_TIME_PER_ENEMY 0.45f
+#define WAVE_TIME_MAX 22.0f
+#define WAVE_TIME_LAST 5.0f   /* the last wave: that much longer before the walls move */
+float g_wave_time_override = 0.0f;
 #define ROOM_DEPTH_PER_WAVE 5 /* one more wave every 5 rooms */
 
 static V2 side_inward(Side side);
@@ -111,10 +118,11 @@ bool room_collide_obstacle(V2 *p, float r, V2 *normal, int *which) {
     bool hit = false;
     if (which) *which = -1;
     V2 n = v2(0, 0);
-    if (p->x < ARENA_X0 + r) { p->x = ARENA_X0 + r; n.x = 1; hit = true; }
-    if (p->x > ARENA_X1 - r) { p->x = ARENA_X1 - r; n.x = -1; hit = true; }
-    if (p->y < ARENA_Y0 + r) { p->y = ARENA_Y0 + r; n.y = 1; hit = true; }
-    if (p->y > ARENA_Y1 - r) { p->y = ARENA_Y1 - r; n.y = -1; hit = true; }
+    float bx0 = room_x0(), bx1 = room_x1(), by0 = room_y0(), by1 = room_y1(); /* less while the walls close in */
+    if (p->x < bx0 + r) { p->x = bx0 + r; n.x = 1; hit = true; }
+    if (p->x > bx1 - r) { p->x = bx1 - r; n.x = -1; hit = true; }
+    if (p->y < by0 + r) { p->y = by0 + r; n.y = 1; hit = true; }
+    if (p->y > by1 - r) { p->y = by1 - r; n.y = -1; hit = true; }
 
     const Room *room = &G.room;
     if (!occ_near(*p, r)) { /* open floor all around */
@@ -140,10 +148,10 @@ bool room_collide_obstacle(V2 *p, float r, V2 *normal, int *which) {
              * side flush with the arena edge (a wall jutting out of it), that would be outside. */
             float l = p->x - o->x, rr = o->x + o->w - p->x;
             float t = p->y - o->y, b = o->y + o->h - p->y;
-            if (o->x <= ARENA_X0 + r) l = 1e9f;
-            if (o->x + o->w >= ARENA_X1 - r) rr = 1e9f;
-            if (o->y <= ARENA_Y0 + r) t = 1e9f;
-            if (o->y + o->h >= ARENA_Y1 - r) b = 1e9f;
+            if (o->x <= bx0 + r) l = 1e9f;
+            if (o->x + o->w >= bx1 - r) rr = 1e9f;
+            if (o->y <= by0 + r) t = 1e9f;
+            if (o->y + o->h >= by1 - r) b = 1e9f;
             float m = fminf(fminf(l, rr), fminf(t, b));
             if (m == l) { p->x = o->x - r; n = v2(-1, 0); }
             else if (m == rr) { p->x = o->x + o->w + r; n = v2(1, 0); }
@@ -601,7 +609,10 @@ static void spawn_wave(void) {
     r->last_wave_size = queued;
     sfx_play(SFX_WAVE);
     r->wave++;
-    r->wave_t = WAVE_TIMER;
+    float time = minf(WAVE_TIME_BASE + WAVE_TIME_PER_ENEMY * (float)queued, WAVE_TIME_MAX);
+    if (r->wave >= r->nwaves) time += WAVE_TIME_LAST;
+    if (g_wave_time_override > 0.0f) time = g_wave_time_override;
+    r->wave_t = r->wave_time = time;
     r->since_wave = 0.0f;
 }
 
@@ -678,6 +689,7 @@ static void room_reveal(void) {
 /* instant (debug clear): no shatter, the room is empty and its reward out at once. */
 static void room_clear(bool instant) {
     Room *r = &G.room;
+    crush_end(); /* the closing walls burst, the room is whole again */
     r->cleared = true;
     r->clear_t = instant ? 0.0f : -ROOM_REVEAL_T;
     G.rooms_cleared++;
@@ -805,19 +817,19 @@ void room_update(void) {
             r->boss_trail = b ? fmaxf(k, r->boss_trail - 0.3f * DT) : 1.0f;
             if (b && r->boss_trail - k > 0.25f) r->boss_trail = k + 0.25f;
         }
-        r->wave_t -= DT;
+        if (!active_time_stop_on()) r->wave_t -= DT; /* TIME STOP holds the timer too */
         r->since_wave += DT;
         int alive = G.nen + G.nsp;
         if (r->wave < r->nwaves) {
-            /* The timer only forces a new wave once half of the previous one is gone,
-             * so waves never pile up endlessly on a struggling player. */
-            int half = r->last_wave_size / 3 > 4 ? r->last_wave_size / 3 : 4; /* a third, really */
-            bool trigger = (r->wave_t <= 0.0f && (r->wave == 0 || alive <= half)) ||
-                           (r->wave > 0 && r->since_wave > 1.5f && alive <= r->last_wave_size / 4);
+            /* The timer brings the next wave whatever is left; clearing most of a wave brings it sooner. */
+            bool trigger = r->wave_t <= 0.0f || (r->wave > 0 && r->since_wave > 1.5f && alive <= r->last_wave_size / 4);
             if (trigger) spawn_wave();
         } else if (alive == 0) {
             room_clear(false);
+        } else if (r->wave_t <= 0.0f && r->wave_time > 0.0f && !r->crushing && r->type != ROOM_BOSS) {
+            crush_start(); /* too slow: the walls close in */
         }
+        if (!r->cleared) crush_update();
         return;
     }
 
@@ -1113,4 +1125,5 @@ void room_draw_walls(void) {
     bool open = r->cleared && r->clear_t >= DOORS_AT; /* not while the room shatters, nor right after */
     draw_door(&entry, open, !(r->secret_open || r->type == ROOM_SECRET));
     for (int i = 0; i < r->ndoors; i++) draw_door(&r->doors[i], open, false);
+    crush_draw(); /* the closing walls, over everything they cover */
 }
